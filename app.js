@@ -7,8 +7,8 @@ const state = {
     isPaused: false,
     language: 'chinese',
     speed: 300,
-    lineWidth: 25,
-    lineCount: 5,
+    lineWidth: 20,
+    lineCount: 4,
     viewMode: 'fixed',
     startTime: 0,
     pausedTime: 0,
@@ -42,6 +42,91 @@ const elements = {
     scrollModeDisplay: document.getElementById('scrollModeDisplay'),
     scrollText: document.getElementById('scrollText'),
 };
+
+// ==================== 文件处理 ====================
+async function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const fileName = file.name;
+    const fileSize = (file.size / 1024).toFixed(2);
+    elements.fileInfo.textContent = `✓ 已加载: ${fileName} (${fileSize} KB)`;
+
+    try {
+        let text = '';
+        
+        if (file.type === 'text/plain') {
+            // 支持多种编码的TXT文件处理
+            const arrayBuffer = await file.arrayBuffer();
+            text = await decodeTextFile(arrayBuffer);
+        } else if (file.type === 'application/pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            text = await extractTextFromPDF(arrayBuffer);
+        } else {
+            alert('请选择TXT或PDF文件');
+            return;
+        }
+
+        state.content = text;
+        state.currentIndex = 0;
+        tokenizeContent();
+        resetUI();
+        elements.startBtn.disabled = false;
+    } catch (error) {
+        console.error('文件处理错误:', error);
+        alert('文件处理失败，请检查文件格式');
+    }
+}
+
+// 解码文本文件（支持UTF-8, GB2312, GBK等编码）
+async function decodeTextFile(arrayBuffer) {
+    // 先尝试UTF-8解码
+    try {
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        return decoder.decode(arrayBuffer);
+    } catch (e) {
+        // UTF-8失败，尝试GB2312/GBK
+        try {
+            const decoder = new TextDecoder('gb2312');
+            return decoder.decode(arrayBuffer);
+        } catch (e2) {
+            // 如果都失败，使用latin1作为最后手段
+            const decoder = new TextDecoder('latin1');
+            return decoder.decode(arrayBuffer);
+        }
+    }
+}
+
+// PDF文本提取
+async function extractTextFromPDF(arrayBuffer) {
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let text = '';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(item => item.str).join('');
+        text += pageText + '\n';
+    }
+
+    return text;
+}
+
+// 分词处理
+function tokenizeContent() {
+    const text = state.content.trim();
+
+    if (state.language === 'chinese') {
+        // 中文分字 - 移除空格和换行
+        state.units = text.split('').filter(char => char.trim() !== '');
+    } else {
+        // 英文分词 - 按单词分割
+        state.units = text.match(/\b\w+\b/g) || [];
+    }
+
+    elements.totalWords.textContent = state.units.length;
+    updateProgress();
+}
 
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -96,70 +181,6 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.stopBtn.addEventListener('click', stopReading);
 });
 
-// ==================== 文件处理 ====================
-async function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const fileName = file.name;
-    const fileSize = (file.size / 1024).toFixed(2);
-    elements.fileInfo.textContent = `✓ 已加载: ${fileName} (${fileSize} KB)`;
-
-    try {
-        if (file.type === 'text/plain') {
-            const text = await file.text();
-            state.content = text;
-        } else if (file.type === 'application/pdf') {
-            const arrayBuffer = await file.arrayBuffer();
-            state.content = await extractTextFromPDF(arrayBuffer);
-        } else {
-            alert('请选择TXT或PDF文件');
-            return;
-        }
-
-        // 清空当前内容
-        state.currentIndex = 0;
-        tokenizeContent();
-        resetUI();
-        elements.startBtn.disabled = false;
-    } catch (error) {
-        console.error('文件处理错误:', error);
-        alert('文件处理失败，请检查文件格式');
-    }
-}
-
-// PDF文本提取
-async function extractTextFromPDF(arrayBuffer) {
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let text = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items.map(item => item.str).join('');
-        text += pageText + '\n';
-    }
-
-    return text;
-}
-
-// 分词处理
-function tokenizeContent() {
-    const text = state.content.trim();
-
-    if (state.language === 'chinese') {
-        // 中文分字
-        state.units = text.split('').filter(char => char.trim() !== '');
-    } else {
-        // 英文分词
-        state.units = text.match(/\b\w+\b|\s+|[^\w\s]/g) || [];
-        state.units = state.units.filter(unit => unit.trim() !== '');
-    }
-
-    elements.totalWords.textContent = state.units.length;
-    updateProgress();
-}
-
 // ==================== 阅读控制 ====================
 let readingInterval = null;
 
@@ -178,9 +199,7 @@ function startReading() {
     elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = false;
 
-    // 禁用设置
     disableSettings();
-
     startReadingLoop();
 }
 
@@ -211,21 +230,17 @@ function stopReading() {
     state.currentIndex = 0;
     clearInterval(readingInterval);
 
-    // 重置UI
     elements.startBtn.disabled = false;
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = true;
 
-    // 启用设置
     enableSettings();
-
     resetDisplay();
     updateProgress();
 }
 
 function startReadingLoop() {
-    // 计算时间间隔（毫秒）
     const intervalMs = calculateInterval();
 
     readingInterval = setInterval(() => {
@@ -234,7 +249,6 @@ function startReadingLoop() {
             state.currentIndex++;
             updateProgress();
 
-            // 检查是否完成
             if (state.currentIndex >= state.units.length) {
                 clearInterval(readingInterval);
                 onReadingComplete();
@@ -245,14 +259,12 @@ function startReadingLoop() {
 
 // 计算显示时间间隔
 function calculateInterval() {
-    const speed = state.speed; // 字/词 每分钟
+    const speed = state.speed;
 
     if (state.language === 'chinese') {
-        // 中文：speed 是字/分钟
-        return (60000 / speed) * 1; // 每个字显示的毫秒数
+        return (60000 / speed) * 1;
     } else {
-        // 英文：speed 是词/分钟
-        return (60000 / speed) * 1; // 每个词显示的毫秒数
+        return (60000 / speed) * 1;
     }
 }
 
@@ -266,24 +278,21 @@ function updateDisplay() {
 }
 
 function updateFixedMode() {
-    const startIndex = state.currentIndex;
-    const endIndex = Math.min(startIndex + state.lineWidth * state.lineCount, state.units.length);
-    const displayUnits = state.units.slice(startIndex, endIndex);
+    const displayCount = state.lineWidth * state.lineCount;
+    const endIndex = Math.min(state.currentIndex + displayCount, state.units.length);
+    const displayUnits = state.units.slice(state.currentIndex, endIndex);
 
     let html = '';
+    let lineLength = 0;
+
     for (let i = 0; i < displayUnits.length; i++) {
-        if (state.language === 'chinese') {
-            html += displayUnits[i];
-            // 每行一定数量的字
-            if ((i + 1) % state.lineWidth === 0) {
-                html += '<br>';
-            }
-        } else {
-            html += displayUnits[i];
-            // 英文按词分行
-            if ((i + 1) % (state.lineWidth / 5) === 0) {
-                html += '<br>';
-            }
+        html += displayUnits[i];
+        lineLength++;
+
+        // 每行达到行宽后换行
+        if (lineLength >= state.lineWidth) {
+            html += '<br>';
+            lineLength = 0;
         }
     }
 
@@ -291,26 +300,24 @@ function updateFixedMode() {
 }
 
 function updateScrollMode() {
-    const startIndex = Math.max(0, state.currentIndex - state.lineWidth * 2);
-    const endIndex = Math.min(startIndex + state.lineWidth * state.lineCount * 3, state.units.length);
+    const startIndex = Math.max(0, state.currentIndex - state.lineWidth);
+    const endIndex = Math.min(state.currentIndex + state.lineWidth * state.lineCount, state.units.length);
     const displayUnits = state.units.slice(startIndex, endIndex);
 
-    let html = '';
+    let text = '';
+    let lineLength = 0;
+
     for (let i = 0; i < displayUnits.length; i++) {
-        if (state.language === 'chinese') {
-            html += displayUnits[i];
-            if ((i + 1) % state.lineWidth === 0) {
-                html += '\n';
-            }
-        } else {
-            html += displayUnits[i];
-            if ((i + 1) % (state.lineWidth / 5) === 0) {
-                html += '\n';
-            }
+        text += displayUnits[i];
+        lineLength++;
+
+        if (lineLength >= state.lineWidth) {
+            text += '\n';
+            lineLength = 0;
         }
     }
 
-    elements.scrollText.textContent = html;
+    elements.scrollText.textContent = text;
 }
 
 function resetDisplay() {
@@ -327,7 +334,6 @@ function updateProgress() {
     elements.progressFill.style.width = percentage + '%';
     elements.progressText.textContent = percentage + '%';
 
-    // 更新阅读时间
     if (state.isPlaying) {
         const elapsedMs = Date.now() - state.startTime;
         const minutes = Math.floor(elapsedMs / 60000);
