@@ -54,11 +54,12 @@ body {
     font-weight: 600;
 }
 
-/* 内部容器：书架+设置并排 */
-.left-panel > div:not(.app-title) {
+/* 书架和设置容器（并排） */
+.left-content {
     display: flex;
     flex: 1;
     overflow: hidden;
+    gap: 0;
 }
 
 /* 书架栏 */
