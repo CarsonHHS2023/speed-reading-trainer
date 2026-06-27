@@ -7,59 +7,53 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- 左侧书架 -->
-        <aside class="sidebar">
-            <div class="shelf-header">
-                <h2>📚 书架</h2>
-                <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
-            </div>
+    <div class="app-wrapper">
+        <!-- 顶部软件名称 -->
+        <header class="app-header">
+            <h1>⚡ 快速阅读训练程序</h1>
+        </header>
 
-            <!-- 上传区域 -->
-            <div class="upload-zone" id="uploadZone">
-                <div class="upload-prompt">📁 拖拽文件到此或<br><label for="fileInput">点击上传</label></div>
-                <input type="file" id="fileInput" accept=".txt,.pdf" hidden>
-            </div>
-
-            <!-- 书架分类 -->
-            <div class="categories">
-                <div class="category" data-category="all">
-                    <div class="category-header">
-                        <span class="category-name">全部书籍</span>
-                        <span class="book-count">0</span>
+        <div class="app-body">
+            <!-- 左侧：书架栏和设置栏 -->
+            <div class="left-panel">
+                <!-- 书架栏 -->
+                <div class="shelf-panel">
+                    <div class="shelf-header">
+                        <h2>📚 书架</h2>
+                        <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
                     </div>
-                </div>
-                <div class="category" data-category="reading">
-                    <div class="category-header">
-                        <span class="category-name">正在阅读</span>
-                        <span class="book-count">0</span>
+
+                    <!-- 上传区域 -->
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-prompt">📁 拖拽或<br><label for="fileInput">点击上传</label></div>
+                        <input type="file" id="fileInput" accept=".txt,.pdf" hidden>
                     </div>
-                </div>
-                <div class="category" data-category="finished">
-                    <div class="category-header">
-                        <span class="category-name">已完成</span>
-                        <span class="book-count">0</span>
+
+                    <!-- 分类列表 -->
+                    <div class="categories">
+                        <div class="category" data-category="all">
+                            <div class="category-header">全部<span class="book-count">0</span></div>
+                        </div>
+                        <div class="category" data-category="reading">
+                            <div class="category-header">阅读中<span class="book-count">0</span></div>
+                        </div>
+                        <div class="category" data-category="finished">
+                            <div class="category-header">已完成<span class="book-count">0</span></div>
+                        </div>
                     </div>
+
+                    <!-- 书籍列表 -->
+                    <div class="books-list" id="booksList"></div>
                 </div>
-            </div>
 
-            <!-- 书籍列表 -->
-            <div class="books-list" id="booksList"></div>
-        </aside>
+                <!-- 设置栏 -->
+                <div class="settings-panel">
+                    <div class="settings-header">
+                        <h2>🎮 设置</h2>
+                    </div>
 
-        <!-- 右侧主区域 -->
-        <main class="main-content">
-            <!-- 头部 -->
-            <header class="top-header">
-                <h1>⚡ 快速阅读训练</h1>
-                <div class="header-info" id="currentBook">选择书籍开始阅读</div>
-            </header>
-
-            <div class="content-wrapper">
-                <!-- 控制面板 -->
-                <div class="control-panel">
-                    <div class="settings-group">
-                        <div class="setting-row">
+                    <div class="settings-content">
+                        <div class="setting-group">
                             <label>语言：</label>
                             <select id="language">
                                 <option value="chinese">中文</option>
@@ -67,7 +61,7 @@
                             </select>
                         </div>
 
-                        <div class="setting-row">
+                        <div class="setting-group">
                             <label>速度：</label>
                             <div class="speed-control">
                                 <input type="range" id="speedSlider" min="100" max="1000" value="300" />
@@ -76,7 +70,7 @@
                             </div>
                         </div>
 
-                        <div class="setting-row">
+                        <div class="setting-group">
                             <label>行宽：</label>
                             <div class="slider-control">
                                 <input type="range" id="widthSlider" min="10" max="35" value="20" />
@@ -84,7 +78,7 @@
                             </div>
                         </div>
 
-                        <div class="setting-row">
+                        <div class="setting-group">
                             <label>行数：</label>
                             <div class="slider-control">
                                 <input type="range" id="linesSlider" min="2" max="6" value="4" />
@@ -92,55 +86,56 @@
                             </div>
                         </div>
 
-                        <div class="setting-row">
+                        <div class="setting-group">
                             <label>字体：</label>
                             <div class="slider-control">
-                                <input type="range" id="fontSlider" min="16" max="48" value="32" />
-                                <input type="number" id="fontInput" min="16" max="48" value="32" />
+                                <input type="range" id="fontSlider" min="16" max="48" value="28" />
+                                <input type="number" id="fontInput" min="16" max="48" value="28" />
                                 <span>px</span>
                             </div>
                         </div>
 
-                        <div class="setting-row">
+                        <div class="setting-group">
                             <label>模式：</label>
                             <select id="viewMode">
                                 <option value="fixed">固定式</option>
                                 <option value="scroll">滚动式</option>
                             </select>
                         </div>
+
+                        <div class="button-group">
+                            <button id="startBtn" class="btn btn-primary">开始</button>
+                            <button id="pauseBtn" class="btn btn-secondary" disabled>暂停</button>
+                            <button id="resumeBtn" class="btn btn-secondary" disabled>继续</button>
+                            <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                        </div>
                     </div>
 
-                    <div class="button-group">
-                        <button id="startBtn" class="btn btn-primary">开始</button>
-                        <button id="pauseBtn" class="btn btn-secondary" disabled>暂停</button>
-                        <button id="resumeBtn" class="btn btn-secondary" disabled>继续</button>
-                        <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
-                    </div>
-
-                    <div class="progress-info">
+                    <!-- 进度条 -->
+                    <div class="progress-section">
                         <div class="progress-bar">
                             <div id="progressFill" class="progress-fill"></div>
                         </div>
-                        <div class="progress-text">
+                        <div class="progress-info">
                             <span id="currentPos">0</span> / <span id="totalWords">0</span>
                             <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- 阅读显示区域 -->
-                <div class="reading-display">
-                    <div id="fixedModeDisplay" class="display-mode active">
-                        <div id="focusText" class="focus-text">选择书籍开始阅读</div>
-                    </div>
-                    <div id="scrollModeDisplay" class="display-mode">
-                        <div id="scrollContent" class="scroll-content">
-                            <div id="scrollText" class="scroll-text">选择书籍开始阅读</div>
-                        </div>
+            <!-- 右侧：阅读显示区 -->
+            <div class="reading-panel">
+                <div id="fixedModeDisplay" class="display-mode active">
+                    <div id="focusText" class="focus-text">选择书籍开始阅读</div>
+                </div>
+                <div id="scrollModeDisplay" class="display-mode">
+                    <div id="scrollContent" class="scroll-content">
+                        <div id="scrollText" class="scroll-text">选择书籍开始阅读</div>
                     </div>
                 </div>
             </div>
-        </main>
+        </div>
     </div>
 
     <!-- 模态框：添加分类 -->
