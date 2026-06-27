@@ -439,6 +439,11 @@ body {
     height: 100%;
 }
 
+/* 焦点式显示 */
+#focusModeDisplay {
+    background: white;
+}
+
 .focus-text {
     font-size: 28px;
     font-weight: 700;
@@ -448,16 +453,25 @@ body {
     word-break: break-word;
 }
 
-.scroll-content {
+/* 整页式显示 */
+#pageModeDisplay {
+    background: #f5f5f5;
+    justify-content: flex-start;
+    padding: 0;
+}
+
+.page-content {
     width: 100%;
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
+    background: white;
     padding: 20px;
 }
 
-.scroll-text {
-    font-size: 28px;
-    line-height: 2;
+.page-text {
+    font-size: 14px;
+    line-height: 1.8;
     color: #333;
     white-space: pre-wrap;
     word-break: break-word;
