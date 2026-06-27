@@ -54,10 +54,13 @@ class BookShelf {
             const arrayBuffer = await file.arrayBuffer();
             const content = await this.readFile(file, arrayBuffer);
             
+            const fileType = file.type === 'application/pdf' ? 'pdf' : 'txt';
+            
             const book = {
                 id: Date.now(),
                 name: file.name,
                 content: content,
+                fileType: fileType,
                 category: 'reading',
                 uploadDate: new Date().toLocaleString('zh-CN'),
                 progress: 0
@@ -121,7 +124,7 @@ class BookShelf {
         document.querySelector(`[data-book-id="${bookId}"]`)?.classList.add('active');
         
         if (this.currentBook) {
-            window.updateBookContent();
+            window.updateBookContent(this.currentBook.fileType);
         }
     }
 
