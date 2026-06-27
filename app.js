@@ -9,7 +9,7 @@ const state = {
     speed: 300,
     lineWidth: 20,
     lineCount: 4,
-    fontSize: 32,
+    fontSize: 28,
     viewMode: 'fixed',
     startTime: 0,
     pausedTime: 0,
