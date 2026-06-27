@@ -40,7 +40,7 @@ body {
     border-right: 1px solid #ddd;
     overflow: hidden;
     flex-shrink: 0;
-    width: 380px;
+    width: 600px;
 }
 
 /* 标题 */
@@ -64,7 +64,7 @@ body {
 
 /* 书架栏 */
 .shelf-panel {
-    width: 180px;
+    width: 216px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
@@ -241,7 +241,7 @@ body {
 
 /* 设置栏 */
 .settings-panel {
-    width: 200px;
+    width: 384px;
     background: white;
     display: flex;
     flex-direction: column;
@@ -288,20 +288,20 @@ body {
 
 .setting-group select,
 .setting-group input[type="number"] {
-    padding: 5px;
+    padding: 6px;
     border: 1px solid #ddd;
     border-radius: 3px;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
 }
 
 .setting-group input[type="number"] {
-    width: 35px;
+    width: 60px;
 }
 
 .speed-control,
 .slider-control {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
     width: 100%;
     overflow: hidden;
@@ -317,7 +317,7 @@ body {
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
-    width: 35px;
+    width: 60px;
     flex-shrink: 0;
 }
 
@@ -337,7 +337,7 @@ body {
 }
 
 .btn {
-    padding: 6px;
+    padding: 8px;
     border: none;
     border-radius: 3px;
     font-size: 0.8rem;
