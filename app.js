@@ -217,6 +217,7 @@ function startReading() {
     state.isPlaying = true;
     state.isPaused = false;
     state.startTime = Date.now() - state.totalPausedDuration;
+    state.currentIndex = 0;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -274,19 +275,35 @@ function startReadingLoop() {
     }
 }
 
+// ==================== 焦点式显示循环（完整行数模式） ====================
 function startFocusLoop() {
-    const intervalMs = calculateInterval();
+    const charsPerBatch = state.lineWidth * state.lineCount; // 每批显示的字数
+    const intervalMs = (60000 / state.speed) * charsPerBatch; // 停留时间（毫秒）
 
+    function showNextBatch() {
+        if (state.currentIndex >= state.units.length) {
+            clearInterval(readingInterval);
+            onReadingComplete();
+            return;
+        }
+
+        // 显示当前批次
+        updateFocusDisplay();
+        
+        // 更新进度
+        updateProgress();
+        
+        // 移动到下一批
+        state.currentIndex += charsPerBatch;
+    }
+
+    // 立即显示第一批
+    showNextBatch();
+    
+    // 然后每隔 intervalMs 毫秒显示下一批
     readingInterval = setInterval(() => {
-        if (state.currentIndex < state.units.length) {
-            updateDisplay();
-            state.currentIndex++;
-            updateProgress();
-
-            if (state.currentIndex >= state.units.length) {
-                clearInterval(readingInterval);
-                onReadingComplete();
-            }
+        if (state.isPlaying) {
+            showNextBatch();
         }
     }, intervalMs);
 }
@@ -307,12 +324,10 @@ function startPageLoop() {
     updateProgress();
 
     readingInterval = setTimeout(() => {
-        startPageLoop();
+        if (state.isPlaying) {
+            startPageLoop();
+        }
     }, intervalMs);
-}
-
-function calculateInterval() {
-    return 60000 / state.speed;
 }
 
 // ==================== 显示更新 ====================
@@ -325,71 +340,17 @@ function updateDisplay() {
 }
 
 function updateFocusDisplay() {
-    if (state.trainingMode === 'fixed') {
-        // 固定式：文字固定在中央
-        updateFocusFixed();
-    } else {
-        // 滚动式：从第一行开始滚动
-        updateFocusScroll();
-    }
-}
-
-function updateFocusFixed() {
-    const displayCount = state.lineWidth * state.lineCount;
-    const startIdx = Math.max(0, state.currentIndex - Math.floor(displayCount / 2));
-    const endIdx = Math.min(state.currentIndex + Math.ceil(displayCount / 2), state.units.length);
-    const displayUnits = state.units.slice(startIdx, endIdx);
+    const charsPerBatch = state.lineWidth * state.lineCount;
+    const batchStart = state.currentIndex;
+    const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
+    const displayUnits = state.units.slice(batchStart, batchEnd);
 
     let html = '';
     let lineLength = 0;
 
     for (let i = 0; i < displayUnits.length; i++) {
-        if (startIdx + i === state.currentIndex) {
-            html += '<span style="color: #667eea; font-weight: bold;">';
-        }
-
         html += displayUnits[i];
         lineLength++;
-
-        if (startIdx + i === state.currentIndex) {
-            html += '</span>';
-        }
-
-        if (lineLength >= state.lineWidth) {
-            html += '<br>';
-            lineLength = 0;
-        }
-    }
-
-    elements.focusText.innerHTML = html;
-}
-
-function updateFocusScroll() {
-    // 滚动式：从第一行开始填充
-    const displayCount = state.lineWidth * state.lineCount;
-    const charsPerLine = state.lineWidth;
-    
-    // 计算当前字在第几行
-    const currentLine = Math.floor(state.currentIndex / charsPerLine);
-    const scrollStart = Math.max(0, currentLine - state.lineCount + 1) * charsPerLine;
-    const scrollEnd = Math.min(scrollStart + displayCount, state.units.length);
-    
-    const displayUnits = state.units.slice(scrollStart, scrollEnd);
-
-    let html = '';
-    let lineLength = 0;
-
-    for (let i = 0; i < displayUnits.length; i++) {
-        if (scrollStart + i === state.currentIndex) {
-            html += '<span style="color: #667eea; font-weight: bold;">';
-        }
-
-        html += displayUnits[i];
-        lineLength++;
-
-        if (scrollStart + i === state.currentIndex) {
-            html += '</span>';
-        }
 
         if (lineLength >= state.lineWidth) {
             html += '<br>';
