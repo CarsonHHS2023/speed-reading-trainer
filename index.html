@@ -62,10 +62,10 @@
                             </div>
 
                             <div class="setting-group">
-                                <label>速度：</label>
+                                <label>阅读速度：</label>
                                 <div class="speed-control">
-                                    <input type="range" id="speedSlider" min="100" max="1000" value="300" />
-                                    <input type="number" id="speedInput" min="100" max="2000" value="300" />
+                                    <input type="range" id="speedSlider" min="100" max="10000" value="300" />
+                                    <input type="number" id="speedInput" min="100" max="10000" value="300" />
                                     <span id="speedUnit">字/分钟</span>
                                 </div>
                             </div>
@@ -81,22 +81,22 @@
                             <div class="setting-group" id="focusSettings">
                                 <label>行宽：</label>
                                 <div class="slider-control">
-                                    <input type="range" id="widthSlider" min="10" max="35" value="20" />
-                                    <input type="number" id="widthInput" min="10" max="35" value="20" />
+                                    <input type="range" id="widthSlider" min="5" max="50" value="20" />
+                                    <input type="number" id="widthInput" min="5" max="50" value="20" />
                                 </div>
 
                                 <label style="margin-top: 8px;">行数：</label>
                                 <div class="slider-control">
-                                    <input type="range" id="linesSlider" min="2" max="6" value="4" />
-                                    <input type="number" id="linesInput" min="2" max="6" value="4" />
+                                    <input type="range" id="linesSlider" min="1" max="10" value="4" />
+                                    <input type="number" id="linesInput" min="1" max="10" value="4" />
                                 </div>
                             </div>
 
                             <div class="setting-group" id="pageSettings" style="display: none;">
                                 <label>行宽：</label>
                                 <div class="slider-control">
-                                    <input type="range" id="pageWidthSlider" min="10" max="35" value="20" />
-                                    <input type="number" id="pageWidthInput" min="10" max="35" value="20" />
+                                    <input type="range" id="pageWidthSlider" min="5" max="50" value="20" />
+                                    <input type="number" id="pageWidthInput" min="5" max="50" value="20" />
                                 </div>
 
                                 <label style="margin-top: 8px;">最大行数：</label>
