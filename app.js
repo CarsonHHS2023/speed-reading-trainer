@@ -1,7 +1,7 @@
 // ==================== 状态管理 ====================
 const state = {
     content: '',
-    units: [], // 存储单位（字或词）
+    units: [],
     currentIndex: 0,
     isPlaying: false,
     isPaused: false,
@@ -9,6 +9,7 @@ const state = {
     speed: 300,
     lineWidth: 20,
     lineCount: 4,
+    fontSize: 32,
     viewMode: 'fixed',
     startTime: 0,
     pausedTime: 0,
@@ -17,8 +18,6 @@ const state = {
 
 // ==================== DOM 元素 ====================
 const elements = {
-    fileInput: document.getElementById('fileInput'),
-    fileInfo: document.getElementById('fileInfo'),
     language: document.getElementById('language'),
     speedSlider: document.getElementById('speedSlider'),
     speedInput: document.getElementById('speedInput'),
@@ -27,6 +26,8 @@ const elements = {
     widthInput: document.getElementById('widthInput'),
     linesSlider: document.getElementById('linesSlider'),
     linesInput: document.getElementById('linesInput'),
+    fontSlider: document.getElementById('fontSlider'),
+    fontInput: document.getElementById('fontInput'),
     viewMode: document.getElementById('viewMode'),
     startBtn: document.getElementById('startBtn'),
     pauseBtn: document.getElementById('pauseBtn'),
@@ -35,7 +36,6 @@ const elements = {
     currentPos: document.getElementById('currentPos'),
     totalWords: document.getElementById('totalWords'),
     progressFill: document.getElementById('progressFill'),
-    progressText: document.getElementById('progressText'),
     readingTime: document.getElementById('readingTime'),
     focusText: document.getElementById('focusText'),
     fixedModeDisplay: document.getElementById('fixedModeDisplay'),
@@ -43,97 +43,9 @@ const elements = {
     scrollText: document.getElementById('scrollText'),
 };
 
-// ==================== 文件处理 ====================
-async function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const fileName = file.name;
-    const fileSize = (file.size / 1024).toFixed(2);
-    elements.fileInfo.textContent = `✓ 已加载: ${fileName} (${fileSize} KB)`;
-
-    try {
-        let text = '';
-        
-        if (file.type === 'text/plain') {
-            // 支持多种编码的TXT文件处理
-            const arrayBuffer = await file.arrayBuffer();
-            text = await decodeTextFile(arrayBuffer);
-        } else if (file.type === 'application/pdf') {
-            const arrayBuffer = await file.arrayBuffer();
-            text = await extractTextFromPDF(arrayBuffer);
-        } else {
-            alert('请选择TXT或PDF文件');
-            return;
-        }
-
-        state.content = text;
-        state.currentIndex = 0;
-        tokenizeContent();
-        resetUI();
-        elements.startBtn.disabled = false;
-    } catch (error) {
-        console.error('文件处理错误:', error);
-        alert('文件处理失败，请检查文件格式');
-    }
-}
-
-// 解码文本文件（支持UTF-8, GB2312, GBK等编码）
-async function decodeTextFile(arrayBuffer) {
-    // 先尝试UTF-8解码
-    try {
-        const decoder = new TextDecoder('utf-8', { fatal: true });
-        return decoder.decode(arrayBuffer);
-    } catch (e) {
-        // UTF-8失败，尝试GB2312/GBK
-        try {
-            const decoder = new TextDecoder('gb2312');
-            return decoder.decode(arrayBuffer);
-        } catch (e2) {
-            // 如果都失败，使用latin1作为最后手段
-            const decoder = new TextDecoder('latin1');
-            return decoder.decode(arrayBuffer);
-        }
-    }
-}
-
-// PDF文本提取
-async function extractTextFromPDF(arrayBuffer) {
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let text = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items.map(item => item.str).join('');
-        text += pageText + '\n';
-    }
-
-    return text;
-}
-
-// 分词处理
-function tokenizeContent() {
-    const text = state.content.trim();
-
-    if (state.language === 'chinese') {
-        // 中文分字 - 移除空格和换行
-        state.units = text.split('').filter(char => char.trim() !== '');
-    } else {
-        // 英文分词 - 按单词分割
-        state.units = text.match(/\b\w+\b/g) || [];
-    }
-
-    elements.totalWords.textContent = state.units.length;
-    updateProgress();
-}
-
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
-    // 文件上传
-    elements.fileInput.addEventListener('change', handleFileUpload);
-
-    // 设置同步
+    // 速度设置
     elements.speedSlider.addEventListener('input', (e) => {
         elements.speedInput.value = e.target.value;
         state.speed = parseInt(e.target.value);
@@ -143,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.speed = parseInt(e.target.value);
     });
 
+    // 行宽设置
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
@@ -152,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.lineWidth = parseInt(e.target.value);
     });
 
+    // 行数设置
     elements.linesSlider.addEventListener('input', (e) => {
         elements.linesInput.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
@@ -161,6 +75,19 @@ document.addEventListener('DOMContentLoaded', () => {
         state.lineCount = parseInt(e.target.value);
     });
 
+    // 字体设置
+    elements.fontSlider.addEventListener('input', (e) => {
+        elements.fontInput.value = e.target.value;
+        state.fontSize = parseInt(e.target.value);
+        updateFontSize();
+    });
+    elements.fontInput.addEventListener('change', (e) => {
+        elements.fontSlider.value = e.target.value;
+        state.fontSize = parseInt(e.target.value);
+        updateFontSize();
+    });
+
+    // 语言设置
     elements.language.addEventListener('change', (e) => {
         state.language = e.target.value;
         updateSpeedUnit();
@@ -169,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // 视点模式
     elements.viewMode.addEventListener('change', (e) => {
         state.viewMode = e.target.value;
         switchViewMode();
@@ -181,12 +109,26 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.stopBtn.addEventListener('click', stopReading);
 });
 
+// ==================== 分词处理 ====================
+function tokenizeContent() {
+    const text = state.content.trim();
+
+    if (state.language === 'chinese') {
+        state.units = text.split('').filter(char => char.trim() !== '');
+    } else {
+        state.units = text.match(/\b\w+\b/g) || [];
+    }
+
+    elements.totalWords.textContent = state.units.length;
+    updateProgress();
+}
+
 // ==================== 阅读控制 ====================
 let readingInterval = null;
 
 function startReading() {
     if (!state.content) {
-        alert('请先上传文件');
+        alert('请先选择书籍');
         return;
     }
 
@@ -257,15 +199,8 @@ function startReadingLoop() {
     }, intervalMs);
 }
 
-// 计算显示时间间隔
 function calculateInterval() {
-    const speed = state.speed;
-
-    if (state.language === 'chinese') {
-        return (60000 / speed) * 1;
-    } else {
-        return (60000 / speed) * 1;
-    }
+    return 60000 / state.speed;
 }
 
 // ==================== 显示更新 ====================
@@ -289,7 +224,6 @@ function updateFixedMode() {
         html += displayUnits[i];
         lineLength++;
 
-        // 每行达到行宽后换行
         if (lineLength >= state.lineWidth) {
             html += '<br>';
             lineLength = 0;
@@ -321,8 +255,8 @@ function updateScrollMode() {
 }
 
 function resetDisplay() {
-    elements.focusText.textContent = '已停止';
-    elements.scrollText.textContent = '已停止';
+    elements.focusText.textContent = '选择书籍开始阅读';
+    elements.scrollText.textContent = '选择书籍开始阅读';
 }
 
 // ==================== 进度更新 ====================
@@ -332,7 +266,6 @@ function updateProgress() {
 
     elements.currentPos.textContent = state.currentIndex;
     elements.progressFill.style.width = percentage + '%';
-    elements.progressText.textContent = percentage + '%';
 
     if (state.isPlaying) {
         const elapsedMs = Date.now() - state.startTime;
@@ -345,11 +278,12 @@ function updateProgress() {
 
 // ==================== 工具函数 ====================
 function updateSpeedUnit() {
-    if (state.language === 'chinese') {
-        elements.speedUnit.textContent = '字/分钟';
-    } else {
-        elements.speedUnit.textContent = '词/分钟';
-    }
+    elements.speedUnit.textContent = state.language === 'chinese' ? '字/分钟' : '词/分钟';
+}
+
+function updateFontSize() {
+    elements.focusText.style.fontSize = state.fontSize + 'px';
+    elements.scrollText.style.fontSize = state.fontSize + 'px';
 }
 
 function switchViewMode() {
@@ -363,7 +297,6 @@ function switchViewMode() {
 }
 
 function disableSettings() {
-    elements.fileInput.disabled = true;
     elements.language.disabled = true;
     elements.speedSlider.disabled = true;
     elements.speedInput.disabled = true;
@@ -371,11 +304,12 @@ function disableSettings() {
     elements.widthInput.disabled = true;
     elements.linesSlider.disabled = true;
     elements.linesInput.disabled = true;
+    elements.fontSlider.disabled = true;
+    elements.fontInput.disabled = true;
     elements.viewMode.disabled = true;
 }
 
 function enableSettings() {
-    elements.fileInput.disabled = false;
     elements.language.disabled = false;
     elements.speedSlider.disabled = false;
     elements.speedInput.disabled = false;
@@ -383,15 +317,9 @@ function enableSettings() {
     elements.widthInput.disabled = false;
     elements.linesSlider.disabled = false;
     elements.linesInput.disabled = false;
+    elements.fontSlider.disabled = false;
+    elements.fontInput.disabled = false;
     elements.viewMode.disabled = false;
-}
-
-function resetUI() {
-    elements.currentPos.textContent = '0';
-    elements.progressFill.style.width = '0%';
-    elements.progressText.textContent = '0%';
-    elements.readingTime.textContent = '00:00';
-    resetDisplay();
 }
 
 function onReadingComplete() {
@@ -399,5 +327,18 @@ function onReadingComplete() {
     stopReading();
 }
 
+// ==================== 与书架系统联动 ====================
+function updateBookContent() {
+    if (bookshelf?.currentBook) {
+        state.content = bookshelf.currentBook.content;
+        state.currentIndex = 0;
+        state.totalPausedDuration = 0;
+        tokenizeContent();
+        resetDisplay();
+        elements.startBtn.disabled = false;
+    }
+}
+
 // 初始化
 updateSpeedUnit();
+updateFontSize();
