@@ -264,16 +264,20 @@ body {
 .settings-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
 }
 
 .setting-group {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    width: 100%;
+    overflow: hidden;
 }
 
 .setting-group label {
@@ -295,6 +299,8 @@ body {
     display: flex;
     gap: 4px;
     align-items: center;
+    width: 100%;
+    overflow: hidden;
 }
 
 .speed-control input[type="range"],
@@ -302,11 +308,13 @@ body {
     flex: 1;
     height: 4px;
     cursor: pointer;
+    min-width: 0;
 }
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
     width: 45px;
+    flex-shrink: 0;
 }
 
 .speed-control span,
@@ -314,6 +322,7 @@ body {
     font-size: 0.75rem;
     color: #666;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .button-group {
@@ -390,11 +399,14 @@ body {
     color: #666;
     display: flex;
     justify-content: space-between;
+    width: 100%;
+    overflow: hidden;
 }
 
 .time-display {
     font-weight: 600;
     color: #667eea;
+    flex-shrink: 0;
 }
 
 /* ==================== 右侧阅读区 ==================== */
