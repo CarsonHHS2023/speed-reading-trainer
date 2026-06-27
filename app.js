@@ -73,40 +73,68 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
+        if (state.isPaused) {
+            updateDisplay();
+        }
     });
     elements.widthInput.addEventListener('change', (e) => {
         elements.widthSlider.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
+        if (state.isPaused) {
+            updateDisplay();
+        }
     });
 
     // 焦点式：行数设置
     elements.linesSlider.addEventListener('input', (e) => {
         elements.linesInput.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
+        if (state.isPaused) {
+            updateDisplay();
+        }
     });
     elements.linesInput.addEventListener('change', (e) => {
         elements.linesSlider.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
+        if (state.isPaused) {
+            updateDisplay();
+        }
     });
 
     // 整页式：行宽设置
     elements.pageWidthSlider.addEventListener('input', (e) => {
         elements.pageWidthInput.value = e.target.value;
         state.pageLineWidth = parseInt(e.target.value);
+        if (state.isPaused) {
+            generatePages();
+            updateDisplay();
+        }
     });
     elements.pageWidthInput.addEventListener('change', (e) => {
         elements.pageWidthSlider.value = e.target.value;
         state.pageLineWidth = parseInt(e.target.value);
+        if (state.isPaused) {
+            generatePages();
+            updateDisplay();
+        }
     });
 
     // 整页式：最大行数设置
     elements.maxLinesSlider.addEventListener('input', (e) => {
         elements.maxLinesInput.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
+        if (state.isPaused) {
+            generatePages();
+            updateDisplay();
+        }
     });
     elements.maxLinesInput.addEventListener('change', (e) => {
         elements.maxLinesSlider.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
+        if (state.isPaused) {
+            generatePages();
+            updateDisplay();
+        }
     });
 
     // 字体设置
@@ -127,6 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSpeedUnit();
         if (state.content) {
             tokenizeContent();
+            if (state.isPaused) {
+                updateDisplay();
+            }
         }
     });
 
@@ -134,11 +165,17 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.displayMode.addEventListener('change', (e) => {
         state.displayMode = e.target.value;
         switchDisplayMode();
+        if (state.isPaused && state.content) {
+            updateDisplay();
+        }
     });
 
     // 训练模式
     elements.trainingMode.addEventListener('change', (e) => {
         state.trainingMode = e.target.value;
+        if (state.isPaused && state.displayMode === 'focus') {
+            updateDisplay();
+        }
     });
 
     // 控制按钮
@@ -224,7 +261,7 @@ function startReading() {
     elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = false;
 
-    disableSettings();
+    disableSettingsDuringReading();
     startReadingLoop();
 }
 
@@ -236,6 +273,8 @@ function pauseReading() {
 
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = false;
+    
+    enableSettingsDuringPause();
 }
 
 function resumeReading() {
@@ -246,6 +285,7 @@ function resumeReading() {
     elements.pauseBtn.disabled = false;
     elements.resumeBtn.disabled = true;
 
+    disableSettingsDuringReading();
     startReadingLoop();
 }
 
@@ -415,7 +455,7 @@ function switchDisplayMode() {
     }
 }
 
-function disableSettings() {
+function disableSettingsDuringReading() {
     elements.language.disabled = true;
     elements.speedSlider.disabled = true;
     elements.speedInput.disabled = true;
@@ -431,6 +471,24 @@ function disableSettings() {
     elements.fontInput.disabled = true;
     elements.displayMode.disabled = true;
     elements.trainingMode.disabled = true;
+}
+
+function enableSettingsDuringPause() {
+    elements.language.disabled = false;
+    elements.speedSlider.disabled = false;
+    elements.speedInput.disabled = false;
+    elements.widthSlider.disabled = false;
+    elements.widthInput.disabled = false;
+    elements.linesSlider.disabled = false;
+    elements.linesInput.disabled = false;
+    elements.pageWidthSlider.disabled = false;
+    elements.pageWidthInput.disabled = false;
+    elements.maxLinesSlider.disabled = false;
+    elements.maxLinesInput.disabled = false;
+    elements.fontSlider.disabled = false;
+    elements.fontInput.disabled = false;
+    elements.displayMode.disabled = false;
+    elements.trainingMode.disabled = false;
 }
 
 function enableSettings() {
