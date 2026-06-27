@@ -286,16 +286,21 @@ body {
     color: #333;
 }
 
-.setting-group select,
+.setting-group select {
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    width: 100%;
+}
+
 .setting-group input[type="number"] {
     padding: 6px;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.85rem;
-}
-
-.setting-group input[type="number"] {
     width: 80px;
+    flex-shrink: 0;
 }
 
 .speed-control,
@@ -304,7 +309,7 @@ body {
     gap: 6px;
     align-items: center;
     width: 100%;
-    overflow: hidden;
+    flex-wrap: nowrap;
 }
 
 .speed-control input[type="range"],
@@ -312,13 +317,17 @@ body {
     flex: 1;
     height: 4px;
     cursor: pointer;
-    min-width: 0;
+    min-width: 50px;
 }
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
     width: 80px;
     flex-shrink: 0;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
 }
 
 .speed-control span,
@@ -327,7 +336,7 @@ body {
     color: #666;
     white-space: nowrap;
     flex-shrink: 0;
-    min-width: 50px;
+    min-width: auto;
 }
 
 .button-group {
