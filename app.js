@@ -2,7 +2,9 @@
 const state = {
     content: '',
     units: [],
+    pages: [],
     currentIndex: 0,
+    currentPageIndex: 0,
     isPlaying: false,
     isPaused: false,
     language: 'chinese',
@@ -10,10 +12,11 @@ const state = {
     lineWidth: 20,
     lineCount: 4,
     fontSize: 28,
-    viewMode: 'fixed',
+    viewMode: 'focus',
     startTime: 0,
     pausedTime: 0,
     totalPausedDuration: 0,
+    fileType: 'txt', // 'txt' 或 'pdf'
 };
 
 // ==================== DOM 元素 ====================
@@ -38,9 +41,9 @@ const elements = {
     progressFill: document.getElementById('progressFill'),
     readingTime: document.getElementById('readingTime'),
     focusText: document.getElementById('focusText'),
-    fixedModeDisplay: document.getElementById('fixedModeDisplay'),
-    scrollModeDisplay: document.getElementById('scrollModeDisplay'),
-    scrollText: document.getElementById('scrollText'),
+    focusModeDisplay: document.getElementById('focusModeDisplay'),
+    pageModeDisplay: document.getElementById('pageModeDisplay'),
+    pageText: document.getElementById('pageText'),
 };
 
 // ==================== 事件监听 ====================
@@ -96,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 视点模式
+    // 显示方式
     elements.viewMode.addEventListener('change', (e) => {
         state.viewMode = e.target.value;
         switchViewMode();
@@ -120,7 +123,37 @@ function tokenizeContent() {
     }
 
     elements.totalWords.textContent = state.units.length;
+    
+    // 生成整页式的页面
+    if (state.fileType === 'txt') {
+        generatePages();
+    }
+    
     updateProgress();
+}
+
+// ==================== 页面生成 ====================
+function generatePages() {
+    const charsPerPage = state.lineWidth * state.lineCount;
+    state.pages = [];
+    
+    for (let i = 0; i < state.units.length; i += charsPerPage) {
+        const pageUnits = state.units.slice(i, i + charsPerPage);
+        let pageText = '';
+        let lineLength = 0;
+        
+        for (let j = 0; j < pageUnits.length; j++) {
+            pageText += pageUnits[j];
+            lineLength++;
+            
+            if (lineLength >= state.lineWidth) {
+                pageText += '\n';
+                lineLength = 0;
+            }
+        }
+        
+        state.pages.push(pageText);
+    }
 }
 
 // ==================== 阅读控制 ====================
@@ -170,6 +203,7 @@ function stopReading() {
     state.isPlaying = false;
     state.isPaused = false;
     state.currentIndex = 0;
+    state.currentPageIndex = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -183,6 +217,14 @@ function stopReading() {
 }
 
 function startReadingLoop() {
+    if (state.viewMode === 'focus') {
+        startFocusModeLoop();
+    } else {
+        startPageModeLoop();
+    }
+}
+
+function startFocusModeLoop() {
     const intervalMs = calculateInterval();
 
     readingInterval = setInterval(() => {
@@ -199,20 +241,38 @@ function startReadingLoop() {
     }, intervalMs);
 }
 
+function startPageModeLoop() {
+    const intervalMs = calculateInterval() * state.lineWidth * state.lineCount;
+
+    readingInterval = setInterval(() => {
+        if (state.currentPageIndex < state.pages.length) {
+            updateDisplay();
+            state.currentPageIndex++;
+            state.currentIndex = Math.min(state.currentPageIndex * state.lineWidth * state.lineCount, state.units.length);
+            updateProgress();
+
+            if (state.currentPageIndex >= state.pages.length) {
+                clearInterval(readingInterval);
+                onReadingComplete();
+            }
+        }
+    }, intervalMs);
+}
+
 function calculateInterval() {
     return 60000 / state.speed;
 }
 
 // ==================== 显示更新 ====================
 function updateDisplay() {
-    if (state.viewMode === 'fixed') {
-        updateFixedMode();
+    if (state.viewMode === 'focus') {
+        updateFocusMode();
     } else {
-        updateScrollMode();
+        updatePageMode();
     }
 }
 
-function updateFixedMode() {
+function updateFocusMode() {
     const displayCount = state.lineWidth * state.lineCount;
     const endIndex = Math.min(state.currentIndex + displayCount, state.units.length);
     const displayUnits = state.units.slice(state.currentIndex, endIndex);
@@ -233,30 +293,20 @@ function updateFixedMode() {
     elements.focusText.innerHTML = html;
 }
 
-function updateScrollMode() {
-    const startIndex = Math.max(0, state.currentIndex - state.lineWidth);
-    const endIndex = Math.min(state.currentIndex + state.lineWidth * state.lineCount, state.units.length);
-    const displayUnits = state.units.slice(startIndex, endIndex);
-
-    let text = '';
-    let lineLength = 0;
-
-    for (let i = 0; i < displayUnits.length; i++) {
-        text += displayUnits[i];
-        lineLength++;
-
-        if (lineLength >= state.lineWidth) {
-            text += '\n';
-            lineLength = 0;
-        }
+function updatePageMode() {
+    if (state.fileType === 'txt' && state.currentPageIndex < state.pages.length) {
+        // TXT文件按行宽和行数分页
+        elements.pageText.textContent = state.pages[state.currentPageIndex];
+    } else if (state.fileType === 'pdf') {
+        // PDF显示原档整页（这里需要PDF库支持）
+        // 暂时显示当前页内容
+        elements.pageText.textContent = `PDF第 ${state.currentPageIndex + 1} 页`;
     }
-
-    elements.scrollText.textContent = text;
 }
 
 function resetDisplay() {
     elements.focusText.textContent = '选择书籍开始阅读';
-    elements.scrollText.textContent = '选择书籍开始阅读';
+    elements.pageText.textContent = '选择书籍开始阅读';
 }
 
 // ==================== 进度更新 ====================
@@ -283,16 +333,16 @@ function updateSpeedUnit() {
 
 function updateFontSize() {
     elements.focusText.style.fontSize = state.fontSize + 'px';
-    elements.scrollText.style.fontSize = state.fontSize + 'px';
+    elements.pageText.style.fontSize = state.fontSize + 'px';
 }
 
 function switchViewMode() {
-    if (state.viewMode === 'fixed') {
-        elements.fixedModeDisplay.classList.add('active');
-        elements.scrollModeDisplay.classList.remove('active');
+    if (state.viewMode === 'focus') {
+        elements.focusModeDisplay.classList.add('active');
+        elements.pageModeDisplay.classList.remove('active');
     } else {
-        elements.fixedModeDisplay.classList.remove('active');
-        elements.scrollModeDisplay.classList.add('active');
+        elements.focusModeDisplay.classList.remove('active');
+        elements.pageModeDisplay.classList.add('active');
     }
 }
 
@@ -328,10 +378,12 @@ function onReadingComplete() {
 }
 
 // ==================== 与书架系统联动 ====================
-function updateBookContent() {
+function updateBookContent(fileType = 'txt') {
     if (bookshelf?.currentBook) {
         state.content = bookshelf.currentBook.content;
+        state.fileType = fileType;
         state.currentIndex = 0;
+        state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
         tokenizeContent();
         resetDisplay();
@@ -342,3 +394,4 @@ function updateBookContent() {
 // 初始化
 updateSpeedUnit();
 updateFontSize();
+switchViewMode();
