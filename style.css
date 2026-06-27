@@ -18,7 +18,7 @@ body {
 /* ==================== 总体布局 ==================== */
 .app-wrapper {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     width: 100%;
     height: 100%;
 }
@@ -29,7 +29,12 @@ body {
     color: white;
     padding: 12px 16px;
     border-bottom: 2px solid #5a5a8a;
-    flex-shrink: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50px;
+    z-index: 10;
 }
 
 .app-header h1 {
@@ -40,10 +45,10 @@ body {
 /* 主体内容区 */
 .app-body {
     display: flex;
-    flex: 1;
     gap: 0;
-    overflow: visible;
-    height: calc(100vh - 50px);
+    width: 100%;
+    height: 100%;
+    margin-top: 50px;
 }
 
 /* ==================== 左侧面板（书架+设置） ==================== */
