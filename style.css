@@ -4,42 +4,79 @@
     box-sizing: border-box;
 }
 
-body {
-    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-    background: #f5f5f5;
-    height: 100vh;
+html, body {
+    width: 100%;
+    height: 100%;
     overflow: hidden;
 }
 
-.app-container {
-    display: flex;
-    height: 100vh;
-    gap: 0;
+body {
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: #f5f5f5;
 }
 
-/* ==================== 侧边栏 ==================== */
-.sidebar {
-    width: 280px;
+/* ==================== 总体布局 ==================== */
+.app-wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
+
+/* 顶部软件名称 */
+.app-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 16px;
+    border-bottom: 2px solid #5a5a8a;
+    flex-shrink: 0;
+}
+
+.app-header h1 {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+/* 主体内容区 */
+.app-body {
+    display: flex;
+    flex: 1;
+    gap: 0;
+    overflow: hidden;
+}
+
+/* ==================== 左侧面板（书架+设置） ==================== */
+.left-panel {
+    display: flex;
+    gap: 0;
+    background: white;
+    border-right: 1px solid #ddd;
+    overflow: hidden;
+}
+
+/* 书架栏 */
+.shelf-panel {
+    width: 180px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid #ddd;
-    overflow-y: auto;
-    overflow-x: hidden;
+    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    overflow: hidden;
 }
 
 .shelf-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px;
+    padding: 8px 10px;
     background: rgba(0, 0, 0, 0.1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
 }
 
 .shelf-header h2 {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     flex: 1;
 }
 
@@ -47,12 +84,13 @@ body {
     background: rgba(255, 255, 255, 0.2);
     border: none;
     color: white;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 1.2rem;
+    font-size: 1rem;
     transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 
 .icon-btn:hover {
@@ -60,15 +98,16 @@ body {
     transform: scale(1.1);
 }
 
-/* 拖拽上传区 */
+/* 上传区域 */
 .upload-zone {
-    padding: 12px;
+    padding: 10px;
     margin: 8px;
     border: 2px dashed rgba(255, 255, 255, 0.5);
-    border-radius: 8px;
+    border-radius: 6px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 
 .upload-zone:hover {
@@ -82,8 +121,8 @@ body {
 }
 
 .upload-prompt {
-    font-size: 0.85rem;
-    line-height: 1.4;
+    font-size: 0.8rem;
+    line-height: 1.3;
 }
 
 .upload-prompt label {
@@ -95,6 +134,7 @@ body {
 /* 分类列表 */
 .categories {
     padding: 8px;
+    flex-shrink: 0;
 }
 
 .category {
@@ -105,12 +145,13 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 6px 8px;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
     transition: all 0.3s ease;
     user-select: none;
+    font-size: 0.85rem;
 }
 
 .category-header:hover {
@@ -123,9 +164,9 @@ body {
 
 .book-count {
     background: rgba(0, 0, 0, 0.2);
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 0.8rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.75rem;
 }
 
 /* 书籍列表 */
@@ -133,19 +174,19 @@ body {
     flex: 1;
     overflow-y: auto;
     padding: 8px;
+    font-size: 0.8rem;
 }
 
 .book-item {
-    padding: 8px 12px;
+    padding: 6px 8px;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    margin-bottom: 6px;
+    border-radius: 4px;
+    margin-bottom: 4px;
     cursor: pointer;
     transition: all 0.3s ease;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.9rem;
 }
 
 .book-item:hover {
@@ -166,18 +207,19 @@ body {
 
 .book-item-actions {
     display: flex;
-    gap: 4px;
+    gap: 3px;
+    flex-shrink: 0;
 }
 
 .book-item-action {
     background: rgba(0, 0, 0, 0.2);
     border: none;
     color: white;
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -188,79 +230,54 @@ body {
     background: rgba(0, 0, 0, 0.4);
 }
 
-/* ==================== 主区域 ==================== */
-.main-content {
-    flex: 1;
+/* 设置栏 */
+.settings-panel {
+    width: 200px;
+    background: white;
     display: flex;
     flex-direction: column;
+    border-right: 1px solid #ddd;
     overflow: hidden;
 }
 
-.top-header {
-    background: white;
-    padding: 12px 16px;
+.settings-header {
+    padding: 8px 12px;
+    background: #f5f5f5;
     border-bottom: 1px solid #ddd;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 50px;
+    flex-shrink: 0;
 }
 
-.top-header h1 {
-    font-size: 1.3rem;
-    color: #333;
+.settings-header h2 {
+    font-size: 0.95rem;
 }
 
-.header-info {
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.content-wrapper {
-    display: flex;
+.settings-content {
     flex: 1;
-    gap: 12px;
-    padding: 12px;
-    overflow: hidden;
-}
-
-/* 控制面板 */
-.control-panel {
-    width: 220px;
-    background: white;
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
     overflow-y: auto;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.settings-group {
+    padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.setting-row {
+.setting-group {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.setting-row label {
-    font-size: 0.85rem;
+.setting-group label {
+    font-size: 0.8rem;
     font-weight: 600;
     color: #333;
 }
 
-.setting-row select,
-.setting-row input[type="number"] {
-    padding: 6px;
+.setting-group select,
+.setting-group input[type="number"] {
+    padding: 5px;
     border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 0.85rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
 }
 
 .speed-control,
@@ -279,28 +296,28 @@ body {
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
-    width: 50px;
+    width: 45px;
 }
 
 .speed-control span,
 .slider-control span {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: #666;
     white-space: nowrap;
-    min-width: 50px;
 }
 
 .button-group {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: 4px;
+    margin-top: 4px;
 }
 
 .btn {
-    padding: 8px 12px;
+    padding: 6px;
     border: none;
-    border-radius: 4px;
-    font-size: 0.85rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -314,7 +331,7 @@ body {
 
 .btn-primary:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .btn-secondary {
@@ -332,18 +349,21 @@ body {
     cursor: not-allowed;
 }
 
-.progress-info {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+/* 进度条（设置栏下方） */
+.progress-section {
+    padding: 10px;
+    border-top: 1px solid #ddd;
+    background: #f9f9f9;
+    flex-shrink: 0;
 }
 
 .progress-bar {
     width: 100%;
-    height: 6px;
+    height: 8px;
     background: #e0e0e0;
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
+    margin-bottom: 4px;
 }
 
 .progress-fill {
@@ -353,8 +373,8 @@ body {
     transition: width 0.3s ease;
 }
 
-.progress-text {
-    font-size: 0.8rem;
+.progress-info {
+    font-size: 0.75rem;
     color: #666;
     display: flex;
     justify-content: space-between;
@@ -365,17 +385,13 @@ body {
     color: #667eea;
 }
 
-/* 阅读显示区域 */
-.reading-display {
+/* ==================== 右侧阅读区 ==================== */
+.reading-panel {
     flex: 1;
     background: white;
-    border-radius: 8px;
-    padding: 20px;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .display-mode {
@@ -389,21 +405,16 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-}
-
-#fixedModeDisplay {
-    width: 100%;
-    height: 100%;
+    padding: 20px;
 }
 
 .focus-text {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 700;
     color: #333;
-    line-height: 1.6;
+    line-height: 1.8;
     text-align: center;
-    max-height: 100%;
-    overflow: hidden;
+    word-break: break-word;
 }
 
 .scroll-content {
@@ -411,12 +422,11 @@ body {
     height: 100%;
     overflow-y: auto;
     padding: 20px;
-    position: relative;
 }
 
 .scroll-text {
-    font-size: 32px;
-    line-height: 1.8;
+    font-size: 28px;
+    line-height: 2;
     color: #333;
     white-space: pre-wrap;
     word-break: break-word;
@@ -442,7 +452,7 @@ body {
 
 .modal-content {
     background: white;
-    border-radius: 8px;
+    border-radius: 6px;
     min-width: 300px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
@@ -456,7 +466,7 @@ body {
 }
 
 .modal-header h3 {
-    font-size: 1.1rem;
+    font-size: 1rem;
     color: #333;
 }
 
@@ -486,7 +496,7 @@ body {
 
 /* 滚动条样式 */
 ::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -495,37 +505,9 @@ body {
 
 ::-webkit-scrollbar-thumb {
     background: #ccc;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: #999;
-}
-
-/* 响应式 */
-@media (max-width: 1200px) {
-    .sidebar {
-        width: 240px;
-    }
-    
-    .control-panel {
-        width: 180px;
-    }
-}
-
-@media (max-width: 1024px) {
-    .app-container {
-        flex-direction: column;
-    }
-    
-    .sidebar {
-        width: 100%;
-        height: auto;
-        max-height: 150px;
-        flex-direction: row;
-    }
-    
-    .main-content {
-        flex: 1;
-    }
 }
