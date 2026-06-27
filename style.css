@@ -54,6 +54,13 @@ body {
     font-weight: 600;
 }
 
+/* 内部容器：书架+设置并排 */
+.left-panel > div:not(.app-title) {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
 /* 书架栏 */
 .shelf-panel {
     width: 180px;
@@ -63,7 +70,7 @@ body {
     flex-direction: column;
     border-right: 1px solid rgba(0, 0, 0, 0.1);
     overflow: hidden;
-    flex: 1;
+    flex-shrink: 0;
 }
 
 .shelf-header {
