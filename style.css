@@ -30,6 +30,7 @@ body {
     padding: 12px 16px;
     border-bottom: 2px solid #5a5a8a;
     flex-shrink: 0;
+    height: 50px;
 }
 
 .app-header h1 {
@@ -43,6 +44,7 @@ body {
     flex: 1;
     gap: 0;
     overflow: hidden;
+    min-height: 0;
 }
 
 /* ==================== 左侧面板（书架+设置） ==================== */
@@ -52,6 +54,7 @@ body {
     background: white;
     border-right: 1px solid #ddd;
     overflow: hidden;
+    min-height: 0;
 }
 
 /* 书架栏 */
@@ -63,6 +66,7 @@ body {
     flex-direction: column;
     border-right: 1px solid rgba(0, 0, 0, 0.1);
     overflow: hidden;
+    min-height: 0;
 }
 
 .shelf-header {
@@ -175,6 +179,7 @@ body {
     overflow-y: auto;
     padding: 8px;
     font-size: 0.8rem;
+    min-height: 0;
 }
 
 .book-item {
@@ -238,6 +243,7 @@ body {
     flex-direction: column;
     border-right: 1px solid #ddd;
     overflow: hidden;
+    min-height: 0;
 }
 
 .settings-header {
@@ -258,6 +264,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
 }
 
 .setting-group {
@@ -392,12 +399,14 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
 }
 
 .display-mode {
     display: none;
     width: 100%;
     height: 100%;
+    min-height: 0;
 }
 
 .display-mode.active {
@@ -406,6 +415,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    min-height: 0;
 }
 
 .focus-text {
@@ -422,6 +432,7 @@ body {
     height: 100%;
     overflow-y: auto;
     padding: 20px;
+    min-height: 0;
 }
 
 .scroll-text {
