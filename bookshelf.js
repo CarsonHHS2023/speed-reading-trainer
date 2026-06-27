@@ -121,7 +121,6 @@ class BookShelf {
         document.querySelector(`[data-book-id="${bookId}"]`)?.classList.add('active');
         
         if (this.currentBook) {
-            document.getElementById('currentBook').textContent = `📖 ${this.currentBook.name}`;
             window.updateBookContent();
         }
     }
@@ -135,7 +134,6 @@ class BookShelf {
             
             if (this.currentBook?.id === bookId) {
                 this.currentBook = null;
-                document.getElementById('currentBook').textContent = '选择书籍开始阅读';
             }
         }
     }
@@ -155,8 +153,8 @@ class BookShelf {
         categoriesDiv.innerHTML = '';
 
         const allCategoriesData = [
-            { id: 'all', name: '全部书籍' },
-            { id: 'reading', name: '正在阅读' },
+            { id: 'all', name: '全部' },
+            { id: 'reading', name: '阅读中' },
             { id: 'finished', name: '已完成' },
             ...this.categories
         ];
@@ -168,10 +166,7 @@ class BookShelf {
             
             const header = document.createElement('div');
             header.className = 'category-header';
-            header.innerHTML = `
-                <span class="category-name">${cat.name}</span>
-                <span class="book-count">0</span>
-            `;
+            header.innerHTML = `${cat.name}<span class="book-count">0</span>`;
             
             header.addEventListener('click', () => this.selectCategory(cat.id));
             categoryDiv.appendChild(header);
@@ -198,7 +193,7 @@ class BookShelf {
         }
 
         if (filteredBooks.length === 0) {
-            booksList.innerHTML = '<div style="padding: 16px; text-align: center; color: rgba(255,255,255,0.7);">暂无书籍</div>';
+            booksList.innerHTML = '<div style="padding: 8px; text-align: center; color: rgba(255,255,255,0.7); font-size: 0.8rem;">暂无书籍</div>';
             return;
         }
 
