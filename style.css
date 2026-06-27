@@ -64,7 +64,7 @@ body {
 
 /* 书架栏 */
 .shelf-panel {
-    width: 259px;
+    width: 360px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
@@ -241,12 +241,13 @@ body {
 
 /* 设置栏 */
 .settings-panel {
-    flex: 1;
+    width: 360px;
     background: white;
     display: flex;
     flex-direction: column;
     border-right: 1px solid #ddd;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .settings-header {
@@ -326,7 +327,7 @@ body {
     color: #666;
     white-space: nowrap;
     flex-shrink: 0;
-    min-width: 45px;
+    min-width: 50px;
 }
 
 .button-group {
