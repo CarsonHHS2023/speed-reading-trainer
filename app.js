@@ -5,14 +5,18 @@ const state = {
     pages: [],
     currentIndex: 0,
     currentPageIndex: 0,
+    currentLineIndex: 0,
     isPlaying: false,
     isPaused: false,
     language: 'chinese',
     speed: 300,
     lineWidth: 20,
     lineCount: 4,
+    pageLineWidth: 20,
+    pageMaxLines: 20,
     fontSize: 28,
-    viewMode: 'focus',
+    displayMode: 'focus', // 'focus' 或 'page'
+    trainingMode: 'fixed', // 'fixed' 或 'scroll'
     startTime: 0,
     pausedTime: 0,
     totalPausedDuration: 0,
@@ -29,9 +33,14 @@ const elements = {
     widthInput: document.getElementById('widthInput'),
     linesSlider: document.getElementById('linesSlider'),
     linesInput: document.getElementById('linesInput'),
+    pageWidthSlider: document.getElementById('pageWidthSlider'),
+    pageWidthInput: document.getElementById('pageWidthInput'),
+    maxLinesSlider: document.getElementById('maxLinesSlider'),
+    maxLinesInput: document.getElementById('maxLinesInput'),
     fontSlider: document.getElementById('fontSlider'),
     fontInput: document.getElementById('fontInput'),
-    viewMode: document.getElementById('viewMode'),
+    displayMode: document.getElementById('displayMode'),
+    trainingMode: document.getElementById('trainingMode'),
     startBtn: document.getElementById('startBtn'),
     pauseBtn: document.getElementById('pauseBtn'),
     resumeBtn: document.getElementById('resumeBtn'),
@@ -44,6 +53,8 @@ const elements = {
     focusModeDisplay: document.getElementById('focusModeDisplay'),
     pageModeDisplay: document.getElementById('pageModeDisplay'),
     pageText: document.getElementById('pageText'),
+    focusSettings: document.getElementById('focusSettings'),
+    pageSettings: document.getElementById('pageSettings'),
 };
 
 // ==================== 事件监听 ====================
@@ -58,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.speed = parseInt(e.target.value);
     });
 
-    // 行宽设置
+    // 焦点式：行宽设置
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
@@ -68,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.lineWidth = parseInt(e.target.value);
     });
 
-    // 行数设置
+    // 焦点式：行数设置
     elements.linesSlider.addEventListener('input', (e) => {
         elements.linesInput.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
@@ -76,6 +87,26 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.linesInput.addEventListener('change', (e) => {
         elements.linesSlider.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
+    });
+
+    // 整页式：行宽设置
+    elements.pageWidthSlider.addEventListener('input', (e) => {
+        elements.pageWidthInput.value = e.target.value;
+        state.pageLineWidth = parseInt(e.target.value);
+    });
+    elements.pageWidthInput.addEventListener('change', (e) => {
+        elements.pageWidthSlider.value = e.target.value;
+        state.pageLineWidth = parseInt(e.target.value);
+    });
+
+    // 整页式：最大行数设置
+    elements.maxLinesSlider.addEventListener('input', (e) => {
+        elements.maxLinesInput.value = e.target.value;
+        state.pageMaxLines = parseInt(e.target.value);
+    });
+    elements.maxLinesInput.addEventListener('change', (e) => {
+        elements.maxLinesSlider.value = e.target.value;
+        state.pageMaxLines = parseInt(e.target.value);
     });
 
     // 字体设置
@@ -99,10 +130,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 显示方式
-    elements.viewMode.addEventListener('change', (e) => {
-        state.viewMode = e.target.value;
-        switchViewMode();
+    // 显示模式
+    elements.displayMode.addEventListener('change', (e) => {
+        state.displayMode = e.target.value;
+        switchDisplayMode();
+    });
+
+    // 训练模式
+    elements.trainingMode.addEventListener('change', (e) => {
+        state.trainingMode = e.target.value;
     });
 
     // 控制按钮
@@ -123,36 +159,49 @@ function tokenizeContent() {
     }
 
     elements.totalWords.textContent = state.units.length;
-    
-    // 生成整页式的页面
-    if (state.fileType === 'txt') {
-        generatePages();
-    }
-    
+    generatePages();
     updateProgress();
 }
 
 // ==================== 页面生成 ====================
 function generatePages() {
-    const charsPerPage = state.lineWidth * state.lineCount;
     state.pages = [];
     
-    for (let i = 0; i < state.units.length; i += charsPerPage) {
-        const pageUnits = state.units.slice(i, i + charsPerPage);
-        let pageText = '';
-        let lineLength = 0;
+    if (state.displayMode === 'focus') {
+        // 焦点式不需要分页
+        return;
+    }
+
+    if (state.fileType === 'txt') {
+        // TXT文件：按行宽和最大行数分页
+        const charsPerPage = state.pageLineWidth * state.pageMaxLines;
         
-        for (let j = 0; j < pageUnits.length; j++) {
-            pageText += pageUnits[j];
-            lineLength++;
+        for (let i = 0; i < state.units.length; i += charsPerPage) {
+            const pageUnits = state.units.slice(i, i + charsPerPage);
+            let pageText = '';
+            let lineLength = 0;
             
-            if (lineLength >= state.lineWidth) {
-                pageText += '\n';
-                lineLength = 0;
+            for (let j = 0; j < pageUnits.length; j++) {
+                pageText += pageUnits[j];
+                lineLength++;
+                
+                if (lineLength >= state.pageLineWidth) {
+                    pageText += '\n';
+                    lineLength = 0;
+                }
             }
+            
+            state.pages.push({
+                text: pageText,
+                charCount: pageUnits.length
+            });
         }
-        
-        state.pages.push(pageText);
+    } else if (state.fileType === 'pdf') {
+        // PDF：每页就是一个文档页面
+        state.pages = Array.from({ length: 100 }, (_, i) => ({
+            text: `PDF 第 ${i + 1} 页`,
+            charCount: 100 // 假设每页100个字符
+        }));
     }
 }
 
@@ -204,6 +253,7 @@ function stopReading() {
     state.isPaused = false;
     state.currentIndex = 0;
     state.currentPageIndex = 0;
+    state.currentLineIndex = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -217,14 +267,14 @@ function stopReading() {
 }
 
 function startReadingLoop() {
-    if (state.viewMode === 'focus') {
-        startFocusModeLoop();
+    if (state.displayMode === 'focus') {
+        startFocusLoop();
     } else {
-        startPageModeLoop();
+        startPageLoop();
     }
 }
 
-function startFocusModeLoop() {
+function startFocusLoop() {
     const intervalMs = calculateInterval();
 
     readingInterval = setInterval(() => {
@@ -241,21 +291,23 @@ function startFocusModeLoop() {
     }, intervalMs);
 }
 
-function startPageModeLoop() {
-    const intervalMs = calculateInterval() * state.lineWidth * state.lineCount;
+function startPageLoop() {
+    // 整页式按页停留，时间根据该页字符数计算
+    if (state.currentPageIndex >= state.pages.length) {
+        onReadingComplete();
+        return;
+    }
 
-    readingInterval = setInterval(() => {
-        if (state.currentPageIndex < state.pages.length) {
-            updateDisplay();
-            state.currentPageIndex++;
-            state.currentIndex = Math.min(state.currentPageIndex * state.lineWidth * state.lineCount, state.units.length);
-            updateProgress();
+    updateDisplay();
+    const charCount = state.pages[state.currentPageIndex].charCount;
+    const intervalMs = (60000 / state.speed) * charCount;
 
-            if (state.currentPageIndex >= state.pages.length) {
-                clearInterval(readingInterval);
-                onReadingComplete();
-            }
-        }
+    state.currentPageIndex++;
+    state.currentIndex = Math.min(state.currentPageIndex * state.pageLineWidth * state.pageMaxLines, state.units.length);
+    updateProgress();
+
+    readingInterval = setTimeout(() => {
+        startPageLoop();
     }, intervalMs);
 }
 
@@ -265,24 +317,43 @@ function calculateInterval() {
 
 // ==================== 显示更新 ====================
 function updateDisplay() {
-    if (state.viewMode === 'focus') {
-        updateFocusMode();
+    if (state.displayMode === 'focus') {
+        updateFocusDisplay();
     } else {
-        updatePageMode();
+        updatePageDisplay();
     }
 }
 
-function updateFocusMode() {
+function updateFocusDisplay() {
+    if (state.trainingMode === 'fixed') {
+        // 固定式：文字固定在中央
+        updateFocusFixed();
+    } else {
+        // 滚动式：从第一行开始滚动
+        updateFocusScroll();
+    }
+}
+
+function updateFocusFixed() {
     const displayCount = state.lineWidth * state.lineCount;
-    const endIndex = Math.min(state.currentIndex + displayCount, state.units.length);
-    const displayUnits = state.units.slice(state.currentIndex, endIndex);
+    const startIdx = Math.max(0, state.currentIndex - Math.floor(displayCount / 2));
+    const endIdx = Math.min(state.currentIndex + Math.ceil(displayCount / 2), state.units.length);
+    const displayUnits = state.units.slice(startIdx, endIdx);
 
     let html = '';
     let lineLength = 0;
 
     for (let i = 0; i < displayUnits.length; i++) {
+        if (startIdx + i === state.currentIndex) {
+            html += '<span style="color: #667eea; font-weight: bold;">';
+        }
+
         html += displayUnits[i];
         lineLength++;
+
+        if (startIdx + i === state.currentIndex) {
+            html += '</span>';
+        }
 
         if (lineLength >= state.lineWidth) {
             html += '<br>';
@@ -293,14 +364,47 @@ function updateFocusMode() {
     elements.focusText.innerHTML = html;
 }
 
-function updatePageMode() {
+function updateFocusScroll() {
+    // 滚动式：从第一行开始填充
+    const displayCount = state.lineWidth * state.lineCount;
+    const charsPerLine = state.lineWidth;
+    
+    // 计算当前字在第几行
+    const currentLine = Math.floor(state.currentIndex / charsPerLine);
+    const scrollStart = Math.max(0, currentLine - state.lineCount + 1) * charsPerLine;
+    const scrollEnd = Math.min(scrollStart + displayCount, state.units.length);
+    
+    const displayUnits = state.units.slice(scrollStart, scrollEnd);
+
+    let html = '';
+    let lineLength = 0;
+
+    for (let i = 0; i < displayUnits.length; i++) {
+        if (scrollStart + i === state.currentIndex) {
+            html += '<span style="color: #667eea; font-weight: bold;">';
+        }
+
+        html += displayUnits[i];
+        lineLength++;
+
+        if (scrollStart + i === state.currentIndex) {
+            html += '</span>';
+        }
+
+        if (lineLength >= state.lineWidth) {
+            html += '<br>';
+            lineLength = 0;
+        }
+    }
+
+    elements.focusText.innerHTML = html;
+}
+
+function updatePageDisplay() {
     if (state.fileType === 'txt' && state.currentPageIndex < state.pages.length) {
-        // TXT文件按行宽和行数分页
-        elements.pageText.textContent = state.pages[state.currentPageIndex];
+        elements.pageText.textContent = state.pages[state.currentPageIndex].text;
     } else if (state.fileType === 'pdf') {
-        // PDF显示原档整页（这里需要PDF库支持）
-        // 暂时显示当前页内容
-        elements.pageText.textContent = `PDF第 ${state.currentPageIndex + 1} 页`;
+        elements.pageText.textContent = state.pages[state.currentPageIndex]?.text || '加载中...';
     }
 }
 
@@ -336,13 +440,17 @@ function updateFontSize() {
     elements.pageText.style.fontSize = state.fontSize + 'px';
 }
 
-function switchViewMode() {
-    if (state.viewMode === 'focus') {
+function switchDisplayMode() {
+    if (state.displayMode === 'focus') {
         elements.focusModeDisplay.classList.add('active');
         elements.pageModeDisplay.classList.remove('active');
+        elements.focusSettings.style.display = 'block';
+        elements.pageSettings.style.display = 'none';
     } else {
         elements.focusModeDisplay.classList.remove('active');
         elements.pageModeDisplay.classList.add('active');
+        elements.focusSettings.style.display = 'none';
+        elements.pageSettings.style.display = 'block';
     }
 }
 
@@ -354,9 +462,14 @@ function disableSettings() {
     elements.widthInput.disabled = true;
     elements.linesSlider.disabled = true;
     elements.linesInput.disabled = true;
+    elements.pageWidthSlider.disabled = true;
+    elements.pageWidthInput.disabled = true;
+    elements.maxLinesSlider.disabled = true;
+    elements.maxLinesInput.disabled = true;
     elements.fontSlider.disabled = true;
     elements.fontInput.disabled = true;
-    elements.viewMode.disabled = true;
+    elements.displayMode.disabled = true;
+    elements.trainingMode.disabled = true;
 }
 
 function enableSettings() {
@@ -367,9 +480,14 @@ function enableSettings() {
     elements.widthInput.disabled = false;
     elements.linesSlider.disabled = false;
     elements.linesInput.disabled = false;
+    elements.pageWidthSlider.disabled = false;
+    elements.pageWidthInput.disabled = false;
+    elements.maxLinesSlider.disabled = false;
+    elements.maxLinesInput.disabled = false;
     elements.fontSlider.disabled = false;
     elements.fontInput.disabled = false;
-    elements.viewMode.disabled = false;
+    elements.displayMode.disabled = false;
+    elements.trainingMode.disabled = false;
 }
 
 function onReadingComplete() {
@@ -394,4 +512,4 @@ function updateBookContent(fileType = 'txt') {
 // 初始化
 updateSpeedUnit();
 updateFontSize();
-switchViewMode();
+switchDisplayMode();
