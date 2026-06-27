@@ -294,6 +294,10 @@ body {
     font-size: 0.8rem;
 }
 
+.setting-group input[type="number"] {
+    width: 35px;
+}
+
 .speed-control,
 .slider-control {
     display: flex;
@@ -313,7 +317,7 @@ body {
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
-    width: 45px;
+    width: 35px;
     flex-shrink: 0;
 }
 
