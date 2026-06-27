@@ -7,120 +7,159 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>⚡ 快速阅读训练程序</h1>
-            <p>提升阅读速度，掌握知识精髓</p>
-        </header>
+    <div class="app-container">
+        <!-- 左侧书架 -->
+        <aside class="sidebar">
+            <div class="shelf-header">
+                <h2>📚 书架</h2>
+                <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
+            </div>
 
-        <div class="main-content">
-            <!-- 控制面板 -->
-            <div class="control-panel">
-                <div class="section">
-                    <h3>📁 文件上传</h3>
-                    <div class="file-input-wrapper">
-                        <input type="file" id="fileInput" accept=".txt,.pdf" />
-                        <label for="fileInput">选择TXT或PDF文件</label>
-                    </div>
-                    <div id="fileInfo" class="file-info"></div>
-                </div>
+            <!-- 上传区域 -->
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-prompt">📁 拖拽文件到此或<br><label for="fileInput">点击上传</label></div>
+                <input type="file" id="fileInput" accept=".txt,.pdf" hidden>
+            </div>
 
-                <div class="section">
-                    <h3>⚙️ 阅读设置</h3>
-                    
-                    <div class="setting-group">
-                        <label for="language">语言选择：</label>
-                        <select id="language">
-                            <option value="chinese">中文</option>
-                            <option value="english">英文</option>
-                        </select>
-                    </div>
-
-                    <div class="setting-group">
-                        <label for="speed">阅读速度：</label>
-                        <div class="speed-input">
-                            <input type="range" id="speedSlider" min="100" max="1000" value="300" />
-                            <input type="number" id="speedInput" min="100" max="2000" value="300" />
-                            <span id="speedUnit">字/分钟</span>
-                        </div>
-                    </div>
-
-                    <div class="setting-group">
-                        <label for="lineWidth">行宽（字数）：</label>
-                        <div class="width-input">
-                            <input type="range" id="widthSlider" min="10" max="50" value="25" />
-                            <input type="number" id="widthInput" min="10" max="50" value="25" />
-                        </div>
-                    </div>
-
-                    <div class="setting-group">
-                        <label for="lineCount">行数：</label>
-                        <div class="lines-input">
-                            <input type="range" id="linesSlider" min="2" max="10" value="5" />
-                            <input type="number" id="linesInput" min="2" max="10" value="5" />
-                        </div>
-                    </div>
-
-                    <div class="setting-group">
-                        <label for="viewMode">视点移动方式：</label>
-                        <select id="viewMode">
-                            <option value="fixed">固定式（焦点固定）</option>
-                            <option value="scroll">滚动式（页面滚动）</option>
-                        </select>
+            <!-- 书架分类 -->
+            <div class="categories">
+                <div class="category" data-category="all">
+                    <div class="category-header">
+                        <span class="category-name">全部书籍</span>
+                        <span class="book-count">0</span>
                     </div>
                 </div>
-
-                <div class="section">
-                    <h3>🎮 控制按钮</h3>
-                    <div class="button-group">
-                        <button id="startBtn" class="btn btn-primary">开始阅读</button>
-                        <button id="pauseBtn" class="btn btn-secondary" disabled>暂停</button>
-                        <button id="resumeBtn" class="btn btn-secondary" disabled>继续</button>
-                        <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                <div class="category" data-category="reading">
+                    <div class="category-header">
+                        <span class="category-name">正在阅读</span>
+                        <span class="book-count">0</span>
                     </div>
                 </div>
-
-                <div class="section">
-                    <h3>📊 进度统计</h3>
-                    <div class="stats">
-                        <div class="stat-item">
-                            <span class="stat-label">当前位置：</span>
-                            <span id="currentPos">0</span> / <span id="totalWords">0</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">阅读进度：</span>
-                            <div class="progress-bar">
-                                <div id="progressFill" class="progress-fill"></div>
-                            </div>
-                            <span id="progressText">0%</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">阅读时间：</span>
-                            <span id="readingTime">00:00</span>
-                        </div>
+                <div class="category" data-category="finished">
+                    <div class="category-header">
+                        <span class="category-name">已完成</span>
+                        <span class="book-count">0</span>
                     </div>
                 </div>
             </div>
 
-            <!-- 阅读显示区域 -->
-            <div class="reading-area">
-                <div id="fixedModeDisplay" class="display-mode active">
-                    <div class="focus-box">
-                        <div id="focusText" class="focus-text">请上传文件并点击"开始阅读"</div>
+            <!-- 书籍列表 -->
+            <div class="books-list" id="booksList"></div>
+        </aside>
+
+        <!-- 右侧主区域 -->
+        <main class="main-content">
+            <!-- 头部 -->
+            <header class="top-header">
+                <h1>⚡ 快速阅读训练</h1>
+                <div class="header-info" id="currentBook">选择书籍开始阅读</div>
+            </header>
+
+            <div class="content-wrapper">
+                <!-- 控制面板 -->
+                <div class="control-panel">
+                    <div class="settings-group">
+                        <div class="setting-row">
+                            <label>语言：</label>
+                            <select id="language">
+                                <option value="chinese">中文</option>
+                                <option value="english">英文</option>
+                            </select>
+                        </div>
+
+                        <div class="setting-row">
+                            <label>速度：</label>
+                            <div class="speed-control">
+                                <input type="range" id="speedSlider" min="100" max="1000" value="300" />
+                                <input type="number" id="speedInput" min="100" max="2000" value="300" />
+                                <span id="speedUnit">字/分钟</span>
+                            </div>
+                        </div>
+
+                        <div class="setting-row">
+                            <label>行宽：</label>
+                            <div class="slider-control">
+                                <input type="range" id="widthSlider" min="10" max="35" value="20" />
+                                <input type="number" id="widthInput" min="10" max="35" value="20" />
+                            </div>
+                        </div>
+
+                        <div class="setting-row">
+                            <label>行数：</label>
+                            <div class="slider-control">
+                                <input type="range" id="linesSlider" min="2" max="6" value="4" />
+                                <input type="number" id="linesInput" min="2" max="6" value="4" />
+                            </div>
+                        </div>
+
+                        <div class="setting-row">
+                            <label>字体：</label>
+                            <div class="slider-control">
+                                <input type="range" id="fontSlider" min="16" max="48" value="32" />
+                                <input type="number" id="fontInput" min="16" max="48" value="32" />
+                                <span>px</span>
+                            </div>
+                        </div>
+
+                        <div class="setting-row">
+                            <label>模式：</label>
+                            <select id="viewMode">
+                                <option value="fixed">固定式</option>
+                                <option value="scroll">滚动式</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="startBtn" class="btn btn-primary">开始</button>
+                        <button id="pauseBtn" class="btn btn-secondary" disabled>暂停</button>
+                        <button id="resumeBtn" class="btn btn-secondary" disabled>继续</button>
+                        <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                    </div>
+
+                    <div class="progress-info">
+                        <div class="progress-bar">
+                            <div id="progressFill" class="progress-fill"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span id="currentPos">0</span> / <span id="totalWords">0</span>
+                            <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
+                        </div>
                     </div>
                 </div>
 
-                <div id="scrollModeDisplay" class="display-mode">
-                    <div id="scrollContent" class="scroll-content">
-                        <div id="scrollText" class="scroll-text">请上传文件并点击"开始阅读"</div>
-                        <div id="scrollFocus" class="scroll-focus-line"></div>
+                <!-- 阅读显示区域 -->
+                <div class="reading-display">
+                    <div id="fixedModeDisplay" class="display-mode active">
+                        <div id="focusText" class="focus-text">选择书籍开始阅读</div>
+                    </div>
+                    <div id="scrollModeDisplay" class="display-mode">
+                        <div id="scrollContent" class="scroll-content">
+                            <div id="scrollText" class="scroll-text">选择书籍开始阅读</div>
+                        </div>
                     </div>
                 </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框：添加分类 -->
+    <div id="categoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>添加分类</h3>
+                <button class="close-btn" onclick="closeCategoryModal()">&times;</button>
+            </div>
+            <input type="text" id="categoryInput" placeholder="输入分类名称" />
+            <div class="modal-footer">
+                <button onclick="closeCategoryModal()" class="btn btn-secondary">取消</button>
+                <button onclick="addCategory()" class="btn btn-primary">确定</button>
             </div>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="bookshelf.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
