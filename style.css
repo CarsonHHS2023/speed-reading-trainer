@@ -573,6 +573,7 @@ body.dark-mode .time-display {
     flex-direction: column;
     overflow: hidden;
     transition: background-color 0.3s ease;
+    position: relative;
 }
 
 body.dark-mode .reading-panel {
@@ -677,6 +678,92 @@ body.dark-mode .page-content {
 
 body.dark-mode .page-text {
     color: #e0e0e0;
+}
+
+/* ==================== PDF 图表显示区 ==================== */
+.chart-display {
+    display: none !important;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    transition: background-color 0.3s ease;
+    z-index: 50;
+}
+
+body.dark-mode .chart-display {
+    background: #1e1e1e;
+}
+
+.chart-display.active {
+    display: flex !important;
+}
+
+.chart-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+    gap: 20px;
+}
+
+.chart-image {
+    max-width: 95%;
+    max-height: 80%;
+    object-fit: contain;
+    transition: transform 0.3s ease;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.chart-controls {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.chart-btn {
+    padding: 10px 16px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+body.dark-mode .chart-btn {
+    background: linear-gradient(135deg, #3a3f5f, #4a3a5f);
+}
+
+.chart-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.chart-btn:active {
+    transform: translateY(0);
+}
+
+.chart-hint {
+    font-size: 0.95rem;
+    color: #666;
+    text-align: center;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .chart-hint {
+    color: #aaa;
 }
 
 /* ==================== 模态框 ==================== */
