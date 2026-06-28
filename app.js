@@ -32,6 +32,7 @@ const state = {
     currentElementIndex: 0, // 当前显示的元素索引
     chartRotation: 0, // 图表旋转角度 (0, 90, 180, 270)
     chartFlipped: false, // 图表是否垂直翻转
+    pdfDocument: null, // PDF 文档对象（用于渲染页面）
 };
 
 // ==================== DOM 元素 ====================
@@ -249,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.language.addEventListener('change', (e) => {
         state.language = e.target.value;
         updateSpeedUnit();
-        if (state.content) {
+        if (state.content && state.fileType === 'txt') {
             tokenizeContent();
             if (state.isPaused) {
                 updateDisplay();
@@ -330,12 +331,6 @@ function generatePages() {
                 charCount: pageUnits.length
             });
         }
-    } else if (state.fileType === 'pdf') {
-        // PDF：每页就是一个文档页面
-        state.pages = Array.from({ length: 100 }, (_, i) => ({
-            text: `PDF 第 ${i + 1} 页`,
-            charCount: 100 // 假设每页100个字符
-        }));
     }
 }
 
@@ -499,14 +494,38 @@ function displayTextElement(element) {
     elements.focusText.style.fontWeight = state.fontWeight;
 }
 
-function displayChartElement(element) {
+async function displayChartElement(element) {
     // 隐藏文字，显示图表
     elements.focusModeDisplay.style.display = 'none';
     elements.pageModeDisplay.style.display = 'none';
     elements.chartDisplay.style.display = 'flex';
     
-    // 设置图表图片
-    elements.chartImage.src = element.content;
+    // 如果是标记为扫描页，用 pdfjs 渲染
+    if (element.content === 'scan' && state.pdfDocument && element.pageNum) {
+        try {
+            const page = await state.pdfDocument.getPage(element.pageNum);
+            const viewport = page.getViewport({ scale: 1.5 });
+            
+            // 创建 canvas 并渲染
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const context = canvas.getContext('2d');
+            
+            await page.render({
+                canvasContext: context,
+                viewport: viewport
+            }).promise;
+            
+            elements.chartImage.src = canvas.toDataURL('image/png');
+        } catch (error) {
+            console.error('PDF 页面渲染失败:', error);
+            elements.chartImage.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23ccc%22 width=%22200%22 height=%22200%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3E渲染失败%3C/text%3E%3C/svg%3E';
+        }
+    } else {
+        // 直接使用 base64 或其他内容
+        elements.chartImage.src = element.content;
+    }
     
     // 重置旋转和翻转
     state.chartRotation = 0;
@@ -522,7 +541,7 @@ function continueFromChart() {
     showNextPDFElement();
 }
 
-// ==================== 焦点式显示循环（完整行数模式） ====================
+// ==================== 焦点式显示循环 ====================
 function startFocusLoop() {
     const charsPerBatch = state.lineWidth * state.lineCount;
     const intervalMs = (60000 / state.speed) * charsPerBatch;
@@ -531,50 +550,35 @@ function startFocusLoop() {
     console.log('charsPerBatch:', charsPerBatch);
     console.log('intervalMs:', intervalMs);
     console.log('总字数:', state.units.length);
-    console.log('focusMaxLines:', state.focusMaxLines);
-    console.log('focusLineHeight:', state.focusLineHeight);
 
     state.currentLine = 0;
 
     function showNextBatch() {
-        console.log('showNextBatch - currentIndex:', state.currentIndex, '总字数:', state.units.length);
-        
         if (state.currentIndex >= state.units.length) {
-            console.log('阅读完成');
             clearInterval(readingInterval);
             onReadingComplete();
             return;
         }
 
-        console.log('调用 updateFocusDisplay()');
         updateFocusDisplay();
-        
         updateProgress();
         
         state.currentIndex += charsPerBatch;
-        console.log('移动后 currentIndex:', state.currentIndex);
-        
         state.currentLine += state.lineCount;
-        console.log('currentLine += lineCount:', state.currentLine, 'focusMaxLines:', state.focusMaxLines);
         
         if (state.currentLine + state.lineCount > state.focusMaxLines) {
-            console.log('currentLine + lineCount > focusMaxLines，重置 currentLine 为 0');
             state.currentLine = 0;
         }
     }
 
-    console.log('--- 立即显示第一批 ---');
     showNextBatch();
     
     if (readingInterval) {
-        console.log('清除旧定时器');
         clearInterval(readingInterval);
     }
     
-    console.log('设置定时器，间隔:', intervalMs, 'ms');
     readingInterval = setInterval(() => {
         if (state.isPlaying) {
-            console.log('--- 定时器触发，显示下一批 ---');
             showNextBatch();
         }
     }, intervalMs);
@@ -640,15 +644,12 @@ function updateFocusDisplay() {
     } else {
         const marginTop = state.currentLine * state.focusLineHeight;
         elements.focusText.style.marginTop = marginTop + 'px';
-        console.log('滚动式显示：currentLine =', state.currentLine, ', marginTop =', marginTop, ', focusLineHeight =', state.focusLineHeight);
     }
 }
 
 function updatePageDisplay() {
     if (state.fileType === 'txt' && state.currentPageIndex < state.pages.length) {
         elements.pageText.textContent = state.pages[state.currentPageIndex].text;
-    } else if (state.fileType === 'pdf') {
-        elements.pageText.textContent = state.pages[state.currentPageIndex]?.text || '加载中...';
     }
 }
 
@@ -824,6 +825,10 @@ async function processPDFFile(file) {
         const result = await response.json();
         console.log('PDF 处理完成:', result);
         
+        // 加载 PDF 文档（用于后续渲染）
+        const pdfBuffer = await file.arrayBuffer();
+        state.pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+        
         // 转换后端数据为阅读程序格式
         const elements = [];
         
@@ -840,7 +845,7 @@ async function processPDFFile(file) {
                     } else if (elem.type === 'image') {
                         elements.push({
                             type: 'image',
-                            content: elem.content,
+                            content: elem.content, // 'scan' 或其他标记
                             isChart: elem.isChart,
                             pageNum: pageIndex + 1
                         });
@@ -868,22 +873,6 @@ async function processPDFFile(file) {
     } catch (error) {
         console.error('PDF 处理失败:', error);
         alert('PDF 处理失败：' + error.message);
-    }
-}
-
-// ==================== 与书架系统联动 ====================
-function updateBookContent(fileType = 'txt') {
-    if (bookshelf?.currentBook) {
-        state.content = bookshelf.currentBook.content;
-        state.fileType = fileType;
-        state.currentIndex = 0;
-        state.currentPageIndex = 0;
-        state.totalPausedDuration = 0;
-        state.currentLine = 0;
-        state.currentElementIndex = 0;
-        tokenizeContent();
-        resetDisplay();
-        elements.startBtn.disabled = false;
     }
 }
 
