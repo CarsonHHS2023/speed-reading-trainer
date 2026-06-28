@@ -12,7 +12,6 @@ const state = {
     speed: 5000,
     lineWidth: 35,
     lineCount: 3,
-    pageLineWidth: 35,
     pageMaxLines: 20,
     fontSize: 28,
     displayMode: 'focus', // 'focus' 或 'page'
@@ -34,8 +33,6 @@ const elements = {
     widthInput: document.getElementById('widthInput'),
     linesSlider: document.getElementById('linesSlider'),
     linesInput: document.getElementById('linesInput'),
-    pageWidthSlider: document.getElementById('pageWidthSlider'),
-    pageWidthInput: document.getElementById('pageWidthInput'),
     maxLinesSlider: document.getElementById('maxLinesSlider'),
     maxLinesInput: document.getElementById('maxLinesInput'),
     fontSlider: document.getElementById('fontSlider'),
@@ -70,11 +67,12 @@ document.addEventListener('DOMContentLoaded', () => {
         state.speed = parseInt(e.target.value);
     });
 
-    // 焦点式：行宽设置
+    // 行宽设置（全局）
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
         if (state.isPaused) {
+            generatePages();
             updateDisplay();
         }
     });
@@ -82,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.widthSlider.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
         if (state.isPaused) {
+            generatePages();
             updateDisplay();
         }
     });
@@ -98,24 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.linesSlider.value = e.target.value;
         state.lineCount = parseInt(e.target.value);
         if (state.isPaused) {
-            updateDisplay();
-        }
-    });
-
-    // 整页式：行宽设置
-    elements.pageWidthSlider.addEventListener('input', (e) => {
-        elements.pageWidthInput.value = e.target.value;
-        state.pageLineWidth = parseInt(e.target.value);
-        if (state.isPaused) {
-            generatePages();
-            updateDisplay();
-        }
-    });
-    elements.pageWidthInput.addEventListener('change', (e) => {
-        elements.pageWidthSlider.value = e.target.value;
-        state.pageLineWidth = parseInt(e.target.value);
-        if (state.isPaused) {
-            generatePages();
             updateDisplay();
         }
     });
@@ -213,7 +194,7 @@ function generatePages() {
 
     if (state.fileType === 'txt') {
         // TXT文件：按行宽和最大行数分页
-        const charsPerPage = state.pageLineWidth * state.pageMaxLines;
+        const charsPerPage = state.lineWidth * state.pageMaxLines;
         
         for (let i = 0; i < state.units.length; i += charsPerPage) {
             const pageUnits = state.units.slice(i, i + charsPerPage);
@@ -224,7 +205,7 @@ function generatePages() {
                 pageText += pageUnits[j];
                 lineLength++;
                 
-                if (lineLength >= state.pageLineWidth) {
+                if (lineLength >= state.lineWidth) {
                     pageText += '\n';
                     lineLength = 0;
                 }
@@ -389,7 +370,7 @@ function startPageLoop() {
     const intervalMs = (60000 / state.speed) * charCount;
 
     state.currentPageIndex++;
-    state.currentIndex = Math.min(state.currentPageIndex * state.pageLineWidth * state.pageMaxLines, state.units.length);
+    state.currentIndex = Math.min(state.currentPageIndex * state.lineWidth * state.pageMaxLines, state.units.length);
     updateProgress();
 
     readingInterval = setTimeout(() => {
@@ -505,7 +486,7 @@ function switchDisplayMode() {
         // 切换到整页式时：只重新计算最大行数，不改变行宽
         recalculatePageMaxLines();
         
-        // 重新生成页面（使用新的pageMaxLines，但保持pageLineWidth不变）
+        // 重新生成页面
         if (state.content) {
             generatePages();
         }
@@ -526,7 +507,7 @@ function recalculatePageMaxLines() {
     // 至少显示1行，最多显示50行
     state.pageMaxLines = Math.max(1, Math.min(maxLines, 50));
     
-    // 更新UI控件显示最新的pageMaxLines，但不改变pageLineWidth
+    // 更新UI控件显示最新的pageMaxLines
     elements.maxLinesSlider.value = state.pageMaxLines;
     elements.maxLinesInput.value = state.pageMaxLines;
 }
@@ -547,8 +528,6 @@ function disableSettingsDuringReading() {
     elements.widthInput.disabled = true;
     elements.linesSlider.disabled = true;
     elements.linesInput.disabled = true;
-    elements.pageWidthSlider.disabled = true;
-    elements.pageWidthInput.disabled = true;
     elements.maxLinesSlider.disabled = true;
     elements.maxLinesInput.disabled = true;
     elements.fontSlider.disabled = true;
@@ -565,8 +544,6 @@ function enableSettingsDuringPause() {
     elements.widthInput.disabled = false;
     elements.linesSlider.disabled = false;
     elements.linesInput.disabled = false;
-    elements.pageWidthSlider.disabled = false;
-    elements.pageWidthInput.disabled = false;
     elements.maxLinesSlider.disabled = false;
     elements.maxLinesInput.disabled = false;
     elements.fontSlider.disabled = false;
@@ -583,8 +560,6 @@ function enableSettings() {
     elements.widthInput.disabled = false;
     elements.linesSlider.disabled = false;
     elements.linesInput.disabled = false;
-    elements.pageWidthSlider.disabled = false;
-    elements.pageWidthInput.disabled = false;
     elements.maxLinesSlider.disabled = false;
     elements.maxLinesInput.disabled = false;
     elements.fontSlider.disabled = false;
