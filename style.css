@@ -473,6 +473,7 @@ body {
 /* 滚动式模式 - 从上方开始显示 */
 .focus-text.scroll-mode {
     justify-content: flex-start;
+    align-items: flex-start;
     padding-top: 20px;
 }
 
