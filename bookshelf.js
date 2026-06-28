@@ -43,6 +43,8 @@ class BookShelf {
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 this.handleFileUpload(e.target.files[0]);
+                // 重置文件输入，以便下次可以选择同一文件
+                fileInput.value = '';
             }
         });
 
@@ -71,8 +73,6 @@ class BookShelf {
             this.renderBooks();
             this.updateCategoryCounts();
             this.selectBook(book.id);
-            
-            alert(`✓ ${file.name} 已添加到书架`);
         } catch (error) {
             console.error('文件处理错误:', error);
             alert('文件处理失败，请检查文件格式');
