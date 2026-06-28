@@ -21,6 +21,7 @@ const state = {
     pausedTime: 0,
     totalPausedDuration: 0,
     fileType: 'txt', // 'txt' 或 'pdf'
+    scrollOffset: 0, // 用于滚动式的偏移
 };
 
 // ==================== DOM 元素 ====================
@@ -255,6 +256,7 @@ function startReading() {
     state.isPaused = false;
     state.startTime = Date.now() - state.totalPausedDuration;
     state.currentIndex = 0;
+    state.scrollOffset = 0;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -295,6 +297,7 @@ function stopReading() {
     state.currentIndex = 0;
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
+    state.scrollOffset = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -335,6 +338,11 @@ function startFocusLoop() {
         
         // 移动到下一批
         state.currentIndex += charsPerBatch;
+        
+        // 如果是滚动式，更新滚动偏移（每批显示lineCount行）
+        if (state.trainingMode === 'scroll') {
+            state.scrollOffset += state.lineCount;
+        }
     }
 
     // 立即显示第一批
@@ -388,13 +396,33 @@ function updateFocusDisplay() {
     let html = '';
     let lineLength = 0;
 
-    for (let i = 0; i < displayUnits.length; i++) {
-        html += displayUnits[i];
-        lineLength++;
+    // 固定式：显示完整批次
+    if (state.trainingMode === 'fixed') {
+        for (let i = 0; i < displayUnits.length; i++) {
+            html += displayUnits[i];
+            lineLength++;
 
-        if (lineLength >= state.lineWidth) {
-            html += '<br>';
-            lineLength = 0;
+            if (lineLength >= state.lineWidth) {
+                html += '<br>';
+                lineLength = 0;
+            }
+        }
+    } else {
+        // 滚动式：显示完整文本从头开始，加上滚动偏移
+        // 显示所有单位，但从滚动偏移的行开始显示
+        const charsToSkip = state.scrollOffset * state.lineWidth;
+        const startIdx = Math.min(charsToSkip, state.units.length);
+        const endIdx = Math.min(startIdx + charsPerBatch, state.units.length);
+        const scrollUnits = state.units.slice(startIdx, endIdx);
+        
+        for (let i = 0; i < scrollUnits.length; i++) {
+            html += scrollUnits[i];
+            lineLength++;
+
+            if (lineLength >= state.lineWidth) {
+                html += '<br>';
+                lineLength = 0;
+            }
         }
     }
 
@@ -522,6 +550,7 @@ function updateBookContent(fileType = 'txt') {
         state.currentIndex = 0;
         state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
+        state.scrollOffset = 0;
         tokenizeContent();
         resetDisplay();
         elements.startBtn.disabled = false;
