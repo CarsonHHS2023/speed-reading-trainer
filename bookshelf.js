@@ -56,15 +56,12 @@ class BookShelf {
 
     async handleFileUpload(file) {
         try {
-            const arrayBuffer = await file.arrayBuffer();
-            const content = await this.readFile(file, arrayBuffer);
-            
             const fileType = file.type === 'application/pdf' ? 'pdf' : 'txt';
             
             const book = {
                 id: Date.now(),
                 name: file.name,
-                content: content,
+                file: file, // 保存文件对象
                 fileType: fileType,
                 category: 'reading',
                 uploadDate: new Date().toLocaleString('zh-CN'),
@@ -82,13 +79,45 @@ class BookShelf {
         }
     }
 
-    async readFile(file, arrayBuffer) {
-        if (file.type === 'text/plain') {
-            return await this.decodeText(arrayBuffer);
-        } else if (file.type === 'application/pdf') {
-            return await this.extractPDFText(arrayBuffer);
-        } else {
-            throw new Error('不支持的文件类型');
+    selectBook(bookId) {
+        this.currentBook = this.books.find(b => b.id === bookId);
+        document.querySelectorAll('.book-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-book-id="${bookId}"]`)?.classList.add('active');
+        
+        if (this.currentBook) {
+            if (this.currentBook.fileType === 'pdf') {
+                // PDF 文件：发送到后端处理
+                window.processPDFFile(this.currentBook.file);
+            } else {
+                // TXT 文件：直接读取
+                this.readTxtFile(this.currentBook.file);
+            }
+        }
+    }
+
+    async readTxtFile(file) {
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const text = await this.decodeText(arrayBuffer);
+            
+            // 更新全局状态
+            state.content = text;
+            state.fileType = 'txt';
+            state.currentIndex = 0;
+            state.currentPageIndex = 0;
+            state.totalPausedDuration = 0;
+            state.currentLine = 0;
+            state.currentElementIndex = 0;
+            
+            tokenizeContent();
+            resetDisplay();
+            elements.startBtn.disabled = false;
+            
+        } catch (error) {
+            console.error('TXT 文件读取失败:', error);
+            alert('TXT 文件读取失败');
         }
     }
 
@@ -104,30 +133,6 @@ class BookShelf {
                 const decoder = new TextDecoder('latin1');
                 return decoder.decode(arrayBuffer);
             }
-        }
-    }
-
-    async extractPDFText(arrayBuffer) {
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let text = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            const pageText = content.items.map(item => item.str).join('');
-            text += pageText + '\n';
-        }
-        return text;
-    }
-
-    selectBook(bookId) {
-        this.currentBook = this.books.find(b => b.id === bookId);
-        document.querySelectorAll('.book-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        document.querySelector(`[data-book-id="${bookId}"]`)?.classList.add('active');
-        
-        if (this.currentBook) {
-            window.updateBookContent(this.currentBook.fileType);
         }
     }
 
@@ -251,7 +256,16 @@ class BookShelf {
     }
 
     saveBooks() {
-        localStorage.setItem('speedreader_books', JSON.stringify(this.books));
+        // 不保存文件对象，只保存书籍元数据
+        const booksData = this.books.map(b => ({
+            id: b.id,
+            name: b.name,
+            fileType: b.fileType,
+            category: b.category,
+            uploadDate: b.uploadDate,
+            progress: b.progress
+        }));
+        localStorage.setItem('speedreader_books', JSON.stringify(booksData));
     }
 
     loadBooks() {
