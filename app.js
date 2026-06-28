@@ -12,6 +12,7 @@ const state = {
     speed: 5000,
     lineWidth: 35,
     lineCount: 3,
+    savedPageLineWidth: 20, // 保存上次在整页式中设置的行宽
     pageLineWidth: 20,
     pageMaxLines: 20,
     fontSize: 28,
@@ -492,11 +493,19 @@ function updateFontSize() {
 
 function switchDisplayMode() {
     if (state.displayMode === 'focus') {
+        // 从整页式切换到焦点式：保存行宽
+        state.savedPageLineWidth = state.pageLineWidth;
+        
         elements.focusModeDisplay.classList.add('active');
         elements.pageModeDisplay.classList.remove('active');
         elements.focusSettings.style.display = 'block';
         elements.pageSettings.style.display = 'none';
     } else {
+        // 从焦点式切换到整页式：恢复之前保存的行宽
+        state.pageLineWidth = state.savedPageLineWidth;
+        elements.pageWidthSlider.value = state.pageLineWidth;
+        elements.pageWidthInput.value = state.pageLineWidth;
+        
         elements.focusModeDisplay.classList.remove('active');
         elements.pageModeDisplay.classList.add('active');
         elements.focusSettings.style.display = 'none';
