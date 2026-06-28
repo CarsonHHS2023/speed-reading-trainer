@@ -458,9 +458,10 @@ body {
     font-weight: 700;
     color: #333;
     line-height: 1.8;
-    text-align: center;
+    text-align: left;
     word-break: break-word;
-    width: 100%;
+    width: auto;
+    max-width: 80%;
     flex: 1;
     overflow: hidden;
     padding: 0 20px;
@@ -504,7 +505,8 @@ body {
     color: #333;
     white-space: pre-wrap;
     word-break: break-word;
-    text-align: center;
+    text-align: left;
+    max-width: 80%;
 }
 
 /* ==================== 模态框 ==================== */
