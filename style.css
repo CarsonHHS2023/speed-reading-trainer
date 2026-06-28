@@ -435,8 +435,7 @@ body {
 .display-mode {
     display: none;
     width: 100%;
-    height: 100%;
-    flex: 1;
+    overflow: hidden;
 }
 
 .display-mode.active {
@@ -445,7 +444,8 @@ body {
     align-items: center;
     padding: 20px;
     width: 100%;
-    height: 100%;
+    height: calc(100vh - 50px);
+    overflow: hidden;
 }
 
 /* 焦点式显示 */
