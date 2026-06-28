@@ -21,6 +21,9 @@ const state = {
     totalPausedDuration: 0,
     fileType: 'txt', // 'txt' 或 'pdf'
     scrollLineOffset: 0, // 用于滚动式的行偏移
+    focusMaxLines: 0, // 焦点式屏幕能容纳的行数
+    focusLineHeight: 0, // 焦点式每行高度
+    currentLine: 0, // 当前显示的起始行号
 };
 
 // ==================== DOM 元素 ====================
@@ -225,6 +228,25 @@ function generatePages() {
     }
 }
 
+// ==================== 计算焦点式参数 ====================
+function calculateFocusParameters() {
+    const focusContainer = elements.focusModeDisplay;
+    const containerHeight = focusContainer.clientHeight;
+    
+    // 计算单行高度（line-height: 1.8, fontSize: state.fontSize）
+    const lineHeight = 1.8 * state.fontSize;
+    
+    // 计算能容纳的最大行数
+    state.focusMaxLines = Math.floor(containerHeight / lineHeight);
+    state.focusLineHeight = containerHeight / state.focusMaxLines;
+    
+    console.log('calculateFocusParameters:');
+    console.log('  containerHeight:', containerHeight);
+    console.log('  lineHeight:', lineHeight);
+    console.log('  focusMaxLines:', state.focusMaxLines);
+    console.log('  focusLineHeight:', state.focusLineHeight);
+}
+
 // ==================== 阅读控制 ====================
 let readingInterval = null;
 
@@ -238,7 +260,7 @@ function startReading() {
     state.isPaused = false;
     state.startTime = Date.now() - state.totalPausedDuration;
     state.currentIndex = 0;
-    state.scrollLineOffset = 0;
+    state.currentLine = 0;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -279,7 +301,7 @@ function stopReading() {
     state.currentIndex = 0;
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
-    state.scrollLineOffset = 0;
+    state.currentLine = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -309,6 +331,10 @@ function startFocusLoop() {
     console.log('charsPerBatch:', charsPerBatch);
     console.log('intervalMs:', intervalMs);
     console.log('总字数:', state.units.length);
+    console.log('focusMaxLines:', state.focusMaxLines);
+
+    // 初始化 currentLine
+    state.currentLine = 0;
 
     function showNextBatch() {
         console.log('showNextBatch - currentIndex:', state.currentIndex, '总字数:', state.units.length);
@@ -331,10 +357,13 @@ function startFocusLoop() {
         state.currentIndex += charsPerBatch;
         console.log('移动后 currentIndex:', state.currentIndex);
         
-        // 滚动式：每批后更新行偏移，使得内容向上滚动
-        if (state.trainingMode === 'scroll') {
-            state.scrollLineOffset += state.lineCount;
-            console.log('滚动式 - scrollLineOffset:', state.scrollLineOffset);
+        // 更新 currentLine，并检查是否需要重置
+        state.currentLine += state.lineCount;
+        console.log('currentLine += lineCount:', state.currentLine);
+        
+        if (state.currentLine + state.lineCount > state.focusMaxLines) {
+            console.log('currentLine + lineCount > focusMaxLines，重置 currentLine 为 0');
+            state.currentLine = 0;
         }
     }
 
@@ -414,19 +443,10 @@ function updateFocusDisplay() {
     if (state.trainingMode === 'fixed') {
         elements.focusText.style.marginTop = '0';
     } else {
-        // 滚动式：计算应该显示在第几行，设置 margin-top，循环回到第一行
-        const batchNumber = Math.floor(state.currentIndex / charsPerBatch);
-        const topOffset = batchNumber * state.lineCount;
-        const lineHeight = 1.8 * state.fontSize;
-        
-        // 获取屏幕能显示的最大行数
-        const focusContainer = elements.focusModeDisplay;
-        const screenHeight = focusContainer.clientHeight - 40; // 减去 padding
-        const maxLines = Math.floor(screenHeight / lineHeight);
-        
-        // 对最大行数取模，循环回到第一行
-        const displayLines = topOffset % Math.max(maxLines, state.lineCount);
-        elements.focusText.style.marginTop = (displayLines * lineHeight) + 'px';
+        // 滚动式：使用 currentLine 和 focusLineHeight 计算显示位置
+        const marginTop = state.currentLine * state.focusLineHeight;
+        elements.focusText.style.marginTop = marginTop + 'px';
+        console.log('滚动式显示：currentLine =', state.currentLine, ', marginTop =', marginTop);
     }
 }
 
@@ -477,6 +497,9 @@ function switchDisplayMode() {
         elements.pageModeDisplay.classList.remove('active');
         elements.focusSettings.style.display = 'block';
         elements.pageSettings.style.display = 'none';
+        
+        // 切换到焦点式时：计算焦点式参数
+        calculateFocusParameters();
     } else {
         elements.focusModeDisplay.classList.remove('active');
         elements.pageModeDisplay.classList.add('active');
@@ -581,7 +604,7 @@ function updateBookContent(fileType = 'txt') {
         state.currentIndex = 0;
         state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
-        state.scrollLineOffset = 0;
+        state.currentLine = 0;
         tokenizeContent();
         resetDisplay();
         elements.startBtn.disabled = false;
