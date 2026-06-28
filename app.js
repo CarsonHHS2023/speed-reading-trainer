@@ -26,6 +26,12 @@ const state = {
     focusLineHeight: 0, // 焦点式每行高度
     currentLine: 0, // 当前显示的起始行号
     theme: 'light', // 'light' 或 'dark'
+    
+    // PDF 相关
+    pdfElements: [], // PDF 处理后的所有元素
+    currentElementIndex: 0, // 当前显示的元素索引
+    chartRotation: 0, // 图表旋转角度 (0, 90, 180, 270)
+    chartFlipped: false, // 图表是否垂直翻转
 };
 
 // ==================== DOM 元素 ====================
@@ -60,11 +66,17 @@ const elements = {
     focusSettings: document.getElementById('focusSettings'),
     pageSettings: document.getElementById('pageSettings'),
     themeToggleBtn: document.getElementById('themeToggleBtn'),
+    
+    // PDF 图表相关
+    chartDisplay: document.getElementById('chartDisplay'),
+    chartImage: document.getElementById('chartImage'),
+    rotateLeftBtn: document.getElementById('rotateLeftBtn'),
+    rotateRightBtn: document.getElementById('rotateRightBtn'),
+    flipVerticalBtn: document.getElementById('flipVerticalBtn'),
 };
 
 // ==================== 主题切换 ====================
 function initTheme() {
-    // 从 localStorage 读取主题设置
     const savedTheme = localStorage.getItem('theme') || 'light';
     state.theme = savedTheme;
     applyTheme(savedTheme);
@@ -88,6 +100,36 @@ function toggleTheme() {
     applyTheme(newTheme);
 }
 
+// ==================== 图表旋转和翻转 ====================
+function getChartTransform() {
+    let transform = `rotate(${state.chartRotation}deg)`;
+    if (state.chartFlipped) {
+        transform += ' scaleY(-1)';
+    }
+    return transform;
+}
+
+function updateChartDisplay() {
+    if (elements.chartImage && elements.chartImage.src) {
+        elements.chartImage.style.transform = getChartTransform();
+    }
+}
+
+function rotateChartLeft() {
+    state.chartRotation = (state.chartRotation - 90 + 360) % 360;
+    updateChartDisplay();
+}
+
+function rotateChartRight() {
+    state.chartRotation = (state.chartRotation + 90) % 360;
+    updateChartDisplay();
+}
+
+function flipChartVertical() {
+    state.chartFlipped = !state.chartFlipped;
+    updateChartDisplay();
+}
+
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
     // 初始化主题
@@ -95,6 +137,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 主题切换按钮
     elements.themeToggleBtn.addEventListener('click', toggleTheme);
+    
+    // 图表控制按钮
+    elements.rotateLeftBtn.addEventListener('click', rotateChartLeft);
+    elements.rotateRightBtn.addEventListener('click', rotateChartRight);
+    elements.flipVerticalBtn.addEventListener('click', flipChartVertical);
+    
+    // 图表点击事件 - 点击图表本身继续阅读
+    elements.chartImage.addEventListener('click', (e) => {
+        // 确保点击的是图表本身，不是按钮
+        if (e.target === elements.chartImage && state.isPaused && state.fileType === 'pdf') {
+            continueFromChart();
+        }
+    });
     
     // 速度设置
     elements.speedSlider.addEventListener('input', (e) => {
@@ -322,6 +377,7 @@ function startReading() {
     state.startTime = Date.now() - state.totalPausedDuration;
     state.currentIndex = 0;
     state.currentLine = 0;
+    state.currentElementIndex = 0;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -349,7 +405,6 @@ function resumeReading() {
     state.isPaused = false;
     const pauseDuration = Date.now() - state.pausedTime;
     state.totalPausedDuration += pauseDuration;
-    // 重新调整startTime，将暂停时间从计时中排除
     state.startTime += pauseDuration;
 
     elements.pauseBtn.disabled = false;
@@ -366,6 +421,7 @@ function stopReading() {
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
     state.currentLine = 0;
+    state.currentElementIndex = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -379,17 +435,97 @@ function stopReading() {
 }
 
 function startReadingLoop() {
-    if (state.displayMode === 'focus') {
+    if (state.fileType === 'pdf') {
+        startPDFLoop();
+    } else if (state.displayMode === 'focus') {
         startFocusLoop();
     } else {
         startPageLoop();
     }
 }
 
+// ==================== PDF 阅读循环 ====================
+function startPDFLoop() {
+    console.log('=== 开始 PDF 阅读 ===');
+    console.log('总元素数:', state.pdfElements.length);
+    
+    if (state.currentElementIndex >= state.pdfElements.length) {
+        onReadingComplete();
+        return;
+    }
+    
+    showNextPDFElement();
+}
+
+function showNextPDFElement() {
+    if (state.currentElementIndex >= state.pdfElements.length) {
+        onReadingComplete();
+        return;
+    }
+    
+    const element = state.pdfElements[state.currentElementIndex];
+    
+    if (element.type === 'text') {
+        // 文字元素：根据字数计算停留时间
+        displayTextElement(element);
+        const stopDuration = (60000 / state.speed) * element.textCount;
+        
+        state.currentElementIndex++;
+        updateProgress();
+        
+        readingInterval = setTimeout(() => {
+            if (state.isPlaying) {
+                showNextPDFElement();
+            }
+        }, stopDuration);
+        
+    } else if (element.type === 'image') {
+        // 图表元素：显示并等待点击
+        displayChartElement(element);
+        state.isPaused = true;
+        // 等待用户点击图表继续
+    }
+}
+
+function displayTextElement(element) {
+    // 隐藏图表，显示文字
+    elements.chartDisplay.style.display = 'none';
+    elements.focusModeDisplay.style.display = 'block';
+    elements.pageModeDisplay.style.display = 'none';
+    
+    // 显示文字内容
+    elements.focusText.textContent = element.content;
+    elements.focusText.style.fontSize = state.fontSize + 'px';
+    elements.focusText.style.fontWeight = state.fontWeight;
+}
+
+function displayChartElement(element) {
+    // 隐藏文字，显示图表
+    elements.focusModeDisplay.style.display = 'none';
+    elements.pageModeDisplay.style.display = 'none';
+    elements.chartDisplay.style.display = 'flex';
+    
+    // 设置图表图片
+    elements.chartImage.src = element.content;
+    
+    // 重置旋转和翻转
+    state.chartRotation = 0;
+    state.chartFlipped = false;
+    updateChartDisplay();
+}
+
+function continueFromChart() {
+    console.log('继续阅读（从图表）');
+    state.currentElementIndex++;
+    state.isPaused = false;
+    state.isPlaying = true;
+    showNextPDFElement();
+}
+
 // ==================== 焦点式显示循环（完整行数模式） ====================
 function startFocusLoop() {
-    const charsPerBatch = state.lineWidth * state.lineCount; // 每批显示的字数
-    const intervalMs = (60000 / state.speed) * charsPerBatch; // 停留时间（毫秒）
+    const charsPerBatch = state.lineWidth * state.lineCount;
+    const intervalMs = (60000 / state.speed) * charsPerBatch;
 
     console.log('=== startFocusLoop 开始 ===');
     console.log('charsPerBatch:', charsPerBatch);
@@ -398,7 +534,6 @@ function startFocusLoop() {
     console.log('focusMaxLines:', state.focusMaxLines);
     console.log('focusLineHeight:', state.focusLineHeight);
 
-    // 初始化 currentLine
     state.currentLine = 0;
 
     function showNextBatch() {
@@ -411,18 +546,14 @@ function startFocusLoop() {
             return;
         }
 
-        // 显示当前批次
         console.log('调用 updateFocusDisplay()');
         updateFocusDisplay();
         
-        // 更新进度
         updateProgress();
         
-        // 移动到下一批
         state.currentIndex += charsPerBatch;
         console.log('移动后 currentIndex:', state.currentIndex);
         
-        // 更新 currentLine，并检查是否需要重置
         state.currentLine += state.lineCount;
         console.log('currentLine += lineCount:', state.currentLine, 'focusMaxLines:', state.focusMaxLines);
         
@@ -432,17 +563,14 @@ function startFocusLoop() {
         }
     }
 
-    // 立即显示第一批
     console.log('--- 立即显示第一批 ---');
     showNextBatch();
     
-    // 清除旧的定时器（防止多个定时器并存）
     if (readingInterval) {
         console.log('清除旧定时器');
         clearInterval(readingInterval);
     }
     
-    // 然后每隔 intervalMs 毫秒显示下一批
     console.log('设置定时器，间隔:', intervalMs, 'ms');
     readingInterval = setInterval(() => {
         if (state.isPlaying) {
@@ -453,7 +581,6 @@ function startFocusLoop() {
 }
 
 function startPageLoop() {
-    // 整页式按页停留，时间根据该页字符数计算
     if (state.currentPageIndex >= state.pages.length) {
         onReadingComplete();
         return;
@@ -476,6 +603,10 @@ function startPageLoop() {
 
 // ==================== 显示更新 ====================
 function updateDisplay() {
+    if (state.fileType === 'pdf') {
+        return; // PDF 自己管理显示
+    }
+    
     if (state.displayMode === 'focus') {
         updateFocusDisplay();
     } else {
@@ -504,11 +635,9 @@ function updateFocusDisplay() {
 
     elements.focusText.innerHTML = html;
 
-    // 固定式：始终显示在屏幕中央
     if (state.trainingMode === 'fixed') {
         elements.focusText.style.marginTop = '0';
     } else {
-        // 滚动式：使用 currentLine 和 focusLineHeight 计算显示位置
         const marginTop = state.currentLine * state.focusLineHeight;
         elements.focusText.style.marginTop = marginTop + 'px';
         console.log('滚动式显示：currentLine =', state.currentLine, ', marginTop =', marginTop, ', focusLineHeight =', state.focusLineHeight);
@@ -527,14 +656,25 @@ function resetDisplay() {
     elements.focusText.textContent = '选择书籍开始阅读';
     elements.focusText.style.marginTop = '0';
     elements.pageText.textContent = '选择书籍开始阅读';
+    elements.chartDisplay.style.display = 'none';
 }
 
 // ==================== 进度更新 ====================
 function updateProgress() {
-    const totalUnits = state.units.length;
-    const percentage = totalUnits > 0 ? Math.round((state.currentIndex / totalUnits) * 100) : 0;
+    let totalUnits, currentIndex;
+    
+    if (state.fileType === 'pdf') {
+        totalUnits = state.pdfElements.length;
+        currentIndex = state.currentElementIndex;
+    } else {
+        totalUnits = state.units.length;
+        currentIndex = state.currentIndex;
+    }
+    
+    const percentage = totalUnits > 0 ? Math.round((currentIndex / totalUnits) * 100) : 0;
 
-    elements.currentPos.textContent = state.currentIndex;
+    elements.currentPos.textContent = currentIndex;
+    elements.totalWords.textContent = totalUnits;
     elements.progressFill.style.width = percentage + '%';
 
     if (state.isPlaying) {
@@ -568,7 +708,6 @@ function switchDisplayMode() {
         elements.focusSettings.style.display = 'block';
         elements.pageSettings.style.display = 'none';
         
-        // 切换到焦点式时：计算焦点式参数
         calculateFocusParameters();
     } else {
         elements.focusModeDisplay.classList.remove('active');
@@ -576,10 +715,8 @@ function switchDisplayMode() {
         elements.focusSettings.style.display = 'none';
         elements.pageSettings.style.display = 'block';
         
-        // 切换到整页式时：只重新计算最大行数，不改变行宽
         recalculatePageMaxLines();
         
-        // 重新生成页面
         if (state.content) {
             generatePages();
         }
@@ -587,20 +724,15 @@ function switchDisplayMode() {
 }
 
 function recalculatePageMaxLines() {
-    // 获取页面显示容器的实际高度
     const pageContainer = elements.pageModeDisplay;
     const containerHeight = pageContainer.clientHeight;
     
-    // 计算单行高度（line-height: 1.8, fontSize: state.fontSize）
     const lineHeight = 1.8 * state.fontSize;
     
-    // 计算能容纳的最大行数（保守计算，预留5%的空间防止溢出）
     const maxLines = Math.floor((containerHeight * 0.95) / lineHeight);
     
-    // 至少显示1行，最多显示50行
     state.pageMaxLines = Math.max(1, Math.min(maxLines, 50));
     
-    // 更新UI控件显示最新的pageMaxLines
     elements.maxLinesSlider.value = state.pageMaxLines;
     elements.maxLinesInput.value = state.pageMaxLines;
 }
@@ -669,6 +801,76 @@ function onReadingComplete() {
     stopReading();
 }
 
+// ==================== PDF 处理 ====================
+async function processPDFFile(file) {
+    try {
+        console.log('开始处理 PDF:', file.name);
+        
+        const formData = new FormData();
+        formData.append('pdf', file);
+        
+        // 后端 URL
+        const backendURL = 'https://pdf-processor-backend-2bnr.onrender.com';
+        
+        const response = await fetch(`${backendURL}/api/process-pdf`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('PDF 处理完成:', result);
+        
+        // 转换后端数据为阅读程序格式
+        const elements = [];
+        
+        result.data.pages.forEach((page, pageIndex) => {
+            if (page.elements && Array.isArray(page.elements)) {
+                page.elements.forEach((elem) => {
+                    if (elem.type === 'text') {
+                        elements.push({
+                            type: 'text',
+                            content: elem.content,
+                            textCount: elem.textCount || elem.content.length,
+                            pageNum: pageIndex + 1
+                        });
+                    } else if (elem.type === 'image') {
+                        elements.push({
+                            type: 'image',
+                            content: elem.content,
+                            isChart: elem.isChart,
+                            pageNum: pageIndex + 1
+                        });
+                    }
+                });
+            }
+        });
+        
+        state.pdfElements = elements;
+        state.content = file.name; // 用文件名作为内容标识
+        state.fileType = 'pdf';
+        state.currentIndex = 0;
+        state.currentElementIndex = 0;
+        state.totalPausedDuration = 0;
+        
+        // 更新进度显示
+        elements.totalWords.textContent = elements.length;
+        elements.currentPos.textContent = '0';
+        
+        resetDisplay();
+        elements.startBtn.disabled = false;
+        
+        console.log('PDF 处理完成，元素数:', elements.length);
+        
+    } catch (error) {
+        console.error('PDF 处理失败:', error);
+        alert('PDF 处理失败：' + error.message);
+    }
+}
+
 // ==================== 与书架系统联动 ====================
 function updateBookContent(fileType = 'txt') {
     if (bookshelf?.currentBook) {
@@ -678,6 +880,7 @@ function updateBookContent(fileType = 'txt') {
         state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
         state.currentLine = 0;
+        state.currentElementIndex = 0;
         tokenizeContent();
         resetDisplay();
         elements.startBtn.disabled = false;
