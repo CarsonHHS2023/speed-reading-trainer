@@ -305,7 +305,10 @@ function pauseReading() {
 function resumeReading() {
     state.isPlaying = true;
     state.isPaused = false;
-    state.totalPausedDuration += Date.now() - state.pausedTime;
+    const pauseDuration = Date.now() - state.pausedTime;
+    state.totalPausedDuration += pauseDuration;
+    // 重新调整startTime，将暂停时间从计时中排除
+    state.startTime += pauseDuration;
 
     elements.pauseBtn.disabled = false;
     elements.resumeBtn.disabled = true;
@@ -351,6 +354,7 @@ function startFocusLoop() {
     console.log('intervalMs:', intervalMs);
     console.log('总字数:', state.units.length);
     console.log('focusMaxLines:', state.focusMaxLines);
+    console.log('focusLineHeight:', state.focusLineHeight);
 
     // 初始化 currentLine
     state.currentLine = 0;
@@ -378,7 +382,7 @@ function startFocusLoop() {
         
         // 更新 currentLine，并检查是否需要重置
         state.currentLine += state.lineCount;
-        console.log('currentLine += lineCount:', state.currentLine);
+        console.log('currentLine += lineCount:', state.currentLine, 'focusMaxLines:', state.focusMaxLines);
         
         if (state.currentLine + state.lineCount > state.focusMaxLines) {
             console.log('currentLine + lineCount > focusMaxLines，重置 currentLine 为 0');
@@ -465,7 +469,7 @@ function updateFocusDisplay() {
         // 滚动式：使用 currentLine 和 focusLineHeight 计算显示位置
         const marginTop = state.currentLine * state.focusLineHeight;
         elements.focusText.style.marginTop = marginTop + 'px';
-        console.log('滚动式显示：currentLine =', state.currentLine, ', marginTop =', marginTop);
+        console.log('滚动式显示：currentLine =', state.currentLine, ', marginTop =', marginTop, ', focusLineHeight =', state.focusLineHeight);
     }
 }
 
