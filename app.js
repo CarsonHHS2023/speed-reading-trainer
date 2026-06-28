@@ -21,7 +21,7 @@ const state = {
     pausedTime: 0,
     totalPausedDuration: 0,
     fileType: 'txt', // 'txt' 或 'pdf'
-    scrollOffset: 0, // 用于滚动式的偏移
+    scrollLineOffset: 0, // 用于滚动式的行偏移
 };
 
 // ==================== DOM 元素 ====================
@@ -256,7 +256,7 @@ function startReading() {
     state.isPaused = false;
     state.startTime = Date.now() - state.totalPausedDuration;
     state.currentIndex = 0;
-    state.scrollOffset = 0;
+    state.scrollLineOffset = 0;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -297,7 +297,7 @@ function stopReading() {
     state.currentIndex = 0;
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
-    state.scrollOffset = 0;
+    state.scrollLineOffset = 0;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -339,9 +339,9 @@ function startFocusLoop() {
         // 移动到下一批
         state.currentIndex += charsPerBatch;
         
-        // 如果是滚动式，更新滚动偏移（每批显示lineCount行）
+        // 滚动式：每批后更新行偏移，使得内容向上滚动
         if (state.trainingMode === 'scroll') {
-            state.scrollOffset += state.lineCount;
+            state.scrollLineOffset += state.lineCount;
         }
     }
 
@@ -396,7 +396,7 @@ function updateFocusDisplay() {
     let html = '';
     let lineLength = 0;
 
-    // 固定式：显示完整批次
+    // 固定式：直接显示当前批次
     if (state.trainingMode === 'fixed') {
         for (let i = 0; i < displayUnits.length; i++) {
             html += displayUnits[i];
@@ -408,12 +408,11 @@ function updateFocusDisplay() {
             }
         }
     } else {
-        // 滚动式：显示完整文本从头开始，加上滚动偏移
-        // 显示所有单位，但从滚动偏移的行开始显示
-        const charsToSkip = state.scrollOffset * state.lineWidth;
-        const startIdx = Math.min(charsToSkip, state.units.length);
-        const endIdx = Math.min(startIdx + charsPerBatch, state.units.length);
-        const scrollUnits = state.units.slice(startIdx, endIdx);
+        // 滚动式：从头开始，根据scrollLineOffset往下显示
+        const charsToSkip = state.scrollLineOffset * state.lineWidth;
+        const scrollStart = Math.min(charsToSkip, state.units.length);
+        const scrollEnd = Math.min(scrollStart + charsPerBatch, state.units.length);
+        const scrollUnits = state.units.slice(scrollStart, scrollEnd);
         
         for (let i = 0; i < scrollUnits.length; i++) {
             html += scrollUnits[i];
@@ -550,7 +549,7 @@ function updateBookContent(fileType = 'txt') {
         state.currentIndex = 0;
         state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
-        state.scrollOffset = 0;
+        state.scrollLineOffset = 0;
         tokenizeContent();
         resetDisplay();
         elements.startBtn.disabled = false;
