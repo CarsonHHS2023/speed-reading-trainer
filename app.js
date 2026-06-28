@@ -174,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 训练模式
     elements.trainingMode.addEventListener('change', (e) => {
         state.trainingMode = e.target.value;
+        updateTrainingModeClass();
         if (state.isPaused && state.displayMode === 'focus') {
             updateDisplay();
         }
@@ -502,6 +503,14 @@ function switchDisplayMode() {
     }
 }
 
+function updateTrainingModeClass() {
+    if (state.trainingMode === 'scroll') {
+        elements.focusText.classList.add('scroll-mode');
+    } else {
+        elements.focusText.classList.remove('scroll-mode');
+    }
+}
+
 function disableSettingsDuringReading() {
     elements.language.disabled = true;
     elements.speedSlider.disabled = true;
@@ -580,3 +589,4 @@ function updateBookContent(fileType = 'txt') {
 updateSpeedUnit();
 updateFontSize();
 switchDisplayMode();
+updateTrainingModeClass();
