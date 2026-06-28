@@ -127,11 +127,25 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.fontInput.value = e.target.value;
         state.fontSize = parseInt(e.target.value);
         updateFontSize();
+        // 重新计算焦点式参数
+        if (state.displayMode === 'focus') {
+            calculateFocusParameters();
+            if (state.isPaused) {
+                updateDisplay();
+            }
+        }
     });
     elements.fontInput.addEventListener('change', (e) => {
         elements.fontSlider.value = e.target.value;
         state.fontSize = parseInt(e.target.value);
         updateFontSize();
+        // 重新计算焦点式参数
+        if (state.displayMode === 'focus') {
+            calculateFocusParameters();
+            if (state.isPaused) {
+                updateDisplay();
+            }
+        }
     });
 
     // 语言设置
@@ -236,12 +250,17 @@ function calculateFocusParameters() {
     // 计算单行高度（line-height: 1.8, fontSize: state.fontSize）
     const lineHeight = 1.8 * state.fontSize;
     
+    // 屏幕高度减掉一个字体高度
+    const effectiveHeight = containerHeight - state.fontSize;
+    
     // 计算能容纳的最大行数
-    state.focusMaxLines = Math.floor(containerHeight / lineHeight);
-    state.focusLineHeight = containerHeight / state.focusMaxLines;
+    state.focusMaxLines = Math.floor(effectiveHeight / lineHeight);
+    state.focusLineHeight = effectiveHeight / state.focusMaxLines;
     
     console.log('calculateFocusParameters:');
     console.log('  containerHeight:', containerHeight);
+    console.log('  fontSize:', state.fontSize);
+    console.log('  effectiveHeight:', effectiveHeight);
     console.log('  lineHeight:', lineHeight);
     console.log('  focusMaxLines:', state.focusMaxLines);
     console.log('  focusLineHeight:', state.focusLineHeight);
