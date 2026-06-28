@@ -501,7 +501,34 @@ function switchDisplayMode() {
         elements.pageModeDisplay.classList.add('active');
         elements.focusSettings.style.display = 'none';
         elements.pageSettings.style.display = 'block';
+        
+        // 切换到整页式时：重新计算最大行数
+        recalculatePageMaxLines();
+        
+        // 重新生成页面
+        if (state.content) {
+            generatePages();
+        }
     }
+}
+
+function recalculatePageMaxLines() {
+    // 获取页面显示容器的实际高度
+    const pageContainer = elements.pageModeDisplay;
+    const containerHeight = pageContainer.clientHeight;
+    
+    // 计算单行高度（line-height: 1.8, fontSize: state.fontSize）
+    const lineHeight = 1.8 * state.fontSize;
+    
+    // 计算能容纳的最大行数（保守计算，预留5%的空间防止溢出）
+    const maxLines = Math.floor((containerHeight * 0.95) / lineHeight);
+    
+    // 至少显示1行，最多显示50行
+    state.pageMaxLines = Math.max(1, Math.min(maxLines, 50));
+    
+    // 更新UI控件
+    elements.maxLinesSlider.value = state.pageMaxLines;
+    elements.maxLinesInput.value = state.pageMaxLines;
 }
 
 function updateTrainingModeClass() {
