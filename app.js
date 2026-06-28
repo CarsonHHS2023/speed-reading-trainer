@@ -502,10 +502,10 @@ function switchDisplayMode() {
         elements.focusSettings.style.display = 'none';
         elements.pageSettings.style.display = 'block';
         
-        // 切换到整页式时：重新计算最大行数
+        // 切换到整页式时：只重新计算最大行数，不改变行宽
         recalculatePageMaxLines();
         
-        // 重新生成页面
+        // 重新生成页面（使用新的pageMaxLines，但保持pageLineWidth不变）
         if (state.content) {
             generatePages();
         }
@@ -526,7 +526,7 @@ function recalculatePageMaxLines() {
     // 至少显示1行，最多显示50行
     state.pageMaxLines = Math.max(1, Math.min(maxLines, 50));
     
-    // 更新UI控件
+    // 更新UI控件显示最新的pageMaxLines，但不改变pageLineWidth
     elements.maxLinesSlider.value = state.pageMaxLines;
     elements.maxLinesInput.value = state.pageMaxLines;
 }
