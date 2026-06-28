@@ -13,6 +13,13 @@ html, body {
 body {
     font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
     background: #f5f5f5;
+    color: #333;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode {
+    background: #1e1e1e;
+    color: #e0e0e0;
 }
 
 /* ==================== 总体布局 ==================== */
@@ -41,6 +48,12 @@ body {
     overflow: hidden;
     flex-shrink: 0;
     width: 720px;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+body.dark-mode .left-panel {
+    background: #2d2d2d;
+    border-right-color: #444;
 }
 
 /* 标题 */
@@ -52,6 +65,33 @@ body {
     flex-shrink: 0;
     font-size: 1.2rem;
     font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.3s ease;
+}
+
+body.dark-mode .app-title {
+    background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
+    border-bottom-color: #3a3f5f;
+}
+
+.theme-toggle-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
 }
 
 /* 书架和设置容器（并排） */
@@ -72,6 +112,12 @@ body {
     border-right: 1px solid rgba(0, 0, 0, 0.1);
     overflow: hidden;
     flex-shrink: 0;
+    transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+body.dark-mode .shelf-panel {
+    background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
+    border-right-color: #555;
 }
 
 .shelf-header {
@@ -82,6 +128,11 @@ body {
     background: rgba(0, 0, 0, 0.1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
     flex-shrink: 0;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .shelf-header {
+    background: rgba(0, 0, 0, 0.3);
 }
 
 .shelf-header h2 {
@@ -248,6 +299,12 @@ body {
     border-right: 1px solid #ddd;
     overflow: hidden;
     flex-shrink: 0;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+body.dark-mode .settings-panel {
+    background: #2d2d2d;
+    border-right-color: #444;
 }
 
 .settings-header {
@@ -255,6 +312,12 @@ body {
     background: #f5f5f5;
     border-bottom: 1px solid #ddd;
     flex-shrink: 0;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+body.dark-mode .settings-header {
+    background: #333;
+    border-bottom-color: #444;
 }
 
 .settings-header h2 {
@@ -284,6 +347,11 @@ body {
     font-size: 0.8rem;
     font-weight: 600;
     color: #333;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .setting-group label {
+    color: #e0e0e0;
 }
 
 .setting-group select {
@@ -292,6 +360,15 @@ body {
     border-radius: 3px;
     font-size: 0.85rem;
     width: 100%;
+    background: white;
+    color: #333;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode .setting-group select {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
 }
 
 .setting-group input[type="number"] {
@@ -301,6 +378,15 @@ body {
     font-size: 0.85rem;
     width: 80px;
     flex-shrink: 0;
+    background: white;
+    color: #333;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode .setting-group input[type="number"] {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
 }
 
 .speed-control,
@@ -328,6 +414,16 @@ body {
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.85rem;
+    background: white;
+    color: #333;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode .speed-control input[type="number"],
+body.dark-mode .slider-control input[type="number"] {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
 }
 
 .speed-control span,
@@ -337,6 +433,12 @@ body {
     white-space: nowrap;
     flex-shrink: 0;
     min-width: auto;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .speed-control span,
+body.dark-mode .slider-control span {
+    color: #aaa;
 }
 
 .button-group {
@@ -362,6 +464,10 @@ body {
     grid-column: 1 / -1;
 }
 
+body.dark-mode .btn-primary {
+    background: linear-gradient(135deg, #3a3f5f, #4a3a5f);
+}
+
 .btn-primary:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
@@ -371,10 +477,21 @@ body {
     background: #f0f0f0;
     color: #333;
     border: 1px solid #ddd;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode .btn-secondary {
+    background: #3a3a3a;
+    color: #e0e0e0;
+    border-color: #555;
 }
 
 .btn-secondary:hover:not(:disabled) {
     background: #e8e8e8;
+}
+
+body.dark-mode .btn-secondary:hover:not(:disabled) {
+    background: #4a4a4a;
 }
 
 .btn:disabled {
@@ -390,6 +507,12 @@ body {
     flex-shrink: 0;
     width: 100%;
     overflow: hidden;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+body.dark-mode .progress-section {
+    background: #333;
+    border-top-color: #444;
 }
 
 .progress-bar {
@@ -399,6 +522,11 @@ body {
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 4px;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .progress-bar {
+    background: #4a4a4a;
 }
 
 .progress-fill {
@@ -408,6 +536,10 @@ body {
     transition: width 0.3s ease;
 }
 
+body.dark-mode .progress-fill {
+    background: linear-gradient(90deg, #3a3f5f, #4a3a5f);
+}
+
 .progress-info {
     font-size: 0.75rem;
     color: #666;
@@ -415,12 +547,22 @@ body {
     justify-content: space-between;
     width: 100%;
     overflow: hidden;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .progress-info {
+    color: #aaa;
 }
 
 .time-display {
     font-weight: 600;
     color: #667eea;
     flex-shrink: 0;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .time-display {
+    color: #7a8cff;
 }
 
 /* ==================== 右侧阅读区 ==================== */
@@ -430,6 +572,11 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .reading-panel {
+    background: #1e1e1e;
 }
 
 .display-mode {
@@ -451,6 +598,11 @@ body {
 /* 焦点式显示 */
 #focusModeDisplay {
     background: white;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode #focusModeDisplay {
+    background: #1e1e1e;
 }
 
 .focus-text {
@@ -469,6 +621,11 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .focus-text {
+    color: #e0e0e0;
 }
 
 /* 滚动式模式 - 从上方开始显示，水平居中，循环回到第一行 */
@@ -484,6 +641,11 @@ body {
     justify-content: center;
     align-items: center;
     padding: 0;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode #pageModeDisplay {
+    background: #1e1e1e;
 }
 
 .page-content {
@@ -496,6 +658,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .page-content {
+    background: #2d2d2d;
 }
 
 .page-text {
@@ -505,6 +672,11 @@ body {
     white-space: pre-wrap;
     word-break: break-word;
     text-align: center;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .page-text {
+    color: #e0e0e0;
 }
 
 /* ==================== 模态框 ==================== */
@@ -519,6 +691,11 @@ body {
     z-index: 1000;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .modal {
+    background: rgba(0, 0, 0, 0.7);
 }
 
 .modal.show {
@@ -530,6 +707,11 @@ body {
     border-radius: 6px;
     min-width: 300px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode .modal-content {
+    background: #2d2d2d;
 }
 
 .modal-header {
@@ -538,11 +720,21 @@ body {
     align-items: center;
     padding: 16px;
     border-bottom: 1px solid #ddd;
+    transition: border-color 0.3s ease;
+}
+
+body.dark-mode .modal-header {
+    border-bottom-color: #444;
 }
 
 .modal-header h3 {
     font-size: 1rem;
     color: #333;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .modal-header h3 {
+    color: #e0e0e0;
 }
 
 .close-btn {
@@ -551,6 +743,11 @@ body {
     font-size: 1.5rem;
     cursor: pointer;
     color: #666;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .close-btn {
+    color: #aaa;
 }
 
 #categoryInput {
@@ -560,6 +757,15 @@ body {
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 1rem;
+    background: white;
+    color: #333;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+body.dark-mode #categoryInput {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
 }
 
 .modal-footer {
@@ -576,13 +782,27 @@ body {
 
 ::-webkit-scrollbar-track {
     background: #f1f1f1;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+    background: #3a3a3a;
 }
 
 ::-webkit-scrollbar-thumb {
     background: #ccc;
     border-radius: 3px;
+    transition: background-color 0.3s ease;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #555;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: #999;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #777;
 }
