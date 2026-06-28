@@ -24,6 +24,7 @@ const state = {
     focusMaxLines: 0, // 焦点式屏幕能容纳的行数
     focusLineHeight: 0, // 焦点式每行高度
     currentLine: 0, // 当前显示的起始行号
+    theme: 'light', // 'light' 或 'dark'
 };
 
 // ==================== DOM 元素 ====================
@@ -56,10 +57,43 @@ const elements = {
     pageText: document.getElementById('pageText'),
     focusSettings: document.getElementById('focusSettings'),
     pageSettings: document.getElementById('pageSettings'),
+    themeToggleBtn: document.getElementById('themeToggleBtn'),
 };
+
+// ==================== 主题切换 ====================
+function initTheme() {
+    // 从 localStorage 读取主题设置
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    state.theme = savedTheme;
+    applyTheme(savedTheme);
+}
+
+function applyTheme(theme) {
+    const body = document.body;
+    if (theme === 'dark') {
+        body.classList.add('dark-mode');
+        elements.themeToggleBtn.textContent = '☀️';
+    } else {
+        body.classList.remove('dark-mode');
+        elements.themeToggleBtn.textContent = '🌙';
+    }
+    state.theme = theme;
+    localStorage.setItem('theme', theme);
+}
+
+function toggleTheme() {
+    const newTheme = state.theme === 'light' ? 'dark' : 'light';
+    applyTheme(newTheme);
+}
 
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
+    // 初始化主题
+    initTheme();
+    
+    // 主题切换按钮
+    elements.themeToggleBtn.addEventListener('click', toggleTheme);
+    
     // 速度设置
     elements.speedSlider.addEventListener('input', (e) => {
         elements.speedInput.value = e.target.value;
