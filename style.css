@@ -1,3 +1,454 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: #f5f5f5;
+}
+
+/* ==================== 总体布局 ==================== */
+.app-wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
+
+/* 主体内容区 */
+.app-body {
+    display: flex;
+    flex: 1;
+    gap: 0;
+    overflow: hidden;
+}
+
+/* ==================== 左侧面板（书架+设置） ==================== */
+.left-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: white;
+    border-right: 1px solid #ddd;
+    overflow: hidden;
+    flex-shrink: 0;
+    width: 720px;
+}
+
+/* 标题 */
+.app-title {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 16px;
+    border-bottom: 2px solid #5a5a8a;
+    flex-shrink: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+/* 书架和设置容器（并排） */
+.left-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 0;
+}
+
+/* 书架栏 */
+.shelf-panel {
+    width: 360px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.shelf-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
+}
+
+.shelf-header h2 {
+    font-size: 0.95rem;
+    flex: 1;
+}
+
+.icon-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.icon-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+/* 上传区域 */
+.upload-zone {
+    padding: 10px;
+    margin: 8px;
+    border: 2px dashed rgba(255, 255, 255, 0.5);
+    border-radius: 6px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.upload-zone:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+
+.upload-zone.drag-over {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: white;
+}
+
+.upload-prompt {
+    font-size: 0.8rem;
+    line-height: 1.3;
+}
+
+.upload-prompt label {
+    cursor: pointer;
+    text-decoration: underline;
+    color: #ffd700;
+}
+
+/* 分类列表 */
+.categories {
+    padding: 8px;
+    flex-shrink: 0;
+}
+
+.category {
+    margin-bottom: 4px;
+}
+
+.category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    user-select: none;
+    font-size: 0.85rem;
+}
+
+.category-header:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.category-header.active {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.book-count {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+}
+
+/* 书籍列表 */
+.books-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    font-size: 0.8rem;
+}
+
+.book-item {
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.book-item:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.book-item.active {
+    background: rgba(255, 255, 255, 0.3);
+    font-weight: bold;
+}
+
+.book-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.book-item-actions {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.book-item-action {
+    background: rgba(0, 0, 0, 0.2);
+    border: none;
+    color: white;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.book-item-action:hover {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+/* 设置栏 */
+.settings-panel {
+    width: 360px;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #ddd;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.settings-header {
+    padding: 8px 12px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+}
+
+.settings-header h2 {
+    font-size: 0.95rem;
+}
+
+.settings-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    overflow: hidden;
+}
+
+.setting-group label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.setting-group select {
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    width: 100%;
+}
+
+.setting-group input[type="number"] {
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    width: 80px;
+    flex-shrink: 0;
+}
+
+.speed-control,
+.slider-control {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+    flex-wrap: nowrap;
+}
+
+.speed-control input[type="range"],
+.slider-control input[type="range"] {
+    flex: 1;
+    height: 4px;
+    cursor: pointer;
+    min-width: 50px;
+}
+
+.speed-control input[type="number"],
+.slider-control input[type="number"] {
+    width: 80px;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
+}
+
+.speed-control span,
+.slider-control span {
+    font-size: 0.75rem;
+    color: #666;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: auto;
+}
+
+.button-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.btn {
+    padding: 8px;
+    border: none;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    grid-column: 1 / -1;
+}
+
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: #f0f0f0;
+    color: #333;
+    border: 1px solid #ddd;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #e8e8e8;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 进度条（设置栏下方） */
+.progress-section {
+    padding: 10px;
+    border-top: 1px solid #ddd;
+    background: #f9f9f9;
+    flex-shrink: 0;
+    width: 100%;
+    overflow: hidden;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.progress-info {
+    font-size: 0.75rem;
+    color: #666;
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    overflow: hidden;
+}
+
+.time-display {
+    font-weight: 600;
+    color: #667eea;
+    flex-shrink: 0;
+}
+
+/* ==================== 右侧阅读区 ==================== */
+.reading-panel {
+    flex: 1;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.display-mode {
+    display: none;
+    width: 100%;
+    height: 100%;
+    flex: 1;
+}
+
+.display-mode.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 20px;
+    width: 100%;
+    height: 100%;
+}
+
 /* 焦点式显示 */
 #focusModeDisplay {
     background: white;
@@ -19,5 +470,114 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    padding: 0 20px;
+}
+
+/* 整页式显示 */
+#pageModeDisplay {
+    background: #f5f5f5;
+    justify-content: center;
+    align-items: center;
     padding: 20px;
+}
+
+.page-content {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: white;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.page-text {
+    font-size: 14px;
+    line-height: 1.8;
+    color: #333;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: center;
+}
+
+/* ==================== 模态框 ==================== */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 6px;
+    min-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #ddd;
+}
+
+.modal-header h3 {
+    font-size: 1rem;
+    color: #333;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #666;
+}
+
+#categoryInput {
+    width: calc(100% - 32px);
+    margin: 16px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    justify-content: flex-end;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #999;
 }
