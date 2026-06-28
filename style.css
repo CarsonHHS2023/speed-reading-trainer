@@ -443,7 +443,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     padding: 20px;
     width: 100%;
     height: 100%;
@@ -452,8 +452,8 @@ body {
 /* 焦点式显示 */
 #focusModeDisplay {
     background: white;
-    justify-content: flex-start;
-    padding-top: 20px;
+    justify-content: center;
+    padding-top: 0;
 }
 
 .focus-text {
@@ -464,13 +464,15 @@ body {
     text-align: center;
     word-break: break-word;
     width: 100%;
-    height: 100%;
+    max-height: 80%;
     overflow-y: auto;
     overflow-x: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 0 20px;
+}
+
+/* 滚动式模式 - 从上方开始显示 */
+.focus-text.scroll-mode {
+    justify-content: flex-start;
+    max-height: 100%;
 }
 
 /* 整页式显示 */
