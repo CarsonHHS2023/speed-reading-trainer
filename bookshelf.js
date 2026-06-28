@@ -39,7 +39,10 @@ class BookShelf {
             }
         });
 
-        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 this.handleFileUpload(e.target.files[0]);
