@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
-        if (state.isPaused) {
+        if (state.isPaused && state.fileType === 'txt') {
             generatePages();
             updateDisplay();
         }
@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.widthInput.addEventListener('change', (e) => {
         elements.widthSlider.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
-        if (state.isPaused) {
+        if (state.isPaused && state.fileType === 'txt') {
             generatePages();
             updateDisplay();
         }
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.maxLinesSlider.addEventListener('input', (e) => {
         elements.maxLinesInput.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
-        if (state.isPaused) {
+        if (state.isPaused && state.fileType === 'txt') {
             generatePages();
             updateDisplay();
         }
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.maxLinesInput.addEventListener('change', (e) => {
         elements.maxLinesSlider.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
-        if (state.isPaused) {
+        if (state.isPaused && state.fileType === 'txt') {
             generatePages();
             updateDisplay();
         }
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.trainingMode.addEventListener('change', (e) => {
         state.trainingMode = e.target.value;
         updateTrainingModeClass();
-        if (state.isPaused && state.displayMode === 'focus') {
+        if (state.isPaused && state.displayMode === 'focus' && state.fileType === 'txt') {
             updateDisplay();
         }
     });
@@ -348,14 +348,6 @@ function calculateFocusParameters() {
     // 计算能容纳的最大行数
     state.focusMaxLines = Math.floor(effectiveHeight / lineHeight);
     state.focusLineHeight = effectiveHeight / state.focusMaxLines;
-    
-    console.log('calculateFocusParameters:');
-    console.log('  containerHeight:', containerHeight);
-    console.log('  fontSize:', state.fontSize);
-    console.log('  effectiveHeight:', effectiveHeight);
-    console.log('  lineHeight:', lineHeight);
-    console.log('  focusMaxLines:', state.focusMaxLines);
-    console.log('  focusLineHeight:', state.focusLineHeight);
 }
 
 // ==================== 阅读控制 ====================
@@ -546,11 +538,6 @@ function startFocusLoop() {
     const charsPerBatch = state.lineWidth * state.lineCount;
     const intervalMs = (60000 / state.speed) * charsPerBatch;
 
-    console.log('=== startFocusLoop 开始 ===');
-    console.log('charsPerBatch:', charsPerBatch);
-    console.log('intervalMs:', intervalMs);
-    console.log('总字数:', state.units.length);
-
     state.currentLine = 0;
 
     function showNextBatch() {
@@ -718,7 +705,7 @@ function switchDisplayMode() {
         
         recalculatePageMaxLines();
         
-        if (state.content) {
+        if (state.content && state.fileType === 'txt') {
             generatePages();
         }
     }
@@ -830,20 +817,20 @@ async function processPDFFile(file) {
         state.pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
         
         // 转换后端数据为阅读程序格式
-        const elements = [];
+        const pdfElements = [];
         
         result.data.pages.forEach((page, pageIndex) => {
             if (page.elements && Array.isArray(page.elements)) {
                 page.elements.forEach((elem) => {
                     if (elem.type === 'text') {
-                        elements.push({
+                        pdfElements.push({
                             type: 'text',
                             content: elem.content,
                             textCount: elem.textCount || elem.content.length,
                             pageNum: pageIndex + 1
                         });
                     } else if (elem.type === 'image') {
-                        elements.push({
+                        pdfElements.push({
                             type: 'image',
                             content: elem.content, // 'scan' 或其他标记
                             isChart: elem.isChart,
@@ -854,7 +841,7 @@ async function processPDFFile(file) {
             }
         });
         
-        state.pdfElements = elements;
+        state.pdfElements = pdfElements;
         state.content = file.name; // 用文件名作为内容标识
         state.fileType = 'pdf';
         state.currentIndex = 0;
@@ -862,13 +849,13 @@ async function processPDFFile(file) {
         state.totalPausedDuration = 0;
         
         // 更新进度显示
-        elements.totalWords.textContent = elements.length;
+        elements.totalWords.textContent = pdfElements.length;
         elements.currentPos.textContent = '0';
         
         resetDisplay();
         elements.startBtn.disabled = false;
         
-        console.log('PDF 处理完成，元素数:', elements.length);
+        console.log('PDF 处理完成，元素数:', pdfElements.length);
         
     } catch (error) {
         console.error('PDF 处理失败:', error);
