@@ -14,6 +14,7 @@ const state = {
     lineCount: 3,
     pageMaxLines: 20,
     fontSize: 28,
+    fontWeight: 'normal', // 'normal' 或 'bold'
     displayMode: 'focus', // 'focus' 或 'page'
     trainingMode: 'fixed', // 'fixed' 或 'scroll'
     startTime: 0,
@@ -41,6 +42,7 @@ const elements = {
     maxLinesInput: document.getElementById('maxLinesInput'),
     fontSlider: document.getElementById('fontSlider'),
     fontInput: document.getElementById('fontInput'),
+    fontWeight: document.getElementById('fontWeight'),
     displayMode: document.getElementById('displayMode'),
     trainingMode: document.getElementById('trainingMode'),
     startBtn: document.getElementById('startBtn'),
@@ -156,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 字体设置
+    // 字体大小设置
     elements.fontSlider.addEventListener('input', (e) => {
         elements.fontInput.value = e.target.value;
         state.fontSize = parseInt(e.target.value);
@@ -180,6 +182,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateDisplay();
             }
         }
+    });
+
+    // 字体粗细设置
+    elements.fontWeight.addEventListener('change', (e) => {
+        state.fontWeight = e.target.value;
+        updateFontWeight();
     });
 
     // 语言设置
@@ -548,6 +556,11 @@ function updateFontSize() {
     elements.pageText.style.fontSize = state.fontSize + 'px';
 }
 
+function updateFontWeight() {
+    elements.focusText.style.fontWeight = state.fontWeight;
+    elements.pageText.style.fontWeight = state.fontWeight;
+}
+
 function switchDisplayMode() {
     if (state.displayMode === 'focus') {
         elements.focusModeDisplay.classList.add('active');
@@ -612,6 +625,7 @@ function disableSettingsDuringReading() {
     elements.maxLinesInput.disabled = true;
     elements.fontSlider.disabled = true;
     elements.fontInput.disabled = true;
+    elements.fontWeight.disabled = true;
     elements.displayMode.disabled = true;
     elements.trainingMode.disabled = true;
 }
@@ -628,6 +642,7 @@ function enableSettingsDuringPause() {
     elements.maxLinesInput.disabled = false;
     elements.fontSlider.disabled = false;
     elements.fontInput.disabled = false;
+    elements.fontWeight.disabled = false;
     elements.displayMode.disabled = false;
     elements.trainingMode.disabled = false;
 }
@@ -644,6 +659,7 @@ function enableSettings() {
     elements.maxLinesInput.disabled = false;
     elements.fontSlider.disabled = false;
     elements.fontInput.disabled = false;
+    elements.fontWeight.disabled = false;
     elements.displayMode.disabled = false;
     elements.trainingMode.disabled = false;
 }
@@ -671,5 +687,6 @@ function updateBookContent(fileType = 'txt') {
 // 初始化
 updateSpeedUnit();
 updateFontSize();
+updateFontWeight();
 switchDisplayMode();
 updateTrainingModeClass();
