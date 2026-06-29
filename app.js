@@ -34,6 +34,7 @@ const state = {
     chartRotation: 0,
     chartFlipped: false,
     pdfDocument: null,
+    isProcessing: false,
 };
 
 // ==================== DOM 元素 ====================
@@ -74,6 +75,7 @@ const elements = {
     rotateLeftBtn: document.getElementById('rotateLeftBtn'),
     rotateRightBtn: document.getElementById('rotateRightBtn'),
     flipVerticalBtn: document.getElementById('flipVerticalBtn'),
+    uploadZone: document.getElementById('uploadZone'),
 };
 
 // ==================== 主题切换 ====================
@@ -129,6 +131,20 @@ function rotateChartRight() {
 function flipChartVertical() {
     state.chartFlipped = !state.chartFlipped;
     updateChartDisplay();
+}
+
+// ==================== 上传状态管理 ====================
+function setUploadStatus(status) {
+    // status: 'idle', 'processing', 'completed'
+    if (status === 'processing') {
+        elements.uploadZone.classList.add('processing');
+        elements.uploadZone.classList.remove('completed');
+    } else if (status === 'completed') {
+        elements.uploadZone.classList.remove('processing');
+        elements.uploadZone.classList.add('completed');
+    } else {
+        elements.uploadZone.classList.remove('processing', 'completed');
+    }
 }
 
 // ==================== 事件监听 ====================
@@ -790,6 +806,7 @@ function onReadingComplete() {
 async function processPDFFile(file) {
     try {
         console.log('开始处理 PDF:', file.name);
+        setUploadStatus('processing');
         
         const formData = new FormData();
         formData.append('pdf', file);
@@ -826,32 +843,46 @@ async function processPDFFile(file) {
                     });
                     
                     if (elem.type === 'text') {
-                        allText += elem.content + '\n';
+                        // 保留原始换行（不添加额外换行）
+                        allText += elem.content;
                     }
                 });
             }
         });
         
+        console.log('原始文本长度:', allText.length);
+        console.log('首200字符:', allText.substring(0, 200));
+        
+        // 分词时保留换行符
         if (state.language === 'chinese') {
-            state.units = allText
-                .split('')
-                .filter(char => {
-                    return char.trim() !== '' || char === ' ';
-                });
+            state.units = allText.split('').filter(char => {
+                // 保留中文字符、空格和换行符，过滤其他空白符
+                if (char === '\n') return true;
+                if (char === ' ') return true;
+                return char.trim() !== '';
+            });
         } else {
-            state.units = allText.match(/\S+|\s+/g) || [];
+            // 英文：按词和空格（包括换行）分割
+            state.units = allText.split(/(\s+)/).filter(item => item && item.length > 0);
         }
         
+        console.log('分词后长度:', state.units.length);
+        
+        // 建立单位到元素的映射
         state.pdfUnitMap = {};
         let unitIndex = 0;
         state.pdfElements.forEach((elem, elemIndex) => {
             if (elem.type === 'text') {
-                let text = elem.content + '\n';
+                let text = elem.content;
                 let elemUnits;
                 if (state.language === 'chinese') {
-                    elemUnits = text.split('').filter(char => char.trim() !== '' || char === ' ');
+                    elemUnits = text.split('').filter(char => {
+                        if (char === '\n') return true;
+                        if (char === ' ') return true;
+                        return char.trim() !== '';
+                    });
                 } else {
-                    elemUnits = text.match(/\S+|\s+/g) || [];
+                    elemUnits = text.split(/(\s+)/).filter(item => item && item.length > 0);
                 }
                 
                 for (let i = 0; i < elemUnits.length; i++) {
@@ -879,12 +910,14 @@ async function processPDFFile(file) {
         
         resetDisplay();
         elements.startBtn.disabled = false;
+        setUploadStatus('completed');
         
         console.log('PDF 处理完成，总单位数:', state.units.length);
         
     } catch (error) {
         console.error('PDF 处理失败:', error);
         alert('PDF 处理失败：' + error.message);
+        setUploadStatus('idle');
     }
 }
 
