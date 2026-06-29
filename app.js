@@ -486,8 +486,8 @@ function displayPDFFocusContent() {
     for (let i = 0; i < displayUnits.length; i++) {
         const char = displayUnits[i];
         
-        // 换行符转换为 <br> + 3个空格缩进
-        if (char === '\n') {
+        // 处理分段符：| 转换为 <br> + 3个空格缩进
+        if (char === '|') {
             html += '<br>&nbsp;&nbsp;&nbsp;';
             lineLength = 3;
         } else {
@@ -843,7 +843,7 @@ async function processPDFFile(file) {
                     });
                     
                     if (elem.type === 'text') {
-                        // 保留原始换行（不添加额外换行）
+                        // 保留后端返回的文本内容（包含分段符 |）
                         allText += elem.content;
                     }
                 });
@@ -851,19 +851,18 @@ async function processPDFFile(file) {
         });
         
         console.log('原始文本长度:', allText.length);
-        console.log('首200字符:', allText.substring(0, 200));
         
-        // 分词时保留换行符
+        // 分词：保留分段符 |
         if (state.language === 'chinese') {
             state.units = allText.split('').filter(char => {
-                // 保留中文字符、空格和换行符，过滤其他空白符
-                if (char === '\n') return true;
+                // 保留中文字符、分段符和空格，过滤其他空白符
+                if (char === '|') return true;
                 if (char === ' ') return true;
                 return char.trim() !== '';
             });
         } else {
-            // 英文：按词和空格（包括换行）分割
-            state.units = allText.split(/(\s+)/).filter(item => item && item.length > 0);
+            // 英文：按词分割，保留分段符
+            state.units = allText.split(/(\s+|\|)/).filter(item => item && item.length > 0);
         }
         
         console.log('分词后长度:', state.units.length);
@@ -877,12 +876,12 @@ async function processPDFFile(file) {
                 let elemUnits;
                 if (state.language === 'chinese') {
                     elemUnits = text.split('').filter(char => {
-                        if (char === '\n') return true;
+                        if (char === '|') return true;
                         if (char === ' ') return true;
                         return char.trim() !== '';
                     });
                 } else {
-                    elemUnits = text.split(/(\s+)/).filter(item => item && item.length > 0);
+                    elemUnits = text.split(/(\s+|\|)/).filter(item => item && item.length > 0);
                 }
                 
                 for (let i = 0; i < elemUnits.length; i++) {
