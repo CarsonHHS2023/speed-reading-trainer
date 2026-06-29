@@ -484,15 +484,15 @@ function displayPDFFocusContent() {
     let lineLength = 0;
     
     for (let i = 0; i < displayUnits.length; i++) {
-        const char = displayUnits[i];
+        const unit = displayUnits[i];
         
-        // 处理分段符：| 转换为 <br> + 3个空格缩进
-        if (char === '|') {
+        // 处理分段符：$%$%$% 转换为 <br> + 3个空格缩进
+        if (unit === '$%$%$%') {
             html += '<br>&nbsp;&nbsp;&nbsp;';
             lineLength = 3;
         } else {
-            html += char;
-            lineLength++;
+            html += unit;
+            lineLength += unit.length;
         }
         
         if (lineLength >= state.lineWidth) {
@@ -843,7 +843,7 @@ async function processPDFFile(file) {
                     });
                     
                     if (elem.type === 'text') {
-                        // 保留后端返回的文本内容（包含分段符 |）
+                        // 保留后端返回的文本内容（包含分段符 $%$%$%）
                         allText += elem.content;
                     }
                 });
@@ -852,20 +852,33 @@ async function processPDFFile(file) {
         
         console.log('原始文本长度:', allText.length);
         
-        // 分词：保留分段符 |
+        // 分词：保留分段符 $%$%$%
         if (state.language === 'chinese') {
-            state.units = allText.split('').filter(char => {
-                // 保留中文字符、分段符和空格，过滤其他空白符
-                if (char === '|') return true;
+            // 先替换 $%$%$% 为特殊占位符，分词后再还原
+            const placeholder = '\u0000SEGMENT\u0000';
+            const textWithPlaceholder = allText.replace(/\$%\$%\$%/g, placeholder);
+            state.units = textWithPlaceholder.split('').filter(char => {
+                // 保留中文字符、占位符标记和空格，过滤其他空白符
+                if (char === '\u0000') return true;
+                if (char === 'S' || char === 'E' || char === 'G' || char === 'M' || char === 'N' || char === 'T') return true;
                 if (char === ' ') return true;
                 return char.trim() !== '';
             });
+            // 还原占位符为分段符
+            state.units = state.units.join('').split(placeholder);
+            let finalUnits = [];
+            for (let i = 0; i < state.units.length; i++) {
+                if (i > 0) finalUnits.push('$%$%$%');
+                finalUnits = finalUnits.concat(state.units[i].split(''));
+            }
+            state.units = finalUnits.filter(u => u);
         } else {
             // 英文：按词分割，保留分段符
-            state.units = allText.split(/(\s+|\|)/).filter(item => item && item.length > 0);
+            state.units = allText.split(/(\s+|\$%\$%\$%)/).filter(item => item && item.length > 0);
         }
         
         console.log('分词后长度:', state.units.length);
+        console.log('前50个单位:', state.units.slice(0, 50));
         
         // 建立单位到元素的映射
         state.pdfUnitMap = {};
@@ -875,13 +888,23 @@ async function processPDFFile(file) {
                 let text = elem.content;
                 let elemUnits;
                 if (state.language === 'chinese') {
-                    elemUnits = text.split('').filter(char => {
-                        if (char === '|') return true;
+                    const placeholder = '\u0000SEGMENT\u0000';
+                    const textWithPlaceholder = text.replace(/\$%\$%\$%/g, placeholder);
+                    elemUnits = textWithPlaceholder.split('').filter(char => {
+                        if (char === '\u0000') return true;
+                        if (char === 'S' || char === 'E' || char === 'G' || char === 'M' || char === 'N' || char === 'T') return true;
                         if (char === ' ') return true;
                         return char.trim() !== '';
                     });
+                    elemUnits = elemUnits.join('').split(placeholder);
+                    let finalUnits = [];
+                    for (let i = 0; i < elemUnits.length; i++) {
+                        if (i > 0) finalUnits.push('$%$%$%');
+                        finalUnits = finalUnits.concat(elemUnits[i].split(''));
+                    }
+                    elemUnits = finalUnits.filter(u => u);
                 } else {
-                    elemUnits = text.split(/(\s+|\|)/).filter(item => item && item.length > 0);
+                    elemUnits = text.split(/(\s+|\$%\$%\$%)/).filter(item => item && item.length > 0);
                 }
                 
                 for (let i = 0; i < elemUnits.length; i++) {
