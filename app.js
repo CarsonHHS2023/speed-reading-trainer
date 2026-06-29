@@ -468,8 +468,16 @@ function displayPDFFocusContent() {
     let lineLength = 0;
     
     for (let i = 0; i < displayUnits.length; i++) {
-        html += displayUnits[i];
-        lineLength++;
+        const char = displayUnits[i];
+        
+        // 换行符转换为 <br> + 3个空格缩进
+        if (char === '\n') {
+            html += '<br>&nbsp;&nbsp;&nbsp;';
+            lineLength = 3;
+        } else {
+            html += char;
+            lineLength++;
+        }
         
         if (lineLength >= state.lineWidth) {
             html += '<br>';
