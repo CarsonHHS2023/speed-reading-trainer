@@ -1,18 +1,21 @@
 // ==================== 书架管理系统 ====================
 
+const API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
+
 class BookShelf {
     constructor() {
-        this.books = this.loadBooks();
-        this.categories = this.loadCategories();
+        this.books = [];
+        this.categories = [];
         this.currentBook = null;
         this.currentCategory = 'all';
+        this.isLoading = false;
         this.init();
     }
 
-    init() {
+    async init() {
         this.setupEventListeners();
         this.renderCategories();
-        this.renderBooks();
+        await this.loadBooksFromBackend();
     }
 
     setupEventListeners() {
@@ -20,7 +23,6 @@ class BookShelf {
         const fileInput = document.getElementById('fileInput');
         const addCategoryBtn = document.getElementById('addCategoryBtn');
 
-        // 拖拽上传
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadZone.classList.add('drag-over');
@@ -41,12 +43,14 @@ class BookShelf {
 
         uploadZone.addEventListener('click', (e) => {
             e.stopPropagation();
-            fileInput.click();
+            if (!this.isLoading) {
+                fileInput.click();
+            }
         });
+
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 this.handleFileUpload(e.target.files[0]);
-                // 重置文件输入，以便下次可以选择同一文件
                 fileInput.value = '';
             }
         });
@@ -54,106 +58,168 @@ class BookShelf {
         addCategoryBtn.addEventListener('click', () => showCategoryModal());
     }
 
-    async handleFileUpload(file) {
-        try {
-            const fileType = file.type === 'application/pdf' ? 'pdf' : 'txt';
-            
-            const book = {
-                id: Date.now(),
-                name: file.name,
-                file: file, // 保存文件对象
-                fileType: fileType,
-                category: 'reading',
-                uploadDate: new Date().toLocaleString('zh-CN'),
-                progress: 0
-            };
+    setLoading(isLoading, message = '📁 拖拽或<br><span>点击上传</span>') {
+        this.isLoading = isLoading;
+        const uploadZone = document.getElementById('uploadZone');
+        const uploadPrompt = uploadZone.querySelector('.upload-prompt');
 
-            this.books.push(book);
-            this.saveBooks();
+        uploadZone.classList.toggle('processing', isLoading);
+        uploadPrompt.innerHTML = message;
+    }
+
+    normalizeBook(rawBook) {
+        return {
+            id: rawBook.book_id || rawBook.id,
+            name: rawBook.book_title || rawBook.title || rawBook.name || '未命名书籍',
+            fileType: rawBook.file_type || rawBook.fileType || 'txt',
+            category: rawBook.category || 'reading',
+            uploadDate: rawBook.created_at || rawBook.uploadDate || new Date().toLocaleString('zh-CN'),
+            progress: rawBook.progress || 0,
+            status: rawBook.status || 'ready'
+        };
+    }
+
+    async loadBooksFromBackend() {
+        this.setLoading(true, '⏳ 正在加载书架...');
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/v1/books`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            const books = Array.isArray(result.books) ? result.books : [];
+            this.books = books.map((book) => this.normalizeBook(book));
+
             this.renderBooks();
             this.updateCategoryCounts();
-            this.selectBook(book.id);
         } catch (error) {
-            console.error('文件处理错误:', error);
-            alert('文件处理失败，请检查文件格式');
+            console.error('加载书籍失败:', error);
+            alert('加载书籍失败，请稍后重试');
+            this.books = [];
+            this.renderBooks();
+            this.updateCategoryCounts();
+        } finally {
+            this.setLoading(false);
         }
     }
 
-    selectBook(bookId) {
-        this.currentBook = this.books.find(b => b.id === bookId);
-        document.querySelectorAll('.book-item').forEach(item => {
+    async handleFileUpload(file) {
+        this.setLoading(true, '⏳ 正在上传并处理文件...');
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`${API_BASE_URL}/api/v1/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            const book = this.normalizeBook(result);
+
+            this.books.unshift(book);
+            this.renderBooks();
+            this.updateCategoryCounts();
+
+            await this.selectBook(book.id);
+        } catch (error) {
+            console.error('上传失败:', error);
+            alert('上传失败，请检查网络或文件格式');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    async selectBook(bookId) {
+        this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
+
+        document.querySelectorAll('.book-item').forEach((item) => {
             item.classList.remove('active');
         });
-        document.querySelector(`[data-book-id="${bookId}"]`)?.classList.add('active');
-        
-        if (this.currentBook) {
-            if (this.currentBook.fileType === 'pdf') {
-                // PDF 文件：发送到后端处理
-                window.processPDFFile(this.currentBook.file);
-            } else {
-                // TXT 文件：直接读取
-                this.readTxtFile(this.currentBook.file);
-            }
-        }
-    }
 
-    async readTxtFile(file) {
+        document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
+
+        if (!this.currentBook) {
+            return;
+        }
+
+        this.setLoading(true, '⏳ 正在加载书籍内容...');
+
         try {
-            const arrayBuffer = await file.arrayBuffer();
-            const text = await this.decodeText(arrayBuffer);
-            
-            // 更新全局状态
-            state.content = text;
+            const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            const content = typeof result.content === 'string' ? result.content : '';
+
+            state.content = content;
             state.fileType = 'txt';
             state.currentIndex = 0;
             state.currentPageIndex = 0;
             state.totalPausedDuration = 0;
             state.currentLine = 0;
-            state.currentElementIndex = 0;
-            
+
             tokenizeContent();
             resetDisplay();
-            elements.startBtn.disabled = false;
-            
+            elements.startBtn.disabled = !state.units.length;
         } catch (error) {
-            console.error('TXT 文件读取失败:', error);
-            alert('TXT 文件读取失败');
+            console.error('加载书籍内容失败:', error);
+            alert('加载书籍内容失败，请稍后重试');
+        } finally {
+            this.setLoading(false);
         }
     }
 
-    async decodeText(arrayBuffer) {
+    async deleteBook(bookId) {
+        if (!confirm('确定要删除这本书吗？')) {
+            return;
+        }
+
+        this.setLoading(true, '⏳ 正在删除书籍...');
+
         try {
-            const decoder = new TextDecoder('utf-8', { fatal: true });
-            return decoder.decode(arrayBuffer);
-        } catch (e) {
-            try {
-                const decoder = new TextDecoder('gb2312');
-                return decoder.decode(arrayBuffer);
-            } catch (e2) {
-                const decoder = new TextDecoder('latin1');
-                return decoder.decode(arrayBuffer);
-            }
-        }
-    }
+            const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}`, {
+                method: 'DELETE'
+            });
 
-    deleteBook(bookId) {
-        if (confirm('确定要删除这本书吗？')) {
-            this.books = this.books.filter(b => b.id !== bookId);
-            this.saveBooks();
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            this.books = this.books.filter((b) => String(b.id) !== String(bookId));
+
+            if (this.currentBook && String(this.currentBook.id) === String(bookId)) {
+                this.currentBook = null;
+                state.content = '';
+                state.units = [];
+                resetDisplay();
+                elements.startBtn.disabled = true;
+                updateProgress();
+            }
+
             this.renderBooks();
             this.updateCategoryCounts();
-            
-            if (this.currentBook?.id === bookId) {
-                this.currentBook = null;
-            }
+        } catch (error) {
+            console.error('删除书籍失败:', error);
+            alert('删除书籍失败，请稍后重试');
+        } finally {
+            this.setLoading(false);
         }
     }
 
     moveBook(bookId, category) {
-        const book = this.books.find(b => b.id === bookId);
+        const book = this.books.find((b) => String(b.id) === String(bookId));
         if (book) {
             book.category = category;
-            this.saveBooks();
             this.renderBooks();
             this.updateCategoryCounts();
         }
@@ -170,24 +236,26 @@ class BookShelf {
             ...this.categories
         ];
 
-        allCategoriesData.forEach(cat => {
+        allCategoriesData.forEach((cat) => {
             const categoryDiv = document.createElement('div');
             categoryDiv.className = 'category';
             categoryDiv.dataset.category = cat.id;
-            
+
             const header = document.createElement('div');
             header.className = 'category-header';
             header.innerHTML = `${cat.name}<span class="book-count">0</span>`;
-            
+
             header.addEventListener('click', () => this.selectCategory(cat.id));
             categoryDiv.appendChild(header);
             categoriesDiv.appendChild(categoryDiv);
         });
+
+        this.selectCategory(this.currentCategory);
     }
 
     selectCategory(categoryId) {
         this.currentCategory = categoryId;
-        document.querySelectorAll('.category-header').forEach(h => {
+        document.querySelectorAll('.category-header').forEach((h) => {
             h.classList.remove('active');
         });
         document.querySelector(`[data-category="${categoryId}"] .category-header`)?.classList.add('active');
@@ -200,7 +268,7 @@ class BookShelf {
 
         let filteredBooks = this.books;
         if (this.currentCategory !== 'all') {
-            filteredBooks = this.books.filter(b => b.category === this.currentCategory);
+            filteredBooks = this.books.filter((b) => b.category === this.currentCategory);
         }
 
         if (filteredBooks.length === 0) {
@@ -208,22 +276,48 @@ class BookShelf {
             return;
         }
 
-        filteredBooks.forEach(book => {
+        filteredBooks.forEach((book) => {
+            const bookId = String(book.id);
             const bookItem = document.createElement('div');
             bookItem.className = 'book-item';
-            bookItem.dataset.bookId = book.id;
-            bookItem.innerHTML = `
-                <span class="book-item-name" title="${book.name}">${book.name}</span>
-                <div class="book-item-actions">
-                    <button class="book-item-action" onclick="bookshelf.moveBook(${book.id}, 'finished')" title="标记完成">✓</button>
-                    <button class="book-item-action" onclick="bookshelf.deleteBook(${book.id})" title="删除">✕</button>
-                </div>
-            `;
-            bookItem.addEventListener('click', (e) => {
-                if (!e.target.closest('.book-item-action')) {
-                    this.selectBook(book.id);
-                }
+            bookItem.dataset.bookId = bookId;
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'book-item-name';
+            nameSpan.title = book.name;
+            nameSpan.textContent = book.name;
+
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'book-item-actions';
+
+            const finishBtn = document.createElement('button');
+            finishBtn.className = 'book-item-action';
+            finishBtn.title = '标记完成';
+            finishBtn.textContent = '✓';
+            finishBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.moveBook(book.id, 'finished');
             });
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'book-item-action';
+            deleteBtn.title = '删除';
+            deleteBtn.textContent = '✕';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteBook(book.id);
+            });
+
+            actionsDiv.appendChild(finishBtn);
+            actionsDiv.appendChild(deleteBtn);
+            bookItem.appendChild(nameSpan);
+            bookItem.appendChild(actionsDiv);
+
+            if (this.currentBook && String(this.currentBook.id) === bookId) {
+                bookItem.classList.add('active');
+            }
+
+            bookItem.addEventListener('click', () => this.selectBook(book.id));
             booksList.appendChild(bookItem);
         });
 
@@ -233,15 +327,17 @@ class BookShelf {
     updateCategoryCounts() {
         const counts = {
             all: this.books.length,
-            reading: this.books.filter(b => b.category === 'reading').length,
-            finished: this.books.filter(b => b.category === 'finished').length
+            reading: this.books.filter((b) => b.category === 'reading').length,
+            finished: this.books.filter((b) => b.category === 'finished').length
         };
 
-        document.querySelectorAll('.category').forEach(cat => {
+        document.querySelectorAll('.category').forEach((cat) => {
             const id = cat.dataset.category;
             const count = counts[id] || 0;
             const countSpan = cat.querySelector('.book-count');
-            if (countSpan) countSpan.textContent = count;
+            if (countSpan) {
+                countSpan.textContent = count;
+            }
         });
     }
 
@@ -251,35 +347,7 @@ class BookShelf {
             name: name
         };
         this.categories.push(newCategory);
-        this.saveCategories();
         this.renderCategories();
-    }
-
-    saveBooks() {
-        // 不保存文件对象，只保存书籍元数据
-        const booksData = this.books.map(b => ({
-            id: b.id,
-            name: b.name,
-            fileType: b.fileType,
-            category: b.category,
-            uploadDate: b.uploadDate,
-            progress: b.progress
-        }));
-        localStorage.setItem('speedreader_books', JSON.stringify(booksData));
-    }
-
-    loadBooks() {
-        const data = localStorage.getItem('speedreader_books');
-        return data ? JSON.parse(data) : [];
-    }
-
-    saveCategories() {
-        localStorage.setItem('speedreader_categories', JSON.stringify(this.categories));
-    }
-
-    loadCategories() {
-        const data = localStorage.getItem('speedreader_categories');
-        return data ? JSON.parse(data) : [];
     }
 }
 

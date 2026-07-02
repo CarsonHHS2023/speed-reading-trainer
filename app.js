@@ -26,15 +26,8 @@ const state = {
     focusLineHeight: 0,
     currentLine: 0,
     theme: 'light',
-    
-    // PDF 相关
-    pdfElements: [],
-    pdfUnitMap: {},
-    currentElementIndex: 0,
-    chartRotation: 0,
-    chartFlipped: false,
-    pdfDocument: null,
-    isProcessing: false,
+    imageMarkerMap: {},
+    pendingImageMarkerIndex: null,
 };
 
 // ==================== DOM 元素 ====================
@@ -69,13 +62,6 @@ const elements = {
     focusSettings: document.getElementById('focusSettings'),
     pageSettings: document.getElementById('pageSettings'),
     themeToggleBtn: document.getElementById('themeToggleBtn'),
-    
-    chartDisplay: document.getElementById('chartDisplay'),
-    chartImage: document.getElementById('chartImage'),
-    rotateLeftBtn: document.getElementById('rotateLeftBtn'),
-    rotateRightBtn: document.getElementById('rotateRightBtn'),
-    flipVerticalBtn: document.getElementById('flipVerticalBtn'),
-    uploadZone: document.getElementById('uploadZone'),
 };
 
 // ==================== 主题切换 ====================
@@ -103,62 +89,16 @@ function toggleTheme() {
     applyTheme(newTheme);
 }
 
-// ==================== 图表旋转和翻转 ====================
-function getChartTransform() {
-    let transform = `rotate(${state.chartRotation}deg)`;
-    if (state.chartFlipped) {
-        transform += ' scaleY(-1)';
-    }
-    return transform;
-}
-
-function updateChartDisplay() {
-    if (elements.chartImage && elements.chartImage.src) {
-        elements.chartImage.style.transform = getChartTransform();
-    }
-}
-
-function rotateChartLeft() {
-    state.chartRotation = (state.chartRotation - 90 + 360) % 360;
-    updateChartDisplay();
-}
-
-function rotateChartRight() {
-    state.chartRotation = (state.chartRotation + 90) % 360;
-    updateChartDisplay();
-}
-
-function flipChartVertical() {
-    state.chartFlipped = !state.chartFlipped;
-    updateChartDisplay();
-}
-
-// ==================== 上传状态管理 ====================
-function setUploadStatus(status) {
-    // status: 'idle', 'processing', 'completed'
-    if (status === 'processing') {
-        elements.uploadZone.classList.add('processing');
-        elements.uploadZone.classList.remove('completed');
-    } else if (status === 'completed') {
-        elements.uploadZone.classList.remove('processing');
-        elements.uploadZone.classList.add('completed');
-    } else {
-        elements.uploadZone.classList.remove('processing', 'completed');
-    }
-}
+const CONTENT_DELIMITER = '$%$%$%';
 
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     elements.themeToggleBtn.addEventListener('click', toggleTheme);
-    
-    elements.rotateLeftBtn.addEventListener('click', rotateChartLeft);
-    elements.rotateRightBtn.addEventListener('click', rotateChartRight);
-    elements.flipVerticalBtn.addEventListener('click', flipChartVertical);
-    
-    elements.chartImage.addEventListener('click', (e) => {
-        if (e.target === elements.chartImage && state.isPaused && state.fileType === 'pdf') {
-            continueFromChart();
+
+    elements.focusText.addEventListener('click', (e) => {
+        if (e.target.closest('[data-role="image-continue"]') && state.isPaused && state.pendingImageMarkerIndex !== null) {
+            continueFromImageMarker();
         }
     });
     
@@ -284,12 +224,28 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================== 分词处理 ====================
 function tokenizeContent() {
     const text = state.content.trim();
+    const parts = text.split(CONTENT_DELIMITER);
+    const units = [];
+    const imageMarkerMap = {};
 
-    if (state.language === 'chinese') {
-        state.units = text.split('').filter(char => char.trim() !== '');
-    } else {
-        state.units = text.match(/\b\w+\b/g) || [];
+    for (let i = 0; i < parts.length; i += 2) {
+        const textSegment = parts[i] || '';
+        const textUnits = state.language === 'chinese'
+            ? textSegment.split('').filter(char => char.trim() !== '')
+            : (textSegment.match(/\b\w+\b/g) || []);
+
+        units.push(...textUnits);
+
+        const imageId = (parts[i + 1] || '').trim();
+        if (imageId) {
+            imageMarkerMap[units.length] = imageId;
+            units.push(CONTENT_DELIMITER);
+        }
     }
+
+    state.units = units;
+    state.imageMarkerMap = imageMarkerMap;
+    state.pendingImageMarkerIndex = null;
 
     elements.totalWords.textContent = state.units.length;
     generatePages();
@@ -305,26 +261,52 @@ function generatePages() {
     }
 
     if (state.fileType === 'txt') {
-        const charsPerPage = state.lineWidth * state.pageMaxLines;
-        
-        for (let i = 0; i < state.units.length; i += charsPerPage) {
-            const pageUnits = state.units.slice(i, i + charsPerPage);
+        let i = 0;
+
+        while (i < state.units.length) {
+            if (state.units[i] === CONTENT_DELIMITER) {
+                state.pages.push({
+                    text: '',
+                    charCount: 1,
+                    startIndex: i,
+                    endIndex: i + 1,
+                    isImageMarker: true,
+                    imageId: state.imageMarkerMap[i]
+                });
+                i++;
+                continue;
+            }
+
+            const startIndex = i;
             let pageText = '';
             let lineLength = 0;
-            
-            for (let j = 0; j < pageUnits.length; j++) {
-                pageText += pageUnits[j];
+            let lineCount = 1;
+            let charCount = 0;
+
+            while (i < state.units.length && lineCount <= state.pageMaxLines) {
+                if (state.units[i] === CONTENT_DELIMITER) {
+                    break;
+                }
+
+                pageText += state.units[i];
+                charCount++;
                 lineLength++;
-                
+
+                i++;
+
                 if (lineLength >= state.lineWidth) {
                     pageText += '\n';
                     lineLength = 0;
+                    lineCount++;
                 }
             }
-            
+
             state.pages.push({
                 text: pageText,
-                charCount: pageUnits.length
+                charCount,
+                startIndex,
+                endIndex: i,
+                isImageMarker: false
             });
         }
     }
@@ -355,7 +337,7 @@ function startReading() {
     state.startTime = Date.now() - state.totalPausedDuration;
     state.currentIndex = 0;
     state.currentLine = 0;
-    state.currentElementIndex = 0;
+    state.pendingImageMarkerIndex = null;
 
     elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
@@ -398,7 +380,7 @@ function stopReading() {
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
     state.currentLine = 0;
-    state.currentElementIndex = 0;
+    state.pendingImageMarkerIndex = null;
     clearInterval(readingInterval);
 
     elements.startBtn.disabled = false;
@@ -412,183 +394,143 @@ function stopReading() {
 }
 
 function startReadingLoop() {
-    if (state.fileType === 'pdf') {
-        startPDFLoop();
-    } else if (state.displayMode === 'focus') {
+    if (state.displayMode === 'focus') {
         startFocusLoop();
     } else {
         startPageLoop();
     }
 }
 
-// ==================== PDF 阅读循环 ====================
-function startPDFLoop() {
-    console.log('=== 开始 PDF 阅读 ===');
-    console.log('总单位数:', state.units.length);
-    
-    if (state.currentIndex >= state.units.length) {
-        onReadingComplete();
-        return;
-    }
-    
-    showPDFFocusContent();
+function getCurrentImageMarkerId() {
+    return state.imageMarkerMap[state.currentIndex];
 }
 
-function showPDFFocusContent() {
-    if (state.currentIndex >= state.units.length) {
-        onReadingComplete();
-        return;
+async function fetchImageData(imageId) {
+    const response = await fetch(`https://carsonhhs-pdf-ocr-service.hf.space/api/v1/images/${encodeURIComponent(imageId)}`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
     }
-    
-    const unitIndex = state.currentIndex;
-    const mapping = state.pdfUnitMap[unitIndex];
-    
-    if (!mapping) {
+
+    const result = await response.json();
+    if (!result.image_data) {
+        throw new Error('未返回图像数据');
+    }
+
+    return result.image_data.startsWith('data:image')
+        ? result.image_data
+        : `data:image/png;base64,${result.image_data}`;
+}
+
+async function pauseForImageMarker() {
+    const imageId = getCurrentImageMarkerId();
+    if (!imageId) {
         state.currentIndex++;
-        showPDFFocusContent();
+        return false;
+    }
+
+    clearInterval(readingInterval);
+
+    state.isPlaying = false;
+    state.isPaused = true;
+    state.pendingImageMarkerIndex = state.currentIndex;
+
+    elements.pauseBtn.disabled = true;
+    elements.resumeBtn.disabled = true;
+
+    elements.focusModeDisplay.classList.add('active');
+    elements.pageModeDisplay.classList.remove('active');
+    elements.focusText.style.marginTop = '0';
+    elements.focusText.innerHTML = '⏳ 正在加载图像...';
+
+    try {
+        const imageSrc = await fetchImageData(imageId);
+        elements.focusText.innerHTML = `
+            <div style="text-align:center;">
+                <img src="${imageSrc}" alt="内容图像" style="max-width:100%; max-height:60vh; object-fit:contain; border-radius:8px; cursor:pointer;" />
+                <div data-role="image-continue" style="margin-top:10px; color:#667eea; cursor:pointer; font-size:0.95rem;">点击图像继续阅读</div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('图像加载失败:', error);
+        elements.focusText.innerHTML = `
+            <div style="text-align:center;">
+                <div style="margin-bottom:10px;">图像加载失败，请点击继续</div>
+                <div data-role="image-continue" style="color:#667eea; cursor:pointer;">继续阅读</div>
+            </div>
+        `;
+    }
+
+    return true;
+}
+
+function continueFromImageMarker() {
+    if (state.pendingImageMarkerIndex === null) {
         return;
     }
-    
-    const element = state.pdfElements[mapping.elementIndex];
-    
-    if (mapping.isChart) {
-        displayChartElement(element);
-        state.isPaused = true;
-    } else {
-        displayPDFFocusContent();
-        const charsPerBatch = state.lineWidth * state.lineCount;
-        const stopDuration = (60000 / state.speed) * charsPerBatch;
-        
-        state.currentIndex += charsPerBatch;
-        updateProgress();
-        
-        readingInterval = setTimeout(() => {
-            if (state.isPlaying) {
-                showPDFFocusContent();
-            }
-        }, stopDuration);
-    }
-}
 
-function displayPDFFocusContent() {
-    elements.chartDisplay.style.display = 'none';
-    elements.focusModeDisplay.style.display = 'block';
-    elements.pageModeDisplay.style.display = 'none';
-    
-    const charsPerBatch = state.lineWidth * state.lineCount;
-    const batchStart = state.currentIndex;
-    const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
-    const displayUnits = state.units.slice(batchStart, batchEnd);
-    
-    let html = '';
-    let lineLength = 0;
-    
-    for (let i = 0; i < displayUnits.length; i++) {
-        const unit = displayUnits[i];
-        
-        // 处理分段符：$%$%$% 转换为 <br> + 3个空格缩进
-        if (unit === '$%$%$%') {
-            html += '<br>&nbsp;&nbsp;&nbsp;';
-            lineLength = 3;
-        } else {
-            html += unit;
-            lineLength += unit.length;
-        }
-        
-        if (lineLength >= state.lineWidth) {
-            html += '<br>';
-            lineLength = 0;
-        }
-    }
-    
-    elements.focusText.innerHTML = html;
-    elements.focusText.style.fontSize = state.fontSize + 'px';
-    elements.focusText.style.fontWeight = state.fontWeight;
-}
+    state.currentIndex = state.pendingImageMarkerIndex + 1;
+    state.pendingImageMarkerIndex = null;
 
-async function displayChartElement(element) {
-    elements.focusModeDisplay.style.display = 'none';
-    elements.pageModeDisplay.style.display = 'none';
-    elements.chartDisplay.style.display = 'flex';
-    
-    if (element.content === 'scan' && state.pdfDocument && element.pageNum) {
-        try {
-            const page = await state.pdfDocument.getPage(element.pageNum);
-            const viewport = page.getViewport({ scale: 1.5 });
-            
-            const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            const context = canvas.getContext('2d');
-            
-            await page.render({
-                canvasContext: context,
-                viewport: viewport
-            }).promise;
-            
-            elements.chartImage.src = canvas.toDataURL('image/png');
-        } catch (error) {
-            console.error('PDF 页面渲染失败:', error);
-            elements.chartImage.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23ccc%22 width=%22200%22 height=%22200%22/%3E%3C/svg%3E';
-        }
-    } else {
-        elements.chartImage.src = element.content;
-    }
-    
-    state.chartRotation = 0;
-    state.chartFlipped = false;
-    updateChartDisplay();
-}
-
-function continueFromChart() {
-    console.log('继续阅读（从图表）');
-    const currentMapping = state.pdfUnitMap[state.currentIndex];
-    if (currentMapping) {
-        let nextIndex = state.currentIndex + 1;
-        while (nextIndex < state.units.length && state.pdfUnitMap[nextIndex]?.elementIndex === currentMapping.elementIndex) {
-            nextIndex++;
-        }
-        state.currentIndex = nextIndex;
-    }
     state.isPaused = false;
     state.isPlaying = true;
-    showPDFFocusContent();
+
+    elements.pauseBtn.disabled = false;
+    elements.resumeBtn.disabled = true;
+
+    disableSettingsDuringReading();
+    startReadingLoop();
 }
 
 // ==================== 焦点式显示循环 ====================
 function startFocusLoop() {
-    const charsPerBatch = state.lineWidth * state.lineCount;
-    const intervalMs = (60000 / state.speed) * charsPerBatch;
-
     state.currentLine = 0;
 
-    function showNextBatch() {
+    async function showNextBatch() {
         if (state.currentIndex >= state.units.length) {
             clearInterval(readingInterval);
             onReadingComplete();
             return;
         }
 
-        updateFocusDisplay();
+        if (state.units[state.currentIndex] === CONTENT_DELIMITER) {
+            await pauseForImageMarker();
+            return;
+        }
+
+        const charsPerBatch = state.lineWidth * state.lineCount;
+        const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
+        let safeBatchEnd = batchEnd;
+
+        for (let i = state.currentIndex; i < batchEnd; i++) {
+            if (state.units[i] === CONTENT_DELIMITER) {
+                safeBatchEnd = i;
+                break;
+            }
+        }
+
+        updateFocusDisplay(safeBatchEnd);
         updateProgress();
-        
-        state.currentIndex += charsPerBatch;
+
+        state.currentIndex = safeBatchEnd;
         state.currentLine += state.lineCount;
-        
+
         if (state.currentLine + state.lineCount > state.focusMaxLines) {
             state.currentLine = 0;
         }
     }
 
     showNextBatch();
-    
+
     if (readingInterval) {
         clearInterval(readingInterval);
     }
-    
-    readingInterval = setInterval(() => {
+
+    const charsPerBatch = state.lineWidth * state.lineCount;
+    const intervalMs = (60000 / state.speed) * charsPerBatch;
+
+    readingInterval = setInterval(async () => {
         if (state.isPlaying) {
-            showNextBatch();
+            await showNextBatch();
         }
     }, intervalMs);
 }
@@ -599,12 +541,20 @@ function startPageLoop() {
         return;
     }
 
+    const currentPage = state.pages[state.currentPageIndex];
+    if (currentPage.isImageMarker) {
+        state.currentIndex = currentPage.startIndex;
+        state.currentPageIndex++;
+        pauseForImageMarker();
+        return;
+    }
+
     updateDisplay();
-    const charCount = state.pages[state.currentPageIndex].charCount;
+    const charCount = currentPage.charCount;
     const intervalMs = (60000 / state.speed) * charCount;
 
     state.currentPageIndex++;
-    state.currentIndex = Math.min(state.currentPageIndex * state.lineWidth * state.pageMaxLines, state.units.length);
+    state.currentIndex = currentPage.endIndex;
     updateProgress();
 
     readingInterval = setTimeout(() => {
@@ -616,10 +566,6 @@ function startPageLoop() {
 
 // ==================== 显示更新 ====================
 function updateDisplay() {
-    if (state.fileType === 'pdf') {
-        return;
-    }
-    
     if (state.displayMode === 'focus') {
         updateFocusDisplay();
     } else {
@@ -627,16 +573,21 @@ function updateDisplay() {
     }
 }
 
-function updateFocusDisplay() {
+function updateFocusDisplay(customBatchEnd = null) {
     const charsPerBatch = state.lineWidth * state.lineCount;
     const batchStart = state.currentIndex;
-    const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
+    const batchEnd = customBatchEnd === null
+        ? Math.min(state.currentIndex + charsPerBatch, state.units.length)
+        : customBatchEnd;
     const displayUnits = state.units.slice(batchStart, batchEnd);
 
     let html = '';
     let lineLength = 0;
 
     for (let i = 0; i < displayUnits.length; i++) {
+        if (displayUnits[i] === CONTENT_DELIMITER) {
+            break;
+        }
         html += displayUnits[i];
         lineLength++;
 
@@ -666,7 +617,6 @@ function resetDisplay() {
     elements.focusText.textContent = '选择书籍开始阅读';
     elements.focusText.style.marginTop = '0';
     elements.pageText.textContent = '选择书籍开始阅读';
-    elements.chartDisplay.style.display = 'none';
 }
 
 // ==================== 进度更新 ====================
@@ -800,147 +750,6 @@ function enableSettings() {
 function onReadingComplete() {
     alert('阅读完成！继续加油！💪');
     stopReading();
-}
-
-// ==================== PDF 处理 ====================
-async function processPDFFile(file) {
-    try {
-        console.log('开始处理 PDF:', file.name);
-        setUploadStatus('processing');
-        
-        const formData = new FormData();
-        formData.append('pdf', file);
-        
-        const backendURL = 'https://pdf-processor-backend-2bnr.onrender.com';
-        
-        const response = await fetch(`${backendURL}/api/process-pdf`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        console.log('PDF 处理完成:', result);
-        
-        const pdfBuffer = await file.arrayBuffer();
-        state.pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
-        
-        let allText = '';
-        state.pdfElements = [];
-        
-        result.data.pages.forEach((page, pageIndex) => {
-            if (page.elements && Array.isArray(page.elements)) {
-                page.elements.forEach((elem) => {
-                    state.pdfElements.push({
-                        type: elem.type,
-                        content: elem.content,
-                        isChart: elem.type === 'image',
-                        pageNum: pageIndex + 1,
-                        textCount: elem.textCount || 0
-                    });
-                    
-                    if (elem.type === 'text') {
-                        // 保留后端返回的文本内容（包含分段符 $%$%$%）
-                        allText += elem.content;
-                    }
-                });
-            }
-        });
-        
-        console.log('原始文本长度:', allText.length);
-        
-        // 分词：保留分段符 $%$%$%
-        if (state.language === 'chinese') {
-            // 先替换 $%$%$% 为特殊占位符，分词后再还原
-            const placeholder = '\u0000SEGMENT\u0000';
-            const textWithPlaceholder = allText.replace(/\$%\$%\$%/g, placeholder);
-            state.units = textWithPlaceholder.split('').filter(char => {
-                // 保留中文字符、占位符标记和空格，过滤其他空白符
-                if (char === '\u0000') return true;
-                if (char === 'S' || char === 'E' || char === 'G' || char === 'M' || char === 'N' || char === 'T') return true;
-                if (char === ' ') return true;
-                return char.trim() !== '';
-            });
-            // 还原占位符为分段符
-            state.units = state.units.join('').split(placeholder);
-            let finalUnits = [];
-            for (let i = 0; i < state.units.length; i++) {
-                if (i > 0) finalUnits.push('$%$%$%');
-                finalUnits = finalUnits.concat(state.units[i].split(''));
-            }
-            state.units = finalUnits.filter(u => u);
-        } else {
-            // 英文：按词分割，保留分段符
-            state.units = allText.split(/(\s+|\$%\$%\$%)/).filter(item => item && item.length > 0);
-        }
-        
-        console.log('分词后长度:', state.units.length);
-        console.log('前50个单位:', state.units.slice(0, 50));
-        
-        // 建立单位到元素的映射
-        state.pdfUnitMap = {};
-        let unitIndex = 0;
-        state.pdfElements.forEach((elem, elemIndex) => {
-            if (elem.type === 'text') {
-                let text = elem.content;
-                let elemUnits;
-                if (state.language === 'chinese') {
-                    const placeholder = '\u0000SEGMENT\u0000';
-                    const textWithPlaceholder = text.replace(/\$%\$%\$%/g, placeholder);
-                    elemUnits = textWithPlaceholder.split('').filter(char => {
-                        if (char === '\u0000') return true;
-                        if (char === 'S' || char === 'E' || char === 'G' || char === 'M' || char === 'N' || char === 'T') return true;
-                        if (char === ' ') return true;
-                        return char.trim() !== '';
-                    });
-                    elemUnits = elemUnits.join('').split(placeholder);
-                    let finalUnits = [];
-                    for (let i = 0; i < elemUnits.length; i++) {
-                        if (i > 0) finalUnits.push('$%$%$%');
-                        finalUnits = finalUnits.concat(elemUnits[i].split(''));
-                    }
-                    elemUnits = finalUnits.filter(u => u);
-                } else {
-                    elemUnits = text.split(/(\s+|\$%\$%\$%)/).filter(item => item && item.length > 0);
-                }
-                
-                for (let i = 0; i < elemUnits.length; i++) {
-                    state.pdfUnitMap[unitIndex++] = {
-                        elementIndex: elemIndex,
-                        isChart: false
-                    };
-                }
-            } else {
-                state.pdfUnitMap[unitIndex++] = {
-                    elementIndex: elemIndex,
-                    isChart: true
-                };
-            }
-        });
-        
-        state.content = file.name;
-        state.fileType = 'pdf';
-        state.currentIndex = 0;
-        state.currentElementIndex = 0;
-        state.totalPausedDuration = 0;
-        
-        elements.totalWords.textContent = state.units.length;
-        elements.currentPos.textContent = '0';
-        
-        resetDisplay();
-        elements.startBtn.disabled = false;
-        setUploadStatus('completed');
-        
-        console.log('PDF 处理完成，总单位数:', state.units.length);
-        
-    } catch (error) {
-        console.error('PDF 处理失败:', error);
-        alert('PDF 处理失败：' + error.message);
-        setUploadStatus('idle');
-    }
 }
 
 // 初始化
