@@ -238,10 +238,15 @@ function tokenizeContent() {
 }
 
 function tokenizeTextSegment(text) {
+    if (!text || text.length === 0) {
+        return [];
+    }
+    
     const units = [];
     let i = 0;
+    const MAX_LENGTH = 1000000; // 防止无限循环
     
-    while (i < text.length) {
+    while (i < text.length && i < MAX_LENGTH) {
         const char = text[i];
         
         // Check if it's the start of an English word
@@ -252,10 +257,10 @@ function tokenizeTextSegment(text) {
                 word += text[i];
                 i++;
             }
-            // Count English word as 3 characters
+            // Count English word as 3 units each
             units.push(word, ' ', ' ');
         } else if (char.trim() !== '') {
-            // Non-English, non-whitespace character (including Chinese, punctuation, etc.)
+            // Non-English, non-whitespace character
             units.push(char);
             i++;
         } else {
