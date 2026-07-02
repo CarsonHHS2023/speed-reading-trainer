@@ -211,15 +211,23 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================== 分词处理 ====================
 function tokenizeContent() {
     const text = state.content.trim();
+    if (!text || text.length === 0) {
+        state.units = [];
+        state.imageMarkerMap = {};
+        elements.totalWords.textContent = 0;
+        return;
+    }
+
     const parts = text.split(CONTENT_DELIMITER);
     const units = [];
     const imageMarkerMap = {};
 
     for (let i = 0; i < parts.length; i += 2) {
         const textSegment = parts[i] || '';
-        // Always tokenize as characters, but treat English words as 3 units each
-        const textUnits = tokenizeTextSegment(textSegment);
-        units.push(...textUnits);
+        if (textSegment.length > 0) {
+            const textUnits = tokenizeTextSegment(textSegment);
+            units.push(...textUnits);
+        }
 
         const imageId = (parts[i + 1] || '').trim();
         if (imageId) {
@@ -241,34 +249,32 @@ function tokenizeTextSegment(text) {
     if (!text || text.length === 0) {
         return [];
     }
-    
+
     const units = [];
     let i = 0;
-    const MAX_LENGTH = 1000000; // 防止无限循环
-    
-    while (i < text.length && i < MAX_LENGTH) {
+
+    while (i < text.length) {
         const char = text[i];
-        
-        // Check if it's the start of an English word
+
+        // 检查是否是英文单词的开始
         if (/[a-zA-Z]/.test(char)) {
-            // Collect the whole word
             let word = '';
             while (i < text.length && /[a-zA-Z]/.test(text[i])) {
                 word += text[i];
                 i++;
             }
-            // Count English word as 3 units each
+            // 英文单词计为3个单位
             units.push(word, ' ', ' ');
         } else if (char.trim() !== '') {
-            // Non-English, non-whitespace character
+            // 非空白字符（包括中文、标点等）
             units.push(char);
             i++;
         } else {
-            // Whitespace - skip
+            // 空白字符 - 跳过
             i++;
         }
     }
-    
+
     return units;
 }
 
