@@ -162,14 +162,23 @@ class BookShelf {
 
         this.setLoading(true, '⏳ 正在加载书籍内容...');
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`);
+                try {
+            const url = `${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`;
+            console.log('正在加载:', url);
+            
+            const response = await fetch(url);
+            console.log('Response status:', response.status);
+            console.log('Response ok:', response.ok);
+            
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-                        const result = await response.json();
+            const result = await response.json();
+            console.log('Response result:', result);
+            
             const content = typeof result.content === 'string' ? result.content : '';
+            console.log('Content length:', content.length);
 
             // 检查内容是否为空
             if (!content || content.trim().length === 0) {
@@ -179,23 +188,15 @@ class BookShelf {
                 alert('书籍内容为空，请稍后重试');
                 return;
             }
-
-            state.content = content;
-            state.fileType = 'txt';
-
-            tokenizeContent();
-            resetDisplay();
-            elements.startBtn.disabled = !state.units.length;
-            
-            if (state.units.length === 0) {
-                alert('分词失败，书籍内容可能不符合格式');
-            }
-               } catch (error) {
+            // ... 后续代码 ...
+        } catch (error) {
             console.error('加载书籍内容失败:', error);
+            console.error('Error stack:', error.stack);
             // 错误时清空所有数据
             state.content = '';
             state.units = [];
             alert('加载书籍内容失败，请稍后重试');
+        }
         } finally {
             this.setLoading(false);
         }
