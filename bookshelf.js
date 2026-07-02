@@ -138,45 +138,45 @@ class BookShelf {
     }
 
     async selectBook(bookId) {
-    // 清空旧数据
-    state.content = '';
-    state.units = [];
-    state.currentIndex = 0;
-    state.currentPageIndex = 0;
-    state.totalPausedDuration = 0;
-    state.currentLine = 0;
-    
-    this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
-
-    document.querySelectorAll('.book-item').forEach((item) => {
-        item.classList.remove('active');
-    });
-
-    document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
-
-    if (!this.currentBook) {
+        // 清空旧数据
         state.content = '';
         state.units = [];
-        return;
-    }
+        state.currentIndex = 0;
+        state.currentPageIndex = 0;
+        state.totalPausedDuration = 0;
+        state.currentLine = 0;
+
+        this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
+
+        document.querySelectorAll('.book-item').forEach((item) => {
+            item.classList.remove('active');
+        });
+
+        document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
+
+        if (!this.currentBook) {
+            state.content = '';
+            state.units = [];
+            return;
+        }
 
         this.setLoading(true, '⏳ 正在加载书籍内容...');
 
-                try {
+        try {
             const url = `${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`;
             console.log('正在加载:', url);
-            
+
             const response = await fetch(url);
             console.log('Response status:', response.status);
             console.log('Response ok:', response.ok);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const result = await response.json();
             console.log('Response result:', result);
-            
+
             const content = typeof result.content === 'string' ? result.content : '';
             console.log('Content length:', content.length);
 
@@ -188,7 +188,17 @@ class BookShelf {
                 alert('书籍内容为空，请稍后重试');
                 return;
             }
-            // ... 后续代码 ...
+
+            state.content = content;
+            state.fileType = 'txt';
+
+            tokenizeContent();
+            resetDisplay();
+            elements.startBtn.disabled = !state.units.length;
+
+            if (state.units.length === 0) {
+                alert('分词失败，书籍内容可能不符合格式');
+            }
         } catch (error) {
             console.error('加载书籍内容失败:', error);
             console.error('Error stack:', error.stack);
