@@ -8,7 +8,6 @@ const state = {
     currentLineIndex: 0,
     isPlaying: false,
     isPaused: false,
-    language: 'chinese',
     speed: 5000,
     lineWidth: 35,
     lineCount: 3,
@@ -32,7 +31,6 @@ const state = {
 
 // ==================== DOM 元素 ====================
 const elements = {
-    language: document.getElementById('language'),
     speedSlider: document.getElementById('speedSlider'),
     speedInput: document.getElementById('speedInput'),
     speedUnit: document.getElementById('speedUnit'),
@@ -188,17 +186,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateFontWeight();
     });
 
-    elements.language.addEventListener('change', (e) => {
-        state.language = e.target.value;
-        updateSpeedUnit();
-        if (state.content && state.fileType === 'txt') {
-            tokenizeContent();
-            if (state.isPaused) {
-                updateDisplay();
-            }
-        }
-    });
-
     elements.displayMode.addEventListener('change', (e) => {
         state.displayMode = e.target.value;
         switchDisplayMode();
@@ -230,10 +217,8 @@ function tokenizeContent() {
 
     for (let i = 0; i < parts.length; i += 2) {
         const textSegment = parts[i] || '';
-        const textUnits = state.language === 'chinese'
-            ? textSegment.split('').filter(char => char.trim() !== '')
-            : (textSegment.match(/\b\w+\b/g) || []);
-
+        // Always tokenize as characters, but treat English words as 3 units each
+        const textUnits = tokenizeTextSegment(textSegment);
         units.push(...textUnits);
 
         const imageId = (parts[i + 1] || '').trim();
@@ -250,6 +235,36 @@ function tokenizeContent() {
     elements.totalWords.textContent = state.units.length;
     generatePages();
     updateProgress();
+}
+
+function tokenizeTextSegment(text) {
+    const units = [];
+    let i = 0;
+    
+    while (i < text.length) {
+        const char = text[i];
+        
+        // Check if it's the start of an English word
+        if (/[a-zA-Z]/.test(char)) {
+            // Collect the whole word
+            let word = '';
+            while (i < text.length && /[a-zA-Z]/.test(text[i])) {
+                word += text[i];
+                i++;
+            }
+            // Count English word as 3 characters
+            units.push(word, ' ', ' ');
+        } else if (char.trim() !== '') {
+            // Non-English, non-whitespace character (including Chinese, punctuation, etc.)
+            units.push(char);
+            i++;
+        } else {
+            // Whitespace - skip
+            i++;
+        }
+    }
+    
+    return units;
 }
 
 // ==================== 页面生成 ====================
@@ -643,10 +658,6 @@ function updateProgress() {
 }
 
 // ==================== 工具函数 ====================
-function updateSpeedUnit() {
-    elements.speedUnit.textContent = state.language === 'chinese' ? '字/分钟' : '词/分钟';
-}
-
 function updateFontSize() {
     elements.focusText.style.fontSize = state.fontSize + 'px';
     elements.pageText.style.fontSize = state.fontSize + 'px';
@@ -698,7 +709,6 @@ function updateTrainingModeClass() {
 }
 
 function disableSettingsDuringReading() {
-    elements.language.disabled = true;
     elements.speedSlider.disabled = true;
     elements.speedInput.disabled = true;
     elements.widthSlider.disabled = true;
@@ -715,7 +725,6 @@ function disableSettingsDuringReading() {
 }
 
 function enableSettingsDuringPause() {
-    elements.language.disabled = false;
     elements.speedSlider.disabled = false;
     elements.speedInput.disabled = false;
     elements.widthSlider.disabled = false;
@@ -732,7 +741,6 @@ function enableSettingsDuringPause() {
 }
 
 function enableSettings() {
-    elements.language.disabled = false;
     elements.speedSlider.disabled = false;
     elements.speedInput.disabled = false;
     elements.widthSlider.disabled = false;
@@ -754,7 +762,7 @@ function onReadingComplete() {
 }
 
 // 初始化
-updateSpeedUnit();
+elements.speedUnit.textContent = '字/分钟';
 updateFontSize();
 updateFontWeight();
 switchDisplayMode();
