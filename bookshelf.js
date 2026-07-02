@@ -161,6 +161,9 @@ class BookShelf {
             const result = await response.json();
             const content = typeof result.content === 'string' ? result.content : '';
 
+            // 存储内容到 currentBook 对象中，供 startReading 使用
+            this.currentBook.content = content;
+
             state.content = content;
             state.fileType = 'txt';
             state.currentIndex = 0;
