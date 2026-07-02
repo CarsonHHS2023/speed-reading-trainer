@@ -477,6 +477,7 @@ function continueFromImageMarker() {
     elements.pauseBtn.disabled = false;
     elements.resumeBtn.disabled = true;
 
+    switchDisplayMode();
     disableSettingsDuringReading();
     startReadingLoop();
 }
