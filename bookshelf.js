@@ -138,17 +138,27 @@ class BookShelf {
     }
 
     async selectBook(bookId) {
-        this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
+    // 清空旧数据
+    state.content = '';
+    state.units = [];
+    state.currentIndex = 0;
+    state.currentPageIndex = 0;
+    state.totalPausedDuration = 0;
+    state.currentLine = 0;
+    
+    this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
 
-        document.querySelectorAll('.book-item').forEach((item) => {
-            item.classList.remove('active');
-        });
+    document.querySelectorAll('.book-item').forEach((item) => {
+        item.classList.remove('active');
+    });
 
-        document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
+    document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
 
-        if (!this.currentBook) {
-            return;
-        }
+    if (!this.currentBook) {
+        state.content = '';
+        state.units = [];
+        return;
+    }
 
         this.setLoading(true, '⏳ 正在加载书籍内容...');
 
@@ -158,24 +168,33 @@ class BookShelf {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            const result = await response.json();
+                        const result = await response.json();
             const content = typeof result.content === 'string' ? result.content : '';
 
-            // 存储内容到 currentBook 对象中，供 startReading 使用
-            this.currentBook.content = content;
+            // 检查内容是否为空
+            if (!content || content.trim().length === 0) {
+                console.warn('加载的书籍内容为空');
+                state.content = '';
+                state.units = [];
+                alert('书籍内容为空，请稍后重试');
+                return;
+            }
 
             state.content = content;
             state.fileType = 'txt';
-            state.currentIndex = 0;
-            state.currentPageIndex = 0;
-            state.totalPausedDuration = 0;
-            state.currentLine = 0;
 
             tokenizeContent();
             resetDisplay();
             elements.startBtn.disabled = !state.units.length;
-        } catch (error) {
+            
+            if (state.units.length === 0) {
+                alert('分词失败，书籍内容可能不符合格式');
+            }
+               } catch (error) {
             console.error('加载书籍内容失败:', error);
+            // 错误时清空所有数据
+            state.content = '';
+            state.units = [];
             alert('加载书籍内容失败，请稍后重试');
         } finally {
             this.setLoading(false);
@@ -204,9 +223,10 @@ class BookShelf {
                 this.currentBook = null;
                 state.content = '';
                 state.units = [];
-                resetDisplay();
-                elements.startBtn.disabled = true;
-                updateProgress();
+                state.currentIndex = 0;
+                state.currentPageIndex = 0;
+                state.totalPausedDuration = 0;
+                state.currentLine = 0;
             }
 
             this.renderBooks();
