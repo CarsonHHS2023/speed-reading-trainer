@@ -196,7 +196,6 @@ class BookShelf {
             state.content = '';
             state.units = [];
             alert('加载书籍内容失败，请稍后重试');
-        }
         } finally {
             this.setLoading(false);
         }
