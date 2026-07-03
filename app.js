@@ -208,8 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.stopBtn.addEventListener('click', stopReading);
 });
 
-// ==================== 分词处理 ====================
-function tokenizeContent() {
+// ==================== 分词处理（异步分块） ====================
+async function tokenizeContent() {
     const text = state.content.trim();
     if (!text || text.length === 0) {
         state.units = [];
@@ -222,11 +222,24 @@ function tokenizeContent() {
     const units = [];
     const imageMarkerMap = {};
 
+    // 异步处理每个文本段，防止栈溢出
     for (let i = 0; i < parts.length; i += 2) {
         const textSegment = parts[i] || '';
         if (textSegment.length > 0) {
-            const textUnits = tokenizeTextSegment(textSegment);
-            units.push(...textUnits);
+            // 分块处理大文本，每个 chunk 10KB
+            const chunkSize = 10240;
+            for (let j = 0; j < textSegment.length; j += chunkSize) {
+                const chunk = textSegment.substring(j, j + chunkSize);
+                const textUnits = tokenizeTextSegment(chunk);
+                
+                // 分批添加，避免一次 push 太多元素
+                for (let k = 0; k < textUnits.length; k += 1000) {
+                    units.push(...textUnits.slice(k, k + 1000));
+                }
+                
+                // 让出控制权，防止阻塞
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
         const imageId = (parts[i + 1] || '').trim();
@@ -256,21 +269,17 @@ function tokenizeTextSegment(text) {
     while (i < text.length) {
         const char = text[i];
 
-        // 检查是否是英文单词的开始
         if (/[a-zA-Z]/.test(char)) {
             let word = '';
             while (i < text.length && /[a-zA-Z]/.test(text[i])) {
                 word += text[i];
                 i++;
             }
-            // 英文单词计为3个单位
             units.push(word, ' ', ' ');
         } else if (char.trim() !== '') {
-            // 非空白字符（包括中文、标点等）
             units.push(char);
             i++;
         } else {
-            // 空白字符 - 跳过
             i++;
         }
     }
