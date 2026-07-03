@@ -584,10 +584,53 @@ function continueFromImageMarker() {
     startReadingLoop();
 }
 
-function startFocusLoop() {
-    const charsPerBatch = state.lineWidth * state.lineCount;
-    const intervalMs = (60000 / state.speed) * charsPerBatch;
+function getFocusBatchInfo(startIndex) {
+    let i = startIndex;
+    let linesUsed = 1;
+    let lineLength = 0;
+    let charCount = 0;
 
+    while (i < state.units.length) {
+        const unit = state.units[i];
+
+        if (unit === CONTENT_DELIMITER) {
+            break;
+        }
+
+        if (unit === NEWLINE_TOKEN) {
+            i++;
+            if (linesUsed >= state.lineCount) {
+                break;
+            }
+            linesUsed++;
+            lineLength = 0;
+            continue;
+        }
+
+        const unitLength = unit.length;
+
+        if (lineLength + unitLength > state.lineWidth) {
+            if (linesUsed >= state.lineCount) {
+                break;
+            }
+            linesUsed++;
+            lineLength = 0;
+            continue;
+        }
+
+        lineLength += unitLength;
+        charCount++;
+        i++;
+    }
+
+    return {
+        endIndex: i,
+        charCount,
+        linesUsed
+    };
+}
+
+function startFocusLoop() {
     if (state.currentIndex === 0) {
         state.currentLine = 0;
     }
@@ -604,39 +647,45 @@ function startFocusLoop() {
             return;
         }
 
-        const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
-        let safeBatchEnd = batchEnd;
+        const batchInfo = getFocusBatchInfo(state.currentIndex);
 
-        for (let i = state.currentIndex; i < batchEnd; i++) {
-            if (state.units[i] === CONTENT_DELIMITER) {
-                safeBatchEnd = i;
-                break;
-            }
+        if (batchInfo.endIndex <= state.currentIndex) {
+            state.currentIndex++;
+            return;
         }
 
-        updateFocusDisplay(safeBatchEnd);
+        updateFocusDisplay(batchInfo.endIndex);
         updateProgress();
 
-        state.currentIndex = safeBatchEnd;
-        state.currentLine += state.lineCount;
+        state.currentIndex = batchInfo.endIndex;
+        state.currentLine += batchInfo.linesUsed;
 
         if (state.currentLine + state.lineCount > state.focusMaxLines) {
             state.currentLine = 0;
         }
+
+        if (state.currentIndex >= state.units.length) {
+            clearReadingTimer();
+            onReadingComplete();
+            return;
+        }
+
+        if (!state.isPlaying) {
+            return;
+        }
+
+        const effectiveChars = Math.max(1, batchInfo.charCount);
+        const intervalMs = (60000 / state.speed) * effectiveChars;
+
+        clearReadingTimer();
+        readingInterval = setTimeout(() => {
+            if (state.isPlaying) {
+                showNextBatch();
+            }
+        }, intervalMs);
     }
 
     showNextBatch();
-    if (!state.isPlaying) {
-        return;
-    }
-
-    clearReadingTimer();
-
-    readingInterval = setInterval(() => {
-        if (state.isPlaying) {
-            showNextBatch();
-        }
-    }, intervalMs);
 }
 
 function startPageLoop() {
@@ -677,10 +726,9 @@ function updateDisplay() {
 }
 
 function updateFocusDisplay(customBatchEnd = null) {
-    const charsPerBatch = state.lineWidth * state.lineCount;
     const batchStart = state.currentIndex;
     const batchEnd = customBatchEnd === null
-        ? Math.min(state.currentIndex + charsPerBatch, state.units.length)
+        ? getFocusBatchInfo(batchStart).endIndex
         : customBatchEnd;
     const displayUnits = state.units.slice(batchStart, batchEnd);
 
@@ -698,13 +746,16 @@ function updateFocusDisplay(customBatchEnd = null) {
             continue;
         }
 
-        html += displayUnits[i];
-        lineLength += displayUnits[i].length;
+        const unit = displayUnits[i];
+        const unitLength = unit.length;
 
-        if (lineLength >= state.lineWidth) {
+        if (lineLength + unitLength > state.lineWidth) {
             html += '<br>';
             lineLength = 0;
         }
+
+        html += unit;
+        lineLength += unitLength;
     }
 
     elements.focusText.innerHTML = html;
