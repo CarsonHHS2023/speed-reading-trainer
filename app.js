@@ -396,7 +396,12 @@ async function readTxtFile(file) {
     const arrayBuffer = await file.arrayBuffer();
     const text = await decodeText(arrayBuffer);
 
-    state.content = text;
+    const normalizedText = text
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\n');
+
+    state.content = normalizedText;
     state.currentIndex = 0;
     state.currentPageIndex = 0;
     state.currentLineIndex = 0;
