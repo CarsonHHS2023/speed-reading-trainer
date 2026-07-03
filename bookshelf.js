@@ -180,12 +180,13 @@ class BookShelf {
             const content = typeof result.content === 'string' ? result.content : '';
             console.log('Content length:', content.length);
 
-            // 检查内容是否为空
+            // 检查内容是否为空 - 不显示 alert，直接处理
             if (!content || content.trim().length === 0) {
                 console.warn('加载的书籍内容为空');
                 state.content = '';
                 state.units = [];
-                alert('书籍内容为空，请稍后重试');
+                resetDisplay();
+                elements.startBtn.disabled = true;
                 return;
             }
 
@@ -197,7 +198,7 @@ class BookShelf {
             elements.startBtn.disabled = !state.units.length;
 
             if (state.units.length === 0) {
-                alert('分词失败，书籍内容可能不符合格式');
+                console.warn('分词失败，书籍内容可能不符合格式');
             }
         } catch (error) {
             console.error('加载书籍内容失败:', error);
@@ -205,6 +206,8 @@ class BookShelf {
             // 错误时清空所有数据
             state.content = '';
             state.units = [];
+            resetDisplay();
+            elements.startBtn.disabled = true;
             alert('加载书籍内容失败，请稍后重试');
         } finally {
             this.setLoading(false);
