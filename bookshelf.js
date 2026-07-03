@@ -96,7 +96,6 @@ class BookShelf {
             this.updateCategoryCounts();
         } catch (error) {
             console.error('加载书籍失败:', error);
-            alert('加载书籍失败，请稍后重试');
             this.books = [];
             this.renderBooks();
             this.updateCategoryCounts();
@@ -145,6 +144,8 @@ class BookShelf {
         state.currentPageIndex = 0;
         state.totalPausedDuration = 0;
         state.currentLine = 0;
+        state.pendingImageMarkerIndex = null;
+        state.imageMarkerMap = {};
 
         this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
 
@@ -157,6 +158,8 @@ class BookShelf {
         if (!this.currentBook) {
             state.content = '';
             state.units = [];
+            resetDisplay();
+            elements.startBtn.disabled = true;
             return;
         }
 
@@ -180,11 +183,12 @@ class BookShelf {
             const content = typeof result.content === 'string' ? result.content : '';
             console.log('Content length:', content.length);
 
-            // 检查内容是否为空 - 不显示 alert，直接处理
+            // 检查内容是否为空
             if (!content || content.trim().length === 0) {
                 console.warn('加载的书籍内容为空');
                 state.content = '';
                 state.units = [];
+                state.imageMarkerMap = {};
                 resetDisplay();
                 elements.startBtn.disabled = true;
                 return;
@@ -193,12 +197,22 @@ class BookShelf {
             state.content = content;
             state.fileType = 'txt';
 
-            tokenizeContent();
+            // 同步调用 tokenizeContent，已优化为同步处理
+            try {
+                tokenizeContent();
+            } catch (tokenizeError) {
+                console.error('分词失败:', tokenizeError);
+                console.error('Error stack:', tokenizeError.stack);
+                state.content = '';
+                state.units = [];
+                state.imageMarkerMap = {};
+            }
+
             resetDisplay();
             elements.startBtn.disabled = !state.units.length;
 
             if (state.units.length === 0) {
-                console.warn('分词失败，书籍内容可能不符合格式');
+                console.warn('分词失败或内容为空，无法生成阅读单元');
             }
         } catch (error) {
             console.error('加载书籍内容失败:', error);
@@ -206,9 +220,9 @@ class BookShelf {
             // 错误时清空所有数据
             state.content = '';
             state.units = [];
+            state.imageMarkerMap = {};
             resetDisplay();
             elements.startBtn.disabled = true;
-            alert('加载书籍内容失败，请稍后重试');
         } finally {
             this.setLoading(false);
         }
@@ -240,6 +254,8 @@ class BookShelf {
                 state.currentPageIndex = 0;
                 state.totalPausedDuration = 0;
                 state.currentLine = 0;
+                state.pendingImageMarkerIndex = null;
+                state.imageMarkerMap = {};
             }
 
             this.renderBooks();
