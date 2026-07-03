@@ -262,17 +262,27 @@ function tokenizeTextSegment(text) {
     while (i < text.length) {
         const char = text[i];
 
+        // 统一跳过 CR
         if (char === '\r') {
             i++;
             continue;
         }
 
+        // 保留真实换行
         if (char === '\n') {
             units.push(NEWLINE_TOKEN);
             i++;
             continue;
         }
 
+        // 跳过所有空白（含半角空格、制表符、全角空格等）
+        // 注意：\s 不一定稳定覆盖 \u3000，这里显式补上
+        if (/\s/.test(char) || char === '\u3000') {
+            i++;
+            continue;
+        }
+
+        // 英文单词连续合并
         if (/[a-zA-Z]/.test(char)) {
             let word = '';
             while (i < text.length && /[a-zA-Z]/.test(text[i])) {
@@ -280,12 +290,12 @@ function tokenizeTextSegment(text) {
                 i++;
             }
             units.push(word);
-        } else if (char.trim() !== '') {
-            units.push(char);
-            i++;
-        } else {
-            i++;
+            continue;
         }
+
+        // 其它可见字符（中文、标点等）
+        units.push(char);
+        i++;
     }
 
     return units;
@@ -397,10 +407,12 @@ async function readTxtFile(file) {
     const text = await decodeText(arrayBuffer);
 
     const normalizedText = text
-        .replace(/\\r\\n/g, '\n')
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\n')
-        .replace(/\n{2,}/g, '\n');
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n')
+      .replace(/[ \t\u3000]+\n/g, '\n')   // 行尾空白清理
+      .replace(/\n{2,}/g, '\n')            // 连续空行压缩
+      .trim();
 
     state.content = normalizedText;
     state.currentIndex = 0;
