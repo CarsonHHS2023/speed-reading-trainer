@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
             continueFromImageMarker();
         }
     });
-    
+
     elements.speedSlider.addEventListener('input', (e) => {
         elements.speedInput.value = e.target.value;
         state.speed = parseInt(e.target.value);
@@ -207,6 +207,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.pauseBtn.addEventListener('click', pauseReading);
     elements.resumeBtn.addEventListener('click', resumeReading);
     elements.stopBtn.addEventListener('click', stopReading);
+
+    updateStartButtonState();
 });
 
 // ==================== 分词处理 ====================
@@ -226,7 +228,6 @@ function tokenizeContent() {
     for (let i = 0; i < parts.length; i += 2) {
         const textSegment = parts[i] || '';
         if (textSegment.length > 0) {
-            // 直接分词：每个字符一个单位，英文单词作为一个单位
             const textUnits = tokenizeTextSegment(textSegment);
             units.push(...textUnits);
         }
@@ -276,10 +277,9 @@ function tokenizeTextSegment(text) {
     return units;
 }
 
-// ==================== 页面生成 ====================
 function generatePages() {
     state.pages = [];
-    
+
     if (state.displayMode === 'focus') {
         return;
     }
@@ -334,18 +334,16 @@ function generatePages() {
     }
 }
 
-// ==================== 计算焦点式参数 ====================
 function calculateFocusParameters() {
     const focusContainer = elements.focusModeDisplay;
     const containerHeight = focusContainer.clientHeight;
     const lineHeight = 1.8 * state.fontSize;
     const effectiveHeight = containerHeight - state.fontSize;
-    
+
     state.focusMaxLines = Math.floor(effectiveHeight / lineHeight);
     state.focusLineHeight = effectiveHeight / state.focusMaxLines;
 }
 
-// ==================== 阅读控制 ====================
 let readingInterval = null;
 
 function clearReadingTimer() {
@@ -385,7 +383,6 @@ async function readTxtFile(file) {
     state.totalPausedDuration = 0;
     state.pendingImageMarkerIndex = null;
 
-    // TODO: Keep normalizeContent() out until the follow-up change.
     tokenizeContent();
 }
 
@@ -560,7 +557,6 @@ function continueFromImageMarker() {
     startReadingLoop();
 }
 
-// ==================== 焦点式显示循环 ====================
 function startFocusLoop() {
     const charsPerBatch = state.lineWidth * state.lineCount;
     const intervalMs = (60000 / state.speed) * charsPerBatch;
@@ -645,7 +641,6 @@ function startPageLoop() {
     }, intervalMs);
 }
 
-// ==================== 显示更新 ====================
 function updateDisplay() {
     if (state.displayMode === 'focus') {
         updateFocusDisplay();
@@ -700,13 +695,10 @@ function resetDisplay() {
     elements.pageText.textContent = '选择书籍开始阅读';
 }
 
-// ==================== 进度更新 ====================
 function updateProgress() {
-    let totalUnits, currentIndex;
-    
-    totalUnits = state.units.length;
-    currentIndex = state.currentIndex;
-    
+    const totalUnits = state.units.length;
+    const currentIndex = state.currentIndex;
+
     const percentage = totalUnits > 0 ? Math.round((currentIndex / totalUnits) * 100) : 0;
 
     elements.currentPos.textContent = currentIndex;
@@ -717,12 +709,11 @@ function updateProgress() {
         const elapsedMs = Date.now() - state.startTime;
         const minutes = Math.floor(elapsedMs / 60000);
         const seconds = Math.floor((elapsedMs % 60000) / 1000);
-        elements.readingTime.textContent = 
+        elements.readingTime.textContent =
             `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 }
 
-// ==================== 工具函数 ====================
 function updateFontSize() {
     elements.focusText.style.fontSize = state.fontSize + 'px';
     elements.pageText.style.fontSize = state.fontSize + 'px';
@@ -739,16 +730,16 @@ function switchDisplayMode() {
         elements.pageModeDisplay.classList.remove('active');
         elements.focusSettings.style.display = 'block';
         elements.pageSettings.style.display = 'none';
-        
+
         calculateFocusParameters();
     } else {
         elements.focusModeDisplay.classList.remove('active');
         elements.pageModeDisplay.classList.add('active');
         elements.focusSettings.style.display = 'none';
         elements.pageSettings.style.display = 'block';
-        
+
         recalculatePageMaxLines();
-        
+
         if (state.content) {
             generatePages();
         }
