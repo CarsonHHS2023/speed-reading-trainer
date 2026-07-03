@@ -399,7 +399,8 @@ async function readTxtFile(file) {
     const normalizedText = text
         .replace(/\\r\\n/g, '\n')
         .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\n');
+        .replace(/\\r/g, '\n')
+        .replace(/\n{2,}/g, '\n');
 
     state.content = normalizedText;
     state.currentIndex = 0;
