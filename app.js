@@ -89,6 +89,7 @@ function toggleTheme() {
 }
 
 const CONTENT_DELIMITER = '$%$%$%';
+const NEWLINE_TOKEN = '__NEWLINE__';
 
 // ==================== 事件监听 ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -261,6 +262,17 @@ function tokenizeTextSegment(text) {
     while (i < text.length) {
         const char = text[i];
 
+        if (char === '\r') {
+            i++;
+            continue;
+        }
+
+        if (char === '\n') {
+            units.push(NEWLINE_TOKEN);
+            i++;
+            continue;
+        }
+
         if (/[a-zA-Z]/.test(char)) {
             let word = '';
             while (i < text.length && /[a-zA-Z]/.test(text[i])) {
@@ -311,6 +323,14 @@ function generatePages() {
         while (i < state.units.length && lineCount <= state.pageMaxLines) {
             if (state.units[i] === CONTENT_DELIMITER) {
                 break;
+            }
+
+            if (state.units[i] === NEWLINE_TOKEN) {
+                pageText += '\n';
+                lineLength = 0;
+                lineCount++;
+                i++;
+                continue;
             }
 
             pageText += state.units[i];
@@ -666,6 +686,13 @@ function updateFocusDisplay(customBatchEnd = null) {
         if (displayUnits[i] === CONTENT_DELIMITER) {
             break;
         }
+
+        if (displayUnits[i] === NEWLINE_TOKEN) {
+            html += '<br>';
+            lineLength = 0;
+            continue;
+        }
+
         html += displayUnits[i];
         lineLength += displayUnits[i].length;
 
