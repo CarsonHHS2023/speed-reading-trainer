@@ -208,6 +208,11 @@ class BookShelf {
 
             state.cachedContentBlob = new Blob([content], { type: 'text/plain;charset=utf-8' });
             resetDisplay();
+
+            // 双保险：内容已就绪时立即允许开始
+            state.isContentLoading = false;
+            elements.startBtn.disabled = false;
+            updateStartButtonState();
         } catch (error) {
             console.error('加载书籍内容失败:', error);
             console.error('Error stack:', error.stack);
