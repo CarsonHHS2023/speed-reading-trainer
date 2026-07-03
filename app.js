@@ -636,6 +636,9 @@ function startFocusLoop() {
         state.currentLine = 0;
     }
 
+    const baseCharsPerBatch = state.lineWidth * state.lineCount;
+    const minIntervalMs = (60000 / state.speed) * baseCharsPerBatch * 0.5;
+
     function showNextBatch() {
         if (state.currentIndex >= state.units.length) {
             clearReadingTimer();
@@ -650,8 +653,13 @@ function startFocusLoop() {
 
         const batchInfo = getFocusBatchInfo(state.currentIndex);
 
+        // 防御：避免死循环
         if (batchInfo.endIndex <= state.currentIndex) {
             state.currentIndex++;
+            if (state.currentIndex >= state.units.length) {
+                clearReadingTimer();
+                onReadingComplete();
+            }
             return;
         }
 
@@ -676,7 +684,8 @@ function startFocusLoop() {
         }
 
         const effectiveChars = Math.max(1, batchInfo.charCount);
-        const intervalMs = (60000 / state.speed) * effectiveChars;
+        const dynamicIntervalMs = (60000 / state.speed) * effectiveChars;
+        const intervalMs = Math.max(dynamicIntervalMs, minIntervalMs);
 
         clearReadingTimer();
         readingInterval = setTimeout(() => {
@@ -731,33 +740,44 @@ function updateFocusDisplay(customBatchEnd = null) {
     const batchEnd = customBatchEnd === null
         ? getFocusBatchInfo(batchStart).endIndex
         : customBatchEnd;
+
     const displayUnits = state.units.slice(batchStart, batchEnd);
 
     let html = '';
     let lineLength = 0;
 
     for (let i = 0; i < displayUnits.length; i++) {
-        if (displayUnits[i] === CONTENT_DELIMITER) {
+        const unit = displayUnits[i];
+
+        if (unit === CONTENT_DELIMITER) {
             break;
         }
 
-        if (displayUnits[i] === NEWLINE_TOKEN) {
-            html += '<br>';
+        if (unit === NEWLINE_TOKEN) {
+            // 已有内容时才换行，避免开头/连续空行导致空白行
+            if (html !== '') {
+                html += '<br>';
+            }
             lineLength = 0;
             continue;
         }
 
-        const unit = displayUnits[i];
         const unitLength = unit.length;
 
+        // 超宽时先换行，但避免开头就插入空行
         if (lineLength + unitLength > state.lineWidth) {
-            html += '<br>';
+            if (html !== '') {
+                html += '<br>';
+            }
             lineLength = 0;
         }
 
         html += unit;
         lineLength += unitLength;
     }
+
+    // 去掉尾部空白行（关键：防止“3行里最后一行空白”）
+    html = html.replace(/(<br>\s*)+$/g, '');
 
     elements.focusText.innerHTML = html;
 
