@@ -1,6 +1,7 @@
 // ==================== 状态管理 ====================
 const state = {
     content: '',
+    cachedContentBlob: null,
     units: [],
     pages: [],
     currentIndex: 0,
@@ -19,7 +20,7 @@ const state = {
     startTime: 0,
     pausedTime: 0,
     totalPausedDuration: 0,
-    fileType: 'txt',
+    isContentLoading: false,
     scrollLineOffset: 0,
     focusMaxLines: 0,
     focusLineHeight: 0,
@@ -112,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.widthSlider.addEventListener('input', (e) => {
         elements.widthInput.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
-        if (state.isPaused && state.fileType === 'txt') {
+        if (state.isPaused && state.content) {
             generatePages();
             updateDisplay();
         }
@@ -120,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.widthInput.addEventListener('change', (e) => {
         elements.widthSlider.value = e.target.value;
         state.lineWidth = parseInt(e.target.value);
-        if (state.isPaused && state.fileType === 'txt') {
+        if (state.isPaused && state.content) {
             generatePages();
             updateDisplay();
         }
@@ -144,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.maxLinesSlider.addEventListener('input', (e) => {
         elements.maxLinesInput.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
-        if (state.isPaused && state.fileType === 'txt') {
+        if (state.isPaused && state.content) {
             generatePages();
             updateDisplay();
         }
@@ -152,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.maxLinesInput.addEventListener('change', (e) => {
         elements.maxLinesSlider.value = e.target.value;
         state.pageMaxLines = parseInt(e.target.value);
-        if (state.isPaused && state.fileType === 'txt') {
+        if (state.isPaused && state.content) {
             generatePages();
             updateDisplay();
         }
@@ -197,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.trainingMode.addEventListener('change', (e) => {
         state.trainingMode = e.target.value;
         updateTrainingModeClass();
-        if (state.isPaused && state.displayMode === 'focus' && state.fileType === 'txt') {
+        if (state.isPaused && state.displayMode === 'focus' && state.content) {
             updateDisplay();
         }
     });
@@ -283,55 +284,53 @@ function generatePages() {
         return;
     }
 
-    if (state.fileType === 'txt') {
-        let i = 0;
+    let i = 0;
 
-        while (i < state.units.length) {
-            if (state.units[i] === CONTENT_DELIMITER) {
-                state.pages.push({
-                    text: '',
-                    charCount: 1,
-                    startIndex: i,
-                    endIndex: i + 1,
-                    isImageMarker: true,
-                    imageId: state.imageMarkerMap[i]
-                });
-                i++;
-                continue;
-            }
-
-            const startIndex = i;
-            let pageText = '';
-            let lineLength = 0;
-            let lineCount = 1;
-            let charCount = 0;
-
-            while (i < state.units.length && lineCount <= state.pageMaxLines) {
-                if (state.units[i] === CONTENT_DELIMITER) {
-                    break;
-                }
-
-                pageText += state.units[i];
-                charCount++;
-                lineLength += state.units[i].length;
-
-                i++;
-
-                if (lineLength >= state.lineWidth) {
-                    pageText += '\n';
-                    lineLength = 0;
-                    lineCount++;
-                }
-            }
-
+    while (i < state.units.length) {
+        if (state.units[i] === CONTENT_DELIMITER) {
             state.pages.push({
-                text: pageText,
-                charCount,
-                startIndex,
-                endIndex: i,
-                isImageMarker: false
+                text: '',
+                charCount: 1,
+                startIndex: i,
+                endIndex: i + 1,
+                isImageMarker: true,
+                imageId: state.imageMarkerMap[i]
             });
+            i++;
+            continue;
         }
+
+        const startIndex = i;
+        let pageText = '';
+        let lineLength = 0;
+        let lineCount = 1;
+        let charCount = 0;
+
+        while (i < state.units.length && lineCount <= state.pageMaxLines) {
+            if (state.units[i] === CONTENT_DELIMITER) {
+                break;
+            }
+
+            pageText += state.units[i];
+            charCount++;
+            lineLength += state.units[i].length;
+
+            i++;
+
+            if (lineLength >= state.lineWidth) {
+                pageText += '\n';
+                lineLength = 0;
+                lineCount++;
+            }
+        }
+
+        state.pages.push({
+            text: pageText,
+            charCount,
+            startIndex,
+            endIndex: i,
+            isImageMarker: false
+        });
     }
 }
 
@@ -349,22 +348,78 @@ function calculateFocusParameters() {
 // ==================== 阅读控制 ====================
 let readingInterval = null;
 
-function startReading() {
-    if (!state.content) {
+function clearReadingTimer() {
+    if (readingInterval) {
+        clearInterval(readingInterval);
+        clearTimeout(readingInterval);
+        readingInterval = null;
+    }
+}
+
+function updateStartButtonState() {
+    elements.startBtn.disabled = state.isContentLoading || !state.cachedContentBlob || state.isPlaying || state.isPaused;
+}
+
+async function decodeText(arrayBuffer) {
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+    } catch (error) {
+        try {
+            return new TextDecoder('gb2312').decode(arrayBuffer);
+        } catch (fallbackError) {
+            return new TextDecoder('latin1').decode(arrayBuffer);
+        }
+    }
+}
+
+async function readTxtFile(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const text = await decodeText(arrayBuffer);
+
+    state.content = text;
+    state.currentIndex = 0;
+    state.currentPageIndex = 0;
+    state.currentLineIndex = 0;
+    state.currentLine = 0;
+    state.pausedTime = 0;
+    state.totalPausedDuration = 0;
+    state.pendingImageMarkerIndex = null;
+
+    // TODO: Keep normalizeContent() out until the follow-up change.
+    tokenizeContent();
+}
+
+async function startReading() {
+    if (!state.cachedContentBlob) {
         alert('请先选择书籍');
+        return;
+    }
+
+    clearReadingTimer();
+    elements.startBtn.disabled = true;
+    elements.pauseBtn.disabled = true;
+    elements.resumeBtn.disabled = true;
+    elements.stopBtn.disabled = true;
+
+    try {
+        await readTxtFile(state.cachedContentBlob);
+    } catch (error) {
+        console.error('TXT 文件读取失败:', error);
+        alert('TXT 文件读取失败');
+        updateStartButtonState();
+        return;
+    }
+
+    if (!state.units.length) {
+        updateStartButtonState();
         return;
     }
 
     state.isPlaying = true;
     state.isPaused = false;
-    state.startTime = Date.now() - state.totalPausedDuration;
-    state.currentIndex = 0;
-    state.currentLine = 0;
-    state.pendingImageMarkerIndex = null;
+    state.startTime = Date.now();
 
-    elements.startBtn.disabled = true;
     elements.pauseBtn.disabled = false;
-    elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = false;
 
     disableSettingsDuringReading();
@@ -375,7 +430,7 @@ function pauseReading() {
     state.isPlaying = false;
     state.isPaused = true;
     state.pausedTime = Date.now();
-    clearInterval(readingInterval);
+    clearReadingTimer();
 
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = false;
@@ -404,9 +459,8 @@ function stopReading() {
     state.currentLineIndex = 0;
     state.currentLine = 0;
     state.pendingImageMarkerIndex = null;
-    clearInterval(readingInterval);
+    clearReadingTimer();
 
-    elements.startBtn.disabled = false;
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = true;
@@ -414,6 +468,7 @@ function stopReading() {
     enableSettings();
     resetDisplay();
     updateProgress();
+    updateStartButtonState();
 }
 
 function startReadingLoop() {
@@ -451,7 +506,7 @@ async function pauseForImageMarker() {
         return false;
     }
 
-    clearInterval(readingInterval);
+    clearReadingTimer();
 
     state.isPlaying = false;
     state.isPaused = true;
@@ -507,21 +562,25 @@ function continueFromImageMarker() {
 
 // ==================== 焦点式显示循环 ====================
 function startFocusLoop() {
-    state.currentLine = 0;
+    const charsPerBatch = state.lineWidth * state.lineCount;
+    const intervalMs = (60000 / state.speed) * charsPerBatch;
 
-    async function showNextBatch() {
+    if (state.currentIndex === 0) {
+        state.currentLine = 0;
+    }
+
+    function showNextBatch() {
         if (state.currentIndex >= state.units.length) {
-            clearInterval(readingInterval);
+            clearReadingTimer();
             onReadingComplete();
             return;
         }
 
         if (state.units[state.currentIndex] === CONTENT_DELIMITER) {
-            await pauseForImageMarker();
+            pauseForImageMarker();
             return;
         }
 
-        const charsPerBatch = state.lineWidth * state.lineCount;
         const batchEnd = Math.min(state.currentIndex + charsPerBatch, state.units.length);
         let safeBatchEnd = batchEnd;
 
@@ -544,17 +603,15 @@ function startFocusLoop() {
     }
 
     showNextBatch();
-
-    if (readingInterval) {
-        clearInterval(readingInterval);
+    if (!state.isPlaying) {
+        return;
     }
 
-    const charsPerBatch = state.lineWidth * state.lineCount;
-    const intervalMs = (60000 / state.speed) * charsPerBatch;
+    clearReadingTimer();
 
-    readingInterval = setInterval(async () => {
+    readingInterval = setInterval(() => {
         if (state.isPlaying) {
-            await showNextBatch();
+            showNextBatch();
         }
     }, intervalMs);
 }
@@ -632,7 +689,7 @@ function updateFocusDisplay(customBatchEnd = null) {
 }
 
 function updatePageDisplay() {
-    if (state.fileType === 'txt' && state.currentPageIndex < state.pages.length) {
+    if (state.currentPageIndex < state.pages.length) {
         elements.pageText.textContent = state.pages[state.currentPageIndex].text;
     }
 }
@@ -692,7 +749,7 @@ function switchDisplayMode() {
         
         recalculatePageMaxLines();
         
-        if (state.content && state.fileType === 'txt') {
+        if (state.content) {
             generatePages();
         }
     }
