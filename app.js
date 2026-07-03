@@ -229,7 +229,9 @@ function tokenizeContent() {
         const textSegment = parts[i] || '';
         if (textSegment.length > 0) {
             const textUnits = tokenizeTextSegment(textSegment);
-            units.push(...textUnits);
+            for (let j = 0; j < textUnits.length; j++) {
+                units.push(textUnits[j]);
+            }
         }
 
         const imageId = (parts[i + 1] || '').trim();
