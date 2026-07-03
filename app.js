@@ -208,8 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.stopBtn.addEventListener('click', stopReading);
 });
 
-// ==================== 分词处理（异步分块） ====================
-async function tokenizeContent() {
+// ==================== 分词处理 ====================
+function tokenizeContent() {
     const text = state.content.trim();
     if (!text || text.length === 0) {
         state.units = [];
@@ -222,24 +222,12 @@ async function tokenizeContent() {
     const units = [];
     const imageMarkerMap = {};
 
-    // 异步处理每个文本段，防止栈溢出
     for (let i = 0; i < parts.length; i += 2) {
         const textSegment = parts[i] || '';
         if (textSegment.length > 0) {
-            // 分块处理大文本，每个 chunk 10KB
-            const chunkSize = 10240;
-            for (let j = 0; j < textSegment.length; j += chunkSize) {
-                const chunk = textSegment.substring(j, j + chunkSize);
-                const textUnits = tokenizeTextSegment(chunk);
-                
-                // 分批添加，避免一次 push 太多元素
-                for (let k = 0; k < textUnits.length; k += 1000) {
-                    units.push(...textUnits.slice(k, k + 1000));
-                }
-                
-                // 让出控制权，防止阻塞
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
+            // 直接分词：每个字符一个单位，英文单词作为一个单位
+            const textUnits = tokenizeTextSegment(textSegment);
+            units.push(...textUnits);
         }
 
         const imageId = (parts[i + 1] || '').trim();
@@ -275,7 +263,7 @@ function tokenizeTextSegment(text) {
                 word += text[i];
                 i++;
             }
-            units.push(word, ' ', ' ');
+            units.push(word);
         } else if (char.trim() !== '') {
             units.push(char);
             i++;
@@ -325,7 +313,7 @@ function generatePages() {
 
                 pageText += state.units[i];
                 charCount++;
-                lineLength++;
+                lineLength += state.units[i].length;
 
                 i++;
 
@@ -625,7 +613,7 @@ function updateFocusDisplay(customBatchEnd = null) {
             break;
         }
         html += displayUnits[i];
-        lineLength++;
+        lineLength += displayUnits[i].length;
 
         if (lineLength >= state.lineWidth) {
             html += '<br>';
