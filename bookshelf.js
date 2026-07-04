@@ -37,7 +37,7 @@ class BookShelf {
             uploadZone.classList.remove('drag-over');
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                this.handleFileUpload(files[0]);
+                this.handleMultiFileUpload(Array.from(files));
             }
         });
 
@@ -50,7 +50,7 @@ class BookShelf {
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
-                this.handleFileUpload(e.target.files[0]);
+                this.handleMultiFileUpload(Array.from(e.target.files));
                 fileInput.value = '';
             }
         });
@@ -134,6 +134,99 @@ class BookShelf {
         } finally {
             this.setLoading(false);
         }
+    }
+
+    async handleMultiFileUpload(files) {
+        if (files.length === 0) return;
+        if (files.length === 1) {
+            return this.handleFileUpload(files[0]);
+        }
+
+        const CONCURRENCY = 3;
+        const items = files.map((file) => ({
+            file,
+            name: file.name,
+            status: 'queued',
+            error: null,
+            book: null
+        }));
+
+        this.renderBatchPanel(items);
+
+        let nextIndex = 0;
+        const runNext = async () => {
+            if (nextIndex >= items.length) return;
+            const item = items[nextIndex++];
+            item.status = 'uploading';
+            this.renderBatchPanel(items);
+            try {
+                const formData = new FormData();
+                formData.append('file', item.file);
+                const response = await fetch(`${API_BASE_URL}/api/v1/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                item.book = this.normalizeBook(result);
+                item.status = 'success';
+                this.books.unshift(item.book);
+                this.renderBooks();
+                this.updateCategoryCounts();
+            } catch (error) {
+                item.status = 'failed';
+                item.error = error.message || '上传失败';
+                console.error('上传失败:', item.name, error);
+            }
+            this.renderBatchPanel(items);
+            await runNext();
+        };
+
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, runNext));
+    }
+
+    renderBatchPanel(items) {
+        const panel = document.getElementById('batchPanel');
+        const summary = document.getElementById('batchSummary');
+        const list = document.getElementById('batchList');
+
+        const total = items.length;
+        const success = items.filter((i) => i.status === 'success').length;
+        const failed = items.filter((i) => i.status === 'failed').length;
+        const active = items.filter((i) => i.status === 'uploading' || i.status === 'queued').length;
+
+        panel.style.display = 'block';
+        summary.textContent = `共${total} · 成功${success} · 失败${failed} · 处理中${active}`;
+
+        list.innerHTML = '';
+        const statusIcon = { queued: '⏳', uploading: '🔄', success: '✅', failed: '❌' };
+        items.forEach((item) => {
+            const row = document.createElement('div');
+            row.className = `batch-item batch-item-${item.status}`;
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'batch-item-name';
+            nameEl.textContent = `${statusIcon[item.status] || ''} ${item.name}`;
+            if (item.error) nameEl.title = item.error;
+            row.appendChild(nameEl);
+
+            if (item.status === 'success' && item.book) {
+                const openBtn = document.createElement('button');
+                openBtn.className = 'batch-item-open';
+                openBtn.textContent = '打开';
+                openBtn.addEventListener('click', () => this.selectBook(item.book.id));
+                row.appendChild(openBtn);
+            }
+
+            if (item.status === 'failed' && item.error) {
+                const errEl = document.createElement('span');
+                errEl.className = 'batch-item-error';
+                errEl.textContent = item.error;
+                row.appendChild(errEl);
+            }
+
+            list.appendChild(row);
+        });
     }
 
     async selectBook(bookId) {
