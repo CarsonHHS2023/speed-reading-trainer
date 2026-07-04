@@ -862,6 +862,27 @@ body.dark-mode #categoryInput {
     justify-content: flex-end;
 }
 
+/* ==================== 阅读区点击暂停/继续 ==================== */
+.reading-panel.is-reading {
+    cursor: pointer;
+}
+
+.reading-click-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    pointer-events: none;
+    animation: readingHintFade 0.6s ease-out forwards;
+    z-index: 10;
+}
+
+@keyframes readingHintFade {
+    0%   { opacity: 0.85; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.6); }
+}
+
 /* 滚动条样式 */
 ::-webkit-scrollbar {
     width: 6px;
