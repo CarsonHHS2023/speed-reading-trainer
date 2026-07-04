@@ -61,6 +61,7 @@ const elements = {
     focusSettings: document.getElementById('focusSettings'),
     pageSettings: document.getElementById('pageSettings'),
     themeToggleBtn: document.getElementById('themeToggleBtn'),
+    readingPanel: document.querySelector('.reading-panel'),
 };
 
 // ==================== 主题切换 ====================
@@ -99,7 +100,13 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.focusText.addEventListener('click', (e) => {
         if (e.target.closest('[data-role="image-continue"]') && state.isPaused && state.pendingImageMarkerIndex !== null) {
             continueFromImageMarker();
+            return;
         }
+        toggleReadingArea();
+    });
+
+    elements.pageModeDisplay.addEventListener('click', () => {
+        toggleReadingArea();
     });
 
     elements.speedSlider.addEventListener('input', (e) => {
@@ -458,6 +465,7 @@ async function startReading() {
 
     elements.pauseBtn.disabled = false;
     elements.stopBtn.disabled = false;
+    elements.readingPanel.classList.add('is-reading');
 
     disableSettingsDuringReading();
     startReadingLoop();
@@ -471,6 +479,7 @@ function pauseReading() {
 
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = false;
+    elements.readingPanel.classList.add('is-reading');
     enableSettingsDuringPause();
 }
 
@@ -483,6 +492,7 @@ function resumeReading() {
 
     elements.pauseBtn.disabled = false;
     elements.resumeBtn.disabled = true;
+    elements.readingPanel.classList.add('is-reading');
 
     disableSettingsDuringReading();
     startReadingLoop();
@@ -501,6 +511,7 @@ function stopReading() {
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = true;
+    elements.readingPanel.classList.remove('is-reading');
 
     enableSettings();
     resetDisplay();
@@ -521,7 +532,7 @@ function getCurrentImageMarkerId() {
 }
 
 async function fetchImageData(imageId) {
-    const response = await fetch(`https://carsonhhs-pdf-ocr-service.hf.space/api/v1/images/${encodeURIComponent(imageId)}`);
+    const response = await fetch(`${API_BASE_URL}/api/v1/images/${encodeURIComponent(imageId)}`);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
@@ -928,6 +939,27 @@ function enableSettings() {
     elements.fontWeight.disabled = false;
     elements.displayMode.disabled = false;
     elements.trainingMode.disabled = false;
+}
+
+function toggleReadingArea() {
+    if (state.pendingImageMarkerIndex !== null) {
+        return;
+    }
+    if (state.isPlaying) {
+        pauseReading();
+        showReadingClickFeedback('⏸');
+    } else if (state.isPaused) {
+        resumeReading();
+        showReadingClickFeedback('▶');
+    }
+}
+
+function showReadingClickFeedback(icon) {
+    const hint = document.createElement('div');
+    hint.className = 'reading-click-hint';
+    hint.textContent = icon;
+    elements.readingPanel.appendChild(hint);
+    setTimeout(() => hint.remove(), 600);
 }
 
 function onReadingComplete() {
