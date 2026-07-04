@@ -29,7 +29,13 @@
                         <!-- 上传区域 -->
                         <div class="upload-zone" id="uploadZone">
                             <div class="upload-prompt">📁 拖拽或<br><span>点击上传</span></div>
-                            <input type="file" id="fileInput" accept=".txt,.pdf" hidden>
+                            <input type="file" id="fileInput" accept=".txt,.pdf" multiple hidden>
+                        </div>
+
+                        <!-- 批量上传状态面板 -->
+                        <div id="batchPanel" class="batch-panel" style="display:none;">
+                            <div class="batch-summary" id="batchSummary"></div>
+                            <div class="batch-list" id="batchList"></div>
                         </div>
 
                         <!-- 分类列表 -->
