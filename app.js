@@ -533,18 +533,39 @@ function getCurrentImageMarkerId() {
 
 async function fetchImageData(imageId) {
     const response = await fetch(`${API_BASE_URL}/api/v1/images/${encodeURIComponent(imageId)}`);
+    const contentType = response.headers.get('content-type') || '';
+
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        let bodySnippet = '';
+        try {
+            const errorText = await response.text();
+            bodySnippet = errorText.replace(/\s+/g, ' ').slice(0, 120);
+        } catch (error) {
+            bodySnippet = '';
+        }
+
+        throw new Error(`HTTP ${response.status}${bodySnippet ? ` - ${bodySnippet}` : ''}`);
     }
 
-    const result = await response.json();
-    if (!result.image_data) {
-        throw new Error('未返回图像数据');
+    if (contentType.includes('application/json')) {
+        let result;
+        try {
+            result = await response.json();
+        } catch (error) {
+            throw new Error('图像接口返回了无效 JSON');
+        }
+
+        if (!result.image_data) {
+            throw new Error('未返回图像数据');
+        }
+
+        return result.image_data.startsWith('data:image')
+            ? result.image_data
+            : `data:image/png;base64,${result.image_data}`;
     }
 
-    return result.image_data.startsWith('data:image')
-        ? result.image_data
-        : `data:image/png;base64,${result.image_data}`;
+    const imageBlob = await response.blob();
+    return URL.createObjectURL(imageBlob);
 }
 
 async function pauseForImageMarker() {
