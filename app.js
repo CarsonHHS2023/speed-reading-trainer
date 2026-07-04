@@ -62,7 +62,33 @@ const elements = {
     pageSettings: document.getElementById('pageSettings'),
     themeToggleBtn: document.getElementById('themeToggleBtn'),
     readingPanel: document.querySelector('.reading-panel'),
+    chartDisplay: document.getElementById('chartDisplay'),
+    chartImage: document.getElementById('chartImage'),
+    rotateLeftBtn: document.getElementById('rotateLeftBtn'),
+    rotateRightBtn: document.getElementById('rotateRightBtn'),
+    flipVerticalBtn: document.getElementById('flipVerticalBtn'),
+    flipHorizontalBtn: document.getElementById('flipHorizontalBtn'),
 };
+
+// ==================== 图像变换状态 ====================
+const imageTransform = {
+    rotation: 0,
+    flipH: false,
+    flipV: false,
+};
+
+function resetImageTransform() {
+    imageTransform.rotation = 0;
+    imageTransform.flipH = false;
+    imageTransform.flipV = false;
+}
+
+function applyImageTransform() {
+    const scaleX = imageTransform.flipH ? -1 : 1;
+    const scaleY = imageTransform.flipV ? -1 : 1;
+    elements.chartImage.style.transform =
+        `rotate(${imageTransform.rotation}deg) scaleX(${scaleX}) scaleY(${scaleY})`;
+}
 
 // ==================== 主题切换 ====================
 function initTheme() {
@@ -97,16 +123,41 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     elements.themeToggleBtn.addEventListener('click', toggleTheme);
 
-    elements.focusText.addEventListener('click', (e) => {
-        if (e.target.closest('[data-role="image-continue"]') && state.isPaused && state.pendingImageMarkerIndex !== null) {
-            continueFromImageMarker();
-            return;
-        }
+    elements.focusText.addEventListener('click', () => {
         toggleReadingArea();
     });
 
     elements.pageModeDisplay.addEventListener('click', () => {
         toggleReadingArea();
+    });
+
+    // 图像点击继续阅读
+    elements.chartImage.addEventListener('click', () => {
+        if (state.isPaused && state.pendingImageMarkerIndex !== null) {
+            continueFromImageMarker();
+        }
+    });
+
+    // 图像变换控制按钮（仅变换，不继续）
+    elements.rotateLeftBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        imageTransform.rotation = (imageTransform.rotation - 90 + 360) % 360;
+        applyImageTransform();
+    });
+    elements.rotateRightBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        imageTransform.rotation = (imageTransform.rotation + 90) % 360;
+        applyImageTransform();
+    });
+    elements.flipVerticalBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        imageTransform.flipV = !imageTransform.flipV;
+        applyImageTransform();
+    });
+    elements.flipHorizontalBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        imageTransform.flipH = !imageTransform.flipH;
+        applyImageTransform();
     });
 
     elements.speedSlider.addEventListener('input', (e) => {
@@ -513,6 +564,8 @@ function stopReading() {
     elements.stopBtn.disabled = true;
     elements.readingPanel.classList.remove('is-reading');
 
+    elements.chartDisplay.classList.remove('active');
+
     enableSettings();
     resetDisplay();
     updateProgress();
@@ -584,27 +637,20 @@ async function pauseForImageMarker() {
     elements.pauseBtn.disabled = true;
     elements.resumeBtn.disabled = true;
 
-    elements.focusModeDisplay.classList.add('active');
-    elements.pageModeDisplay.classList.remove('active');
-    elements.focusText.style.marginTop = '0';
-    elements.focusText.innerHTML = '⏳ 正在加载图像...';
+    // Show chart display overlay covering the full reading area
+    resetImageTransform();
+    elements.chartImage.src = '';
+    elements.chartImage.alt = '正在加载图像...';
+    elements.chartImage.style.transform = '';
+    elements.chartDisplay.classList.add('active');
 
     try {
         const imageSrc = await fetchImageData(imageId);
-        elements.focusText.innerHTML = `
-            <div style="text-align:center;">
-                <img src="${imageSrc}" alt="内容图像" style="max-width:100%; max-height:60vh; object-fit:contain; border-radius:8px; cursor:pointer;" />
-                <div data-role="image-continue" style="margin-top:10px; color:#667eea; cursor:pointer; font-size:0.95rem;">点击图像继续阅读</div>
-            </div>
-        `;
+        elements.chartImage.src = imageSrc;
+        elements.chartImage.alt = '内容图像';
     } catch (error) {
         console.error('图像加载失败:', error);
-        elements.focusText.innerHTML = `
-            <div style="text-align:center;">
-                <div style="margin-bottom:10px;">图像加载失败，请点击继续</div>
-                <div data-role="image-continue" style="color:#667eea; cursor:pointer;">继续阅读</div>
-            </div>
-        `;
+        elements.chartImage.alt = '图像加载失败，请点击此处继续';
     }
 
     return true;
@@ -623,6 +669,8 @@ function continueFromImageMarker() {
 
     elements.pauseBtn.disabled = false;
     elements.resumeBtn.disabled = true;
+
+    elements.chartDisplay.classList.remove('active');
 
     switchDisplayMode();
     disableSettingsDuringReading();
