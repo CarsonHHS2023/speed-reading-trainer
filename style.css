@@ -38,8 +38,8 @@ body.dark-mode {
     overflow: hidden;
 }
 
-/* ==================== 左侧面板（书架+设置） ==================== */
-.left-panel {
+/* ==================== 左侧栏（书架+设置） ==================== */
+.left-column {
     display: flex;
     flex-direction: column;
     gap: 0;
@@ -47,11 +47,11 @@ body.dark-mode {
     border-right: 1px solid #ddd;
     overflow: hidden;
     flex-shrink: 0;
-    width: 430px;
+    width: 220px;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
-body.dark-mode .left-panel {
+body.dark-mode .left-column {
     background: #2d2d2d;
     border-right-color: #444;
 }
@@ -94,18 +94,8 @@ body.dark-mode .app-title {
     transform: scale(1.1);
 }
 
-/* 书架和设置容器（上下） */
-.left-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-    gap: 0;
-}
-
 /* 书架栏 */
 .shelf-panel {
-    width: 100%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
@@ -113,7 +103,7 @@ body.dark-mode .app-title {
     flex: 1;
     min-height: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.18);
-    overflow: hidden;
+    overflow-y: auto;
     transition: background 0.3s ease, border-color 0.3s ease;
 }
 
@@ -287,7 +277,8 @@ body.dark-mode .shelf-header {
     flex-direction: column;
     gap: 6px;
     padding: 0 8px 8px;
-    flex-shrink: 0;
+    flex: 1;
+    min-height: 0;
 }
 
 .categories-header,
@@ -304,7 +295,8 @@ body.dark-mode .shelf-header {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    flex-shrink: 0;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .category-node {
@@ -378,10 +370,12 @@ body.dark-mode .shelf-header {
 .booklist-panel {
     display: flex;
     flex-direction: column;
-    flex: 1;
-    min-height: 160px;
+    width: 220px;
+    flex-shrink: 0;
     overflow: hidden;
-    padding: 0 8px 8px;
+    padding: 0;
+    border-right: 1px solid #ddd;
+    background: #fafafa;
 }
 
 .books-list {
@@ -389,14 +383,13 @@ body.dark-mode .shelf-header {
     overflow-y: auto;
     padding: 8px;
     font-size: 0.8rem;
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: 8px;
+    background: transparent;
 }
 
 .books-empty {
     padding: 8px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.7);
+    color: #777;
     font-size: 0.8rem;
 }
 
@@ -407,7 +400,8 @@ body.dark-mode .shelf-header {
 
 .book-item {
     padding: 6px 8px;
-    background: rgba(255, 255, 255, 0.1);
+    background: white;
+    border: 1px solid #e5e5e5;
     border-radius: 4px;
     margin-bottom: 4px;
     cursor: pointer;
@@ -423,11 +417,11 @@ body.dark-mode .shelf-header {
 }
 
 .book-item:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: #f3f5ff;
 }
 
 .book-item.active {
-    background: rgba(255, 255, 255, 0.3);
+    background: #e8edff;
     font-weight: bold;
 }
 
@@ -445,9 +439,9 @@ body.dark-mode .shelf-header {
 }
 
 .book-item-action {
-    background: rgba(0, 0, 0, 0.2);
+    background: #f0f0f0;
     border: none;
-    color: white;
+    color: #444;
     width: 20px;
     height: 20px;
     border-radius: 3px;
@@ -460,7 +454,7 @@ body.dark-mode .shelf-header {
 }
 
 .book-item-action:hover {
-    background: rgba(0, 0, 0, 0.4);
+    background: #e2e2e2;
 }
 
 .book-item-handle {
@@ -475,7 +469,7 @@ body.dark-mode .shelf-header {
     flex-direction: column;
     border-right: none;
     border-top: 1px solid #ddd;
-    overflow: visible;
+    overflow: hidden;
     flex-shrink: 0;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
@@ -518,7 +512,7 @@ body.dark-mode .settings-header {
 
 .settings-content {
     flex: none;
-    overflow: visible;
+    overflow: hidden;
     padding: 10px;
     display: flex;
     flex-direction: column;
@@ -752,6 +746,72 @@ body.dark-mode .time-display {
     overflow: hidden;
     transition: background-color 0.3s ease;
     position: relative;
+}
+
+.booklist-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 10px 6px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.reading-toggle-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #ddd;
+    background: #fff;
+    color: #333;
+}
+
+.reading-toggle-btn:hover:not(:disabled) {
+    background: #f0f0f0;
+}
+
+.reading-toggle-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+body.dark-mode .booklist-panel {
+    background: #2d2d2d;
+    border-right-color: #444;
+}
+
+body.dark-mode .booklist-header {
+    border-bottom-color: #444;
+}
+
+body.dark-mode .books-empty {
+    color: #aaa;
+}
+
+body.dark-mode .book-item {
+    background: #3a3a3a;
+    border-color: #4a4a4a;
+}
+
+body.dark-mode .book-item:hover {
+    background: #454a66;
+}
+
+body.dark-mode .book-item.active {
+    background: #4a5272;
+}
+
+body.dark-mode .book-item-action {
+    background: #4a4a4a;
+    color: #e0e0e0;
+}
+
+body.dark-mode .book-item-action:hover {
+    background: #5a5a5a;
+}
+
+body.dark-mode .reading-toggle-btn {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
 }
 
 body.dark-mode .reading-panel {
@@ -1279,4 +1339,13 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     font-size: 0.68rem;
     color: rgba(255, 255, 255, 0.5);
     text-align: right;
+}
+.slider-control input[type="number"].small-number-input {
+    width: 2.5em;
+    max-width: 2.5em;
+}
+
+.speed-control input[type="number"].speed-number-input {
+    width: 4.5em;
+    max-width: 4.5em;
 }
