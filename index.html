@@ -24,19 +24,16 @@
                         <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
                     </div>
 
-                    <!-- 上传区域 -->
                     <div class="upload-zone" id="uploadZone">
                         <div class="upload-prompt">📁 拖拽或<br><span>点击上传</span></div>
                         <input type="file" id="fileInput" accept=".txt,.pdf" multiple hidden>
                     </div>
 
-                    <!-- 批量上传状态面板 -->
                     <div id="batchPanel" class="batch-panel" style="display:none;">
                         <div class="batch-summary" id="batchSummary"></div>
                         <div class="batch-list" id="batchList"></div>
                     </div>
 
-                    <!-- 单本书处理进度 -->
                     <div id="processingPanel" class="processing-panel" style="display:none;">
                         <div class="processing-title">
                             <span id="processingBookName" class="processing-book-name"></span>
@@ -69,7 +66,7 @@
                     </div>
 
                     <div class="settings-content">
-                        <!-- 阅读速度：单行，label + slider + 数字框 + 单位 -->
+                        <!-- 阅读速度 -->
                         <div class="setting-row speed-setting-row">
                             <label for="speedSlider">阅读速度：</label>
                             <div class="speed-control">
@@ -79,7 +76,7 @@
                             </div>
                         </div>
 
-                        <!-- 行宽 + 行数：两列grid -->
+                        <!-- 行宽 + 行数 -->
                         <div class="setting-grid-row" id="focusSettings">
                             <div class="setting-grid-cell">
                                 <label for="widthSlider">行宽：</label>
@@ -93,6 +90,7 @@
                             </div>
                         </div>
 
+                        <!-- 最大行数（整页模式） -->
                         <div class="setting-row" id="pageSettings" style="display: none;">
                             <label for="maxLinesSlider">最大行数：</label>
                             <div class="slider-control">
@@ -101,13 +99,12 @@
                             </div>
                         </div>
 
-                        <!-- 字体大小 + 粗细：两列grid -->
+                        <!-- 字体大小 + 粗细（无 px 标签） -->
                         <div class="setting-grid-row">
                             <div class="setting-grid-cell">
                                 <label for="fontSlider">字体大小：</label>
                                 <input type="range" id="fontSlider" min="16" max="48" value="28" />
                                 <input type="number" id="fontInput" min="16" max="48" value="28" />
-                                <span>px</span>
                             </div>
                             <div class="setting-grid-cell setting-grid-cell-select">
                                 <label for="fontWeight">粗细：</label>
@@ -118,7 +115,7 @@
                             </div>
                         </div>
 
-                        <!-- 显示模式 + 训练模式：两列grid -->
+                        <!-- 显示模式 + 训练模式（同一行） -->
                         <div class="setting-grid-row">
                             <div class="setting-grid-cell setting-grid-cell-select">
                                 <label for="displayMode">显示模式：</label>
@@ -167,7 +164,6 @@
                     </div>
                 </div>
 
-                <!-- PDF 图表显示区 -->
                 <div id="chartDisplay" class="chart-display">
                     <div class="chart-container">
                         <img id="chartImage" src="" alt="图表" class="chart-image" />
@@ -183,7 +179,6 @@
         </div>
     </div>
 
-    <!-- 模态框：分类操作 -->
     <div id="categoryModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
