@@ -47,12 +47,10 @@ const elements = {
     displayMode: document.getElementById('displayMode'),
     trainingMode: document.getElementById('trainingMode'),
     startBtn: document.getElementById('startBtn'),
-    pauseBtn: document.getElementById('pauseBtn'),
-    resumeBtn: document.getElementById('resumeBtn'),
     stopBtn: document.getElementById('stopBtn'),
     currentPos: document.getElementById('currentPos'),
     totalWords: document.getElementById('totalWords'),
-    progressFill: document.getElementById('progressFill'),
+    progressSlider: document.getElementById('progressSlider'),
     readingTime: document.getElementById('readingTime'),
     focusText: document.getElementById('focusText'),
     focusModeDisplay: document.getElementById('focusModeDisplay'),
@@ -263,9 +261,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     elements.startBtn.addEventListener('click', startReading);
-    elements.pauseBtn.addEventListener('click', pauseReading);
-    elements.resumeBtn.addEventListener('click', resumeReading);
     elements.stopBtn.addEventListener('click', stopReading);
+    elements.progressSlider.addEventListener('input', (e) => {
+        seekToProgress(Number(e.target.value) / Number(e.target.max || 1000));
+    });
 
     updateStartButtonState();
 });
@@ -492,8 +491,6 @@ async function startReading() {
 
     clearReadingTimer();
     elements.startBtn.disabled = true;
-    elements.pauseBtn.disabled = true;
-    elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = true;
 
     try {
@@ -514,7 +511,6 @@ async function startReading() {
     state.isPaused = false;
     state.startTime = Date.now();
 
-    elements.pauseBtn.disabled = false;
     elements.stopBtn.disabled = false;
     elements.readingPanel.classList.add('is-reading');
 
@@ -528,8 +524,6 @@ function pauseReading() {
     state.pausedTime = Date.now();
     clearReadingTimer();
 
-    elements.pauseBtn.disabled = true;
-    elements.resumeBtn.disabled = false;
     elements.readingPanel.classList.add('is-reading');
     enableSettingsDuringPause();
 }
@@ -541,8 +535,6 @@ function resumeReading() {
     state.totalPausedDuration += pauseDuration;
     state.startTime += pauseDuration;
 
-    elements.pauseBtn.disabled = false;
-    elements.resumeBtn.disabled = true;
     elements.readingPanel.classList.add('is-reading');
 
     disableSettingsDuringReading();
@@ -559,8 +551,6 @@ function stopReading() {
     state.pendingImageMarkerIndex = null;
     clearReadingTimer();
 
-    elements.pauseBtn.disabled = true;
-    elements.resumeBtn.disabled = true;
     elements.stopBtn.disabled = true;
     elements.readingPanel.classList.remove('is-reading');
 
@@ -634,9 +624,6 @@ async function pauseForImageMarker() {
     state.isPaused = true;
     state.pendingImageMarkerIndex = state.currentIndex;
 
-    elements.pauseBtn.disabled = true;
-    elements.resumeBtn.disabled = true;
-
     // Show chart display overlay covering the full reading area
     resetImageTransform();
     elements.chartImage.src = '';
@@ -666,9 +653,6 @@ function continueFromImageMarker() {
 
     state.isPaused = false;
     state.isPlaying = true;
-
-    elements.pauseBtn.disabled = false;
-    elements.resumeBtn.disabled = true;
 
     elements.chartDisplay.classList.remove('active');
 
@@ -901,7 +885,7 @@ function updateProgress() {
 
     elements.currentPos.textContent = currentIndex;
     elements.totalWords.textContent = totalUnits;
-    elements.progressFill.style.width = percentage + '%';
+    elements.progressSlider.value = Math.round((percentage / 100) * Number(elements.progressSlider.max || 1000));
 
     if (state.isPlaying) {
         const elapsedMs = Date.now() - state.startTime;
@@ -909,6 +893,73 @@ function updateProgress() {
         const seconds = Math.floor((elapsedMs % 60000) / 1000);
         elements.readingTime.textContent =
             `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+}
+
+function findSeekableIndex(targetIndex) {
+    const totalUnits = state.units.length;
+    if (totalUnits === 0) {
+        return 0;
+    }
+
+    let index = Math.max(0, Math.min(targetIndex, totalUnits - 1));
+    while (index < totalUnits && state.units[index] === CONTENT_DELIMITER) {
+        index++;
+    }
+    while (index > 0 && state.units[index] === CONTENT_DELIMITER) {
+        index--;
+    }
+    return Math.max(0, Math.min(index, totalUnits - 1));
+}
+
+function findSeekablePageIndex(targetPageIndex) {
+    const totalPages = state.pages.length;
+    if (totalPages === 0) {
+        return 0;
+    }
+
+    let pageIndex = Math.max(0, Math.min(targetPageIndex, totalPages - 1));
+    while (pageIndex < totalPages && state.pages[pageIndex]?.isImageMarker) {
+        pageIndex++;
+    }
+    while (pageIndex > 0 && state.pages[pageIndex]?.isImageMarker) {
+        pageIndex--;
+    }
+    return Math.max(0, Math.min(pageIndex, totalPages - 1));
+}
+
+function seekToProgress(ratio) {
+    if (!state.units.length) {
+        elements.progressSlider.value = 0;
+        return;
+    }
+
+    const clampedRatio = Math.max(0, Math.min(Number.isFinite(ratio) ? ratio : 0, 1));
+    const wasPlaying = state.isPlaying;
+    clearReadingTimer();
+
+    if (state.displayMode === 'focus') {
+        const targetIndex = clampedRatio >= 1
+            ? state.units.length - 1
+            : Math.floor(state.units.length * clampedRatio);
+        state.currentIndex = findSeekableIndex(targetIndex);
+        state.currentLine = 0;
+    } else {
+        if (!state.pages.length) {
+            generatePages();
+        }
+        const targetPageIndex = clampedRatio >= 1
+            ? state.pages.length - 1
+            : Math.floor(state.pages.length * clampedRatio);
+        state.currentPageIndex = findSeekablePageIndex(targetPageIndex);
+        state.currentIndex = state.pages[state.currentPageIndex]?.startIndex || 0;
+    }
+
+    updateDisplay();
+    updateProgress();
+
+    if (wasPlaying) {
+        startReadingLoop();
     }
 }
 
@@ -926,7 +977,7 @@ function switchDisplayMode() {
     if (state.displayMode === 'focus') {
         elements.focusModeDisplay.classList.add('active');
         elements.pageModeDisplay.classList.remove('active');
-        elements.focusSettings.style.display = 'block';
+        elements.focusSettings.style.display = 'flex';
         elements.pageSettings.style.display = 'none';
 
         calculateFocusParameters();
@@ -1037,7 +1088,7 @@ function onReadingComplete() {
 }
 
 // 初始化
-elements.speedUnit.textContent = '字/分钟';
+elements.speedUnit.textContent = '词/分钟';
 updateFontSize();
 updateFontWeight();
 switchDisplayMode();

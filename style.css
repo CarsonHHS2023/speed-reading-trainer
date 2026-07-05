@@ -47,7 +47,7 @@ body.dark-mode {
     border-right: 1px solid #ddd;
     overflow: hidden;
     flex-shrink: 0;
-    width: 720px;
+    width: 430px;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -94,9 +94,10 @@ body.dark-mode .app-title {
     transform: scale(1.1);
 }
 
-/* 书架和设置容器（并排） */
+/* 书架和设置容器（上下） */
 .left-content {
     display: flex;
+    flex-direction: column;
     flex: 1;
     overflow: hidden;
     gap: 0;
@@ -104,20 +105,21 @@ body.dark-mode .app-title {
 
 /* 书架栏 */
 .shelf-panel {
-    width: 360px;
+    width: 100%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    flex: 1;
+    min-height: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
     overflow: hidden;
-    flex-shrink: 0;
     transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 body.dark-mode .shelf-panel {
     background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
-    border-right-color: #555;
+    border-bottom-color: #555;
 }
 
 .shelf-header {
@@ -280,19 +282,41 @@ body.dark-mode .shelf-header {
 }
 
 /* 分类列表 */
-.categories {
-    padding: 8px;
+.categories-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 8px 8px;
     flex-shrink: 0;
 }
 
-.category {
-    margin-bottom: 4px;
+.categories-header,
+.booklist-header {
+    padding: 4px 0;
+}
+
+.categories-header h2,
+.booklist-header h2 {
+    font-size: 0.9rem;
+}
+
+.categories {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.category-node {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .category-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 8px;
     padding: 6px 8px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 4px;
@@ -310,6 +334,39 @@ body.dark-mode .shelf-header {
     background: rgba(255, 255, 255, 0.3);
 }
 
+.category-header.drag-over,
+.category-drop-gap.drag-over,
+.book-drop-gap.drag-over,
+.book-item.drag-over {
+    outline: 1px dashed rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.22);
+}
+
+.category-arrow {
+    width: 12px;
+    flex-shrink: 0;
+    font-size: 0.72rem;
+}
+
+.category-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.category-drop-gap {
+    height: 6px;
+    border-radius: 4px;
+}
+
+.category-children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .book-count {
     background: rgba(0, 0, 0, 0.2);
     padding: 2px 6px;
@@ -318,11 +375,34 @@ body.dark-mode .shelf-header {
 }
 
 /* 书籍列表 */
+.booklist-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 160px;
+    overflow: hidden;
+    padding: 0 8px 8px;
+}
+
 .books-list {
     flex: 1;
     overflow-y: auto;
     padding: 8px;
     font-size: 0.8rem;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+}
+
+.books-empty {
+    padding: 8px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.8rem;
+}
+
+.book-drop-gap {
+    height: 6px;
+    border-radius: 4px;
 }
 
 .book-item {
@@ -335,6 +415,11 @@ body.dark-mode .shelf-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.book-item.dragging,
+.category-header.dragging {
+    opacity: 0.65;
 }
 
 .book-item:hover {
@@ -378,21 +463,26 @@ body.dark-mode .shelf-header {
     background: rgba(0, 0, 0, 0.4);
 }
 
+.book-item-handle {
+    cursor: grab;
+}
+
 /* 设置栏 */
 .settings-panel {
-    width: 360px;
+    width: 100%;
     background: white;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid #ddd;
-    overflow: hidden;
+    border-right: none;
+    border-top: 1px solid #ddd;
+    overflow: visible;
     flex-shrink: 0;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 body.dark-mode .settings-panel {
     background: #2d2d2d;
-    border-right-color: #444;
+    border-top-color: #444;
 }
 
 .settings-header {
@@ -400,6 +490,10 @@ body.dark-mode .settings-panel {
     background: #f5f5f5;
     border-bottom: 1px solid #ddd;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -412,66 +506,76 @@ body.dark-mode .settings-header {
     font-size: 0.95rem;
 }
 
+.settings-header-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.settings-header-actions .btn {
+    min-width: 56px;
+    padding: 6px 10px;
+}
+
 .settings-content {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
+    flex: none;
+    overflow: visible;
     padding: 10px;
     display: flex;
     flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.setting-row,
+.setting-inline-row {
+    display: flex;
+    align-items: center;
     gap: 8px;
     width: 100%;
+    min-width: 0;
 }
 
-.setting-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: 100%;
-    overflow: hidden;
+.setting-inline-row {
+    gap: 12px;
 }
 
-.setting-group label {
+.setting-row label,
+.setting-inline label {
     font-size: 0.8rem;
     font-weight: 600;
     color: #333;
+    white-space: nowrap;
     transition: color 0.3s ease;
 }
 
-body.dark-mode .setting-group label {
+body.dark-mode .setting-row label,
+body.dark-mode .setting-inline label {
     color: #e0e0e0;
 }
 
-.setting-group select {
+.setting-inline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.setting-inline-select select,
+.setting-row select {
     padding: 6px;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.85rem;
     width: 100%;
+    min-width: 0;
     background: white;
     color: #333;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
-body.dark-mode .setting-group select {
-    background: #3a3a3a;
-    border-color: #555;
-    color: #e0e0e0;
-}
-
-.setting-group input[type="number"] {
-    padding: 6px;
-    border: 1px solid #ddd;
-    border-radius: 3px;
-    font-size: 0.85rem;
-    width: 80px;
-    flex-shrink: 0;
-    background: white;
-    color: #333;
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-body.dark-mode .setting-group input[type="number"] {
+body.dark-mode .setting-inline-select select,
+body.dark-mode .setting-row select {
     background: #3a3a3a;
     border-color: #555;
     color: #e0e0e0;
@@ -486,6 +590,11 @@ body.dark-mode .setting-group input[type="number"] {
     flex-wrap: nowrap;
 }
 
+.speed-setting-row .speed-control {
+    margin-left: auto;
+    justify-content: flex-end;
+}
+
 .speed-control input[type="range"],
 .slider-control input[type="range"] {
     flex: 1;
@@ -496,7 +605,8 @@ body.dark-mode .setting-group input[type="number"] {
 
 .speed-control input[type="number"],
 .slider-control input[type="number"] {
-    width: 80px;
+    width: 4.5em;
+    max-width: 4.5em;
     flex-shrink: 0;
     padding: 6px;
     border: 1px solid #ddd;
@@ -549,7 +659,6 @@ body.dark-mode .slider-control span {
 .btn-primary {
     background: linear-gradient(135deg, #667eea, #764ba2);
     color: white;
-    grid-column: 1 / -1;
 }
 
 body.dark-mode .btn-primary {
@@ -594,7 +703,7 @@ body.dark-mode .btn-secondary:hover:not(:disabled) {
     background: #f9f9f9;
     flex-shrink: 0;
     width: 100%;
-    overflow: hidden;
+    overflow: visible;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -603,29 +712,10 @@ body.dark-mode .progress-section {
     border-top-color: #444;
 }
 
-.progress-bar {
+.progress-slider {
     width: 100%;
-    height: 8px;
-    background: #e0e0e0;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 4px;
-    transition: background-color 0.3s ease;
-}
-
-body.dark-mode .progress-bar {
-    background: #4a4a4a;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
-    width: 0%;
-    transition: width 0.3s ease;
-}
-
-body.dark-mode .progress-fill {
-    background: linear-gradient(90deg, #3a3f5f, #4a3a5f);
+    margin-bottom: 6px;
+    accent-color: #667eea;
 }
 
 .progress-info {
@@ -889,6 +979,10 @@ body.dark-mode .modal {
     transition: background-color 0.3s ease;
 }
 
+.info-modal-content {
+    width: min(420px, calc(100vw - 32px));
+}
+
 body.dark-mode .modal-content {
     background: #2d2d2d;
 }
@@ -952,6 +1046,87 @@ body.dark-mode #categoryInput {
     gap: 8px;
     padding: 16px;
     justify-content: flex-end;
+}
+
+.book-info-grid {
+    display: grid;
+    gap: 8px;
+    padding: 16px;
+}
+
+.book-info-row {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 12px;
+    align-items: start;
+    font-size: 0.9rem;
+}
+
+.book-info-row span {
+    color: #666;
+}
+
+.book-info-row strong {
+    color: #333;
+    word-break: break-word;
+}
+
+body.dark-mode .book-info-row span {
+    color: #aaa;
+}
+
+body.dark-mode .book-info-row strong {
+    color: #e0e0e0;
+}
+
+.context-menu {
+    position: fixed;
+    display: none;
+    flex-direction: column;
+    min-width: 132px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    z-index: 1200;
+}
+
+.context-menu.show {
+    display: flex;
+}
+
+.context-menu button {
+    border: none;
+    background: white;
+    color: #333;
+    text-align: left;
+    padding: 9px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.context-menu button:hover:not(:disabled) {
+    background: #f3f5ff;
+}
+
+.context-menu button:disabled {
+    color: #999;
+    cursor: not-allowed;
+}
+
+body.dark-mode .context-menu {
+    background: #2d2d2d;
+    border-color: #555;
+}
+
+body.dark-mode .context-menu button {
+    background: #2d2d2d;
+    color: #e0e0e0;
+}
+
+body.dark-mode .context-menu button:hover:not(:disabled) {
+    background: #3a3f5f;
 }
 
 /* ==================== 阅读区点击暂停/继续 ==================== */
@@ -1038,6 +1213,35 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     font-size: 0.7rem;
     color: rgba(255, 255, 255, 0.6);
     white-space: nowrap;
+}
+
+.processing-title-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.processing-percent {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.72);
+    white-space: nowrap;
+}
+
+.processing-close-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.processing-close-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
 }
 
 .processing-bar-track {

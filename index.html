@@ -42,7 +42,11 @@
                         <div id="processingPanel" class="processing-panel" style="display:none;">
                             <div class="processing-title">
                                 <span id="processingBookName" class="processing-book-name"></span>
-                                <span id="processingStatus" class="processing-status-text"></span>
+                                <div class="processing-title-right">
+                                    <span id="processingStatus" class="processing-status-text"></span>
+                                    <span id="processingPercent" class="processing-percent"></span>
+                                    <button id="closeProcessingBtn" class="processing-close-btn" title="关闭">✕</button>
+                                </div>
                             </div>
                             <div class="processing-bar-track">
                                 <div id="processingBarFill" class="processing-bar-fill"></div>
@@ -52,109 +56,104 @@
                             </div>
                         </div>
 
-                        <!-- 分类列表 -->
-                        <div class="categories">
-                            <div class="category" data-category="all">
-                                <div class="category-header">全部<span class="book-count">0</span></div>
+                        <div class="categories-panel">
+                            <div class="categories-header">
+                                <h2>🗂️ 目录</h2>
                             </div>
-                            <div class="category" data-category="reading">
-                                <div class="category-header">阅读中<span class="book-count">0</span></div>
-                            </div>
-                            <div class="category" data-category="finished">
-                                <div class="category-header">已完成<span class="book-count">0</span></div>
-                            </div>
+                            <div class="categories"></div>
                         </div>
 
-                        <!-- 书籍列表 -->
-                        <div class="books-list" id="booksList"></div>
+                        <div class="booklist-panel">
+                            <div class="booklist-header">
+                                <h2>📋 书单</h2>
+                            </div>
+                            <div class="books-list" id="booksList"></div>
+                        </div>
                     </div>
 
                     <!-- 设置栏 -->
                     <div class="settings-panel">
                         <div class="settings-header">
                             <h2>🎮 设置</h2>
+                            <div class="settings-header-actions">
+                                <button id="startBtn" class="btn btn-primary" disabled>开始</button>
+                                <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                            </div>
                         </div>
 
                         <div class="settings-content">
-                            <div class="setting-group">
-                                <label>阅读速度：</label>
+                            <div class="setting-row speed-setting-row">
+                                <label for="speedSlider">阅读速度：</label>
                                 <div class="speed-control">
                                     <input type="range" id="speedSlider" min="100" max="10000" value="5000" />
-                                    <input type="number" id="speedInput" min="100" max="10000" value="5000" />
-                                    <span id="speedUnit">字/分钟</span>
+                                    <input type="number" id="speedInput" min="100" max="10000" value="5000" size="5" />
+                                    <span id="speedUnit">词/分钟</span>
                                 </div>
                             </div>
 
-                            <div class="setting-group">
-                                <label>显示模式：</label>
-                                <select id="displayMode">
-                                    <option value="focus">焦点式</option>
-                                    <option value="page">整页式</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-group">
-                                <label>行宽：</label>
-                                <div class="slider-control">
-                                    <input type="range" id="widthSlider" min="5" max="50" value="35" />
-                                    <input type="number" id="widthInput" min="5" max="50" value="35" />
+                            <div class="setting-inline-row" id="focusSettings">
+                                <div class="setting-inline">
+                                    <label for="widthSlider">行宽：</label>
+                                    <div class="slider-control">
+                                        <input type="range" id="widthSlider" min="5" max="50" value="35" />
+                                        <input type="number" id="widthInput" min="5" max="50" value="35" />
+                                    </div>
+                                </div>
+                                <div class="setting-inline">
+                                    <label for="linesSlider">行数：</label>
+                                    <div class="slider-control">
+                                        <input type="range" id="linesSlider" min="1" max="10" value="3" />
+                                        <input type="number" id="linesInput" min="1" max="10" value="3" />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="setting-group" id="focusSettings">
-                                <label>行数：</label>
-                                <div class="slider-control">
-                                    <input type="range" id="linesSlider" min="1" max="10" value="3" />
-                                    <input type="number" id="linesInput" min="1" max="10" value="3" />
-                                </div>
-                            </div>
-
-                            <div class="setting-group" id="pageSettings" style="display: none;">
-                                <label>最大行数：</label>
+                            <div class="setting-row" id="pageSettings" style="display: none;">
+                                <label for="maxLinesSlider">最大行数：</label>
                                 <div class="slider-control">
                                     <input type="range" id="maxLinesSlider" min="10" max="30" value="20" />
                                     <input type="number" id="maxLinesInput" min="10" max="30" value="20" />
                                 </div>
                             </div>
 
-                            <div class="setting-group">
-                                <label>字体大小：</label>
-                                <div class="slider-control">
-                                    <input type="range" id="fontSlider" min="16" max="48" value="28" />
-                                    <input type="number" id="fontInput" min="16" max="48" value="28" />
-                                    <span>px</span>
+                            <div class="setting-inline-row">
+                                <div class="setting-inline">
+                                    <label for="fontSlider">字体大小：</label>
+                                    <div class="slider-control">
+                                        <input type="range" id="fontSlider" min="16" max="48" value="28" />
+                                        <input type="number" id="fontInput" min="16" max="48" value="28" />
+                                        <span>px</span>
+                                    </div>
+                                </div>
+                                <div class="setting-inline setting-inline-select">
+                                    <label for="fontWeight">粗细：</label>
+                                    <select id="fontWeight">
+                                        <option value="normal">Normal</option>
+                                        <option value="bold">Bold</option>
+                                    </select>
                                 </div>
                             </div>
 
-                            <div class="setting-group">
-                                <label>字体粗细：</label>
-                                <select id="fontWeight">
-                                    <option value="normal">Normal</option>
-                                    <option value="bold">Bold</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-group">
-                                <label>训练模式：</label>
-                                <select id="trainingMode">
-                                    <option value="fixed">固定式</option>
-                                    <option value="scroll">滚动式</option>
-                                </select>
-                            </div>
-
-                            <div class="button-group">
-                                <button id="startBtn" class="btn btn-primary" disabled>开始</button>
-                                <button id="pauseBtn" class="btn btn-secondary" disabled>暂停</button>
-                                <button id="resumeBtn" class="btn btn-secondary" disabled>继续</button>
-                                <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
+                            <div class="setting-inline-row">
+                                <div class="setting-inline setting-inline-select">
+                                    <label for="displayMode">显示模式：</label>
+                                    <select id="displayMode">
+                                        <option value="focus">焦点式</option>
+                                        <option value="page">整页式</option>
+                                    </select>
+                                </div>
+                                <div class="setting-inline setting-inline-select">
+                                    <label for="trainingMode">训练模式：</label>
+                                    <select id="trainingMode">
+                                        <option value="fixed">固定式</option>
+                                        <option value="scroll">滚动式</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- 进度条 -->
                         <div class="progress-section">
-                            <div class="progress-bar">
-                                <div id="progressFill" class="progress-fill"></div>
-                            </div>
+                            <input type="range" id="progressSlider" class="progress-slider" min="0" max="1000" value="0" />
                             <div class="progress-info">
                                 <span id="currentPos">0</span> / <span id="totalWords">0</span>
                                 <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
@@ -191,17 +190,36 @@
         </div>
     </div>
 
-    <!-- 模态框：添加分类 -->
+    <!-- 模态框：分类操作 -->
     <div id="categoryModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>添加分类</h3>
-                <button class="close-btn" onclick="closeCategoryModal()">&times;</button>
+                <h3 id="categoryModalTitle">添加分类</h3>
+                <button id="closeCategoryModalBtn" class="close-btn">&times;</button>
             </div>
             <input type="text" id="categoryInput" placeholder="输入分类名称" />
             <div class="modal-footer">
-                <button onclick="closeCategoryModal()" class="btn btn-secondary">取消</button>
-                <button onclick="addCategory()" class="btn btn-primary">确定</button>
+                <button id="categoryCancelBtn" class="btn btn-secondary">取消</button>
+                <button id="categoryConfirmBtn" class="btn btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="categoryContextMenu" class="context-menu"></div>
+
+    <div id="bookInfoOverlay" class="modal">
+        <div class="modal-content info-modal-content">
+            <div class="modal-header">
+                <h3>书籍信息</h3>
+                <button id="closeBookInfoBtn" class="close-btn">&times;</button>
+            </div>
+            <div class="book-info-grid">
+                <div class="book-info-row"><span>书名</span><strong id="infoBookName">—</strong></div>
+                <div class="book-info-row"><span>文件类型</span><strong id="infoFileType">—</strong></div>
+                <div class="book-info-row"><span>上传日期</span><strong id="infoUploadDate">—</strong></div>
+                <div class="book-info-row"><span>页数</span><strong id="infoPageCount">—</strong></div>
+                <div class="book-info-row"><span>作者</span><strong id="infoAuthor">—</strong></div>
+                <div class="book-info-row"><span>出版日期</span><strong id="infoPublishDate">—</strong></div>
             </div>
         </div>
     </div>
