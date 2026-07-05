@@ -90,7 +90,9 @@ class BookShelf {
 
             const result = await response.json();
             const books = Array.isArray(result.books) ? result.books : [];
-            this.books = books.map((book) => this.normalizeBook(book));
+            this.books = books
+                .filter((book) => book.status !== 'processing')
+                .map((book) => this.normalizeBook(book));
 
             this.renderBooks();
             this.updateCategoryCounts();
@@ -104,8 +106,77 @@ class BookShelf {
         }
     }
 
+    /**
+     * Poll GET /api/v1/books/{bookId} until status != 'processing'.
+     * Updates the #processingPanel UI while polling.
+     * @param {string} bookId
+     * @param {string} bookName
+     * @param {number|null} totalPages
+     * @returns {Promise<object>}
+     */
+    async _pollBookStatus(bookId, bookName, totalPages) {
+        const panel = document.getElementById('processingPanel');
+        const nameEl = document.getElementById('processingBookName');
+        const statusEl = document.getElementById('processingStatus');
+        const fill = document.getElementById('processingBarFill');
+        const info = document.getElementById('processingPageInfo');
+
+        if (!panel || !nameEl || !statusEl || !fill || !info) {
+            return { book_id: bookId, status: 'failed', error_message: '处理进度面板未初始化' };
+        }
+
+        panel.style.display = 'block';
+        nameEl.textContent = bookName;
+        statusEl.textContent = '处理中…';
+        fill.className = 'processing-bar-fill indeterminate';
+        fill.style.width = '0%';
+        fill.style.background = '';
+        info.textContent = totalPages ? `共 ${totalPages} 页` : '';
+
+        const POLL_INTERVAL_MS = 5000;
+
+        return new Promise((resolve) => {
+            const tick = async () => {
+                try {
+                    const resp = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const book = await resp.json();
+
+                    if (book.status === 'completed') {
+                        fill.className = 'processing-bar-fill';
+                        fill.style.width = '100%';
+                        fill.style.background = '';
+                        statusEl.textContent = '处理完成 ✅';
+                        info.textContent = totalPages ? `共 ${totalPages} 页` : '';
+                        setTimeout(() => {
+                            panel.style.display = 'none';
+                        }, 2000);
+                        resolve(book);
+                    } else if (book.status === 'failed') {
+                        fill.className = 'processing-bar-fill';
+                        fill.style.width = '100%';
+                        fill.style.background = '#e53935';
+                        statusEl.textContent = '处理失败 ❌';
+                        info.textContent = book.error_message || '';
+                        setTimeout(() => {
+                            panel.style.display = 'none';
+                            fill.style.background = '';
+                        }, 4000);
+                        resolve(book);
+                    } else {
+                        setTimeout(tick, POLL_INTERVAL_MS);
+                    }
+                } catch (err) {
+                    console.error('轮询状态失败:', err);
+                    setTimeout(tick, POLL_INTERVAL_MS);
+                }
+            };
+            setTimeout(tick, POLL_INTERVAL_MS);
+        });
+    }
+
     async handleFileUpload(file) {
-        this.setLoading(true, '⏳ 正在上传并处理文件...');
+        this.setLoading(true, '⏳ 正在上传文件...');
 
         try {
             const formData = new FormData();
@@ -121,17 +192,34 @@ class BookShelf {
             }
 
             const result = await response.json();
-            const book = this.normalizeBook(result);
 
-            this.books.unshift(book);
-            this.renderBooks();
-            this.updateCategoryCounts();
-
-            await this.selectBook(book.id);
+            if (result.status === 'processing') {
+                this.setLoading(false);
+                const finalBook = await this._pollBookStatus(
+                    result.book_id,
+                    result.book_title || file.name,
+                    result.pages_count || null
+                );
+                if (finalBook.status === 'completed') {
+                    const book = this.normalizeBook(finalBook);
+                    this.books.unshift(book);
+                    this.renderBooks();
+                    this.updateCategoryCounts();
+                    await this.selectBook(book.id);
+                }
+            } else if (result.status === 'completed') {
+                const book = this.normalizeBook(result);
+                this.books.unshift(book);
+                this.renderBooks();
+                this.updateCategoryCounts();
+                await this.selectBook(book.id);
+                this.setLoading(false);
+            } else {
+                this.setLoading(false);
+            }
         } catch (error) {
             console.error('上传失败:', error);
             alert('上传失败，请检查网络或文件格式');
-        } finally {
             this.setLoading(false);
         }
     }
@@ -168,11 +256,31 @@ class BookShelf {
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const result = await response.json();
-                item.book = this.normalizeBook(result);
-                item.status = 'success';
-                this.books.unshift(item.book);
-                this.renderBooks();
-                this.updateCategoryCounts();
+                if (result.status === 'processing') {
+                    item.status = 'success';
+                    item.book = this.normalizeBook(result);
+                    this.renderBatchPanel(items);
+                    this._pollBookStatus(
+                        result.book_id,
+                        result.book_title || item.name,
+                        result.pages_count || null
+                    ).then((finalBook) => {
+                        if (finalBook.status === 'completed') {
+                            const book = this.normalizeBook(finalBook);
+                            item.book = book;
+                            this.books.unshift(book);
+                            this.renderBooks();
+                            this.updateCategoryCounts();
+                            this.renderBatchPanel(items);
+                        }
+                    });
+                } else {
+                    item.book = this.normalizeBook(result);
+                    item.status = 'success';
+                    this.books.unshift(item.book);
+                    this.renderBooks();
+                    this.updateCategoryCounts();
+                }
             } catch (error) {
                 item.status = 'failed';
                 item.error = error.message || '上传失败';
@@ -210,7 +318,7 @@ class BookShelf {
             if (item.error) nameEl.title = item.error;
             row.appendChild(nameEl);
 
-            if (item.status === 'success' && item.book) {
+            if (item.status === 'success' && item.book && item.book.status !== 'processing') {
                 const openBtn = document.createElement('button');
                 openBtn.className = 'batch-item-open';
                 openBtn.textContent = '打开';
