@@ -433,7 +433,7 @@ body.dark-mode .setting-row label { color: #e0e0e0; }
     align-items: center;
 }
 
-/* 滑条型 cell：label + range + number */
+/* 滑条型 cell：label + range + number（带spinner） */
 .setting-grid-cell {
     display: flex;
     align-items: center;
@@ -453,25 +453,29 @@ body.dark-mode .setting-row label { color: #e0e0e0; }
 
 body.dark-mode .setting-grid-cell label { color: #e0e0e0; }
 
+/* 滑条：允许收缩，给数字框让出空间 */
 .setting-grid-cell input[type="range"] {
     flex: 1;
     height: 4px;
     cursor: pointer;
-    min-width: 0;
+    min-width: 20px;   /* 最小宽度降低，确保数字框有足够空间 */
 }
 
+/* 数字框：足够宽以显示数值 + spinner箭头 */
 .setting-grid-cell input[type="number"] {
-    width: 28px;
-    max-width: 28px;
+    width: 52px;
+    max-width: 52px;
     flex-shrink: 0;
-    padding: 2px 0;
+    padding: 2px 2px;
     border: 1px solid #ddd;
     border-radius: 3px;
-    font-size: 0.8rem;
-    text-align: center;
+    font-size: 0.78rem;
+    text-align: left;   /* 左对齐，给右侧spinner腾空间 */
     background: white;
     color: #333;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    /* 不隐藏spinner */
+    -moz-appearance: number-input;
 }
 
 body.dark-mode .setting-grid-cell input[type="number"] {
@@ -582,14 +586,14 @@ body.dark-mode .speed-control span { color: #aaa; }
 }
 
 .slider-control input[type="number"] {
-    width: 32px;
-    max-width: 32px;
+    width: 52px;
+    max-width: 52px;
     flex-shrink: 0;
     padding: 4px 2px;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.82rem;
-    text-align: center;
+    text-align: left;
     background: white;
     color: #333;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
