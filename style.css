@@ -630,11 +630,12 @@ body.dark-mode .setting-row select {
     min-width: 50px;
 }
 
+/* 阅读速度输入框：5位数宽 */
 .speed-control input[type="number"] {
     width: 4.5em;
     max-width: 4.5em;
     flex-shrink: 0;
-    padding: 6px;
+    padding: 4px 6px;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.85rem;
@@ -643,14 +644,16 @@ body.dark-mode .setting-row select {
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
+/* 行宽/行数/字体大小输入框：2位数宽 */
 .slider-control input[type="number"] {
-    width: 2.2em;
-    max-width: 2.2em;
+    width: 3em;
+    max-width: 3em;
     flex-shrink: 0;
-    padding: 6px;
+    padding: 4px 2px;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 0.85rem;
+    text-align: center;
     background: white;
     color: #333;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
@@ -846,7 +849,7 @@ body.dark-mode .focus-text {
     color: #e0e0e0;
 }
 
-/* 滚动式模式 - 从上方开始显示，水平居中，循环回到第一行 */
+/* 滚动式模式 */
 .focus-text.scroll-mode {
     justify-content: flex-start;
     align-items: center;
