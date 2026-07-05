@@ -9,7 +9,7 @@
 <body>
     <div class="app-wrapper">
         <div class="app-body">
-            <!-- 左列：书架 + 设置 -->
+            <!-- 左列：书架栏和设置栏 -->
             <div class="left-column">
                 <!-- 标题 -->
                 <div class="app-title">
@@ -68,88 +68,86 @@
                         <h2>🎮 设置</h2>
                     </div>
 
-                        <div class="settings-content">
-                            <div class="setting-row speed-setting-row">
-                                <label for="speedSlider">阅读速度：</label>
-                                <div class="speed-control">
-                                    <input type="range" id="speedSlider" min="100" max="10000" value="5000" />
-                                    <input type="number" id="speedInput" min="100" max="10000" value="5000" size="5" />
-                                    <span id="speedUnit">词/分钟</span>
-                                </div>
-                            </div>
-
-                            <div class="setting-inline-row" id="focusSettings">
-                                <div class="setting-inline">
-                                    <label for="widthSlider">行宽：</label>
-                                    <div class="slider-control">
-                                        <input type="range" id="widthSlider" min="5" max="50" value="35" />
-                                        <input type="number" id="widthInput" min="5" max="50" value="35" />
-                                    </div>
-                                </div>
-                                <div class="setting-inline">
-                                    <label for="linesSlider">行数：</label>
-                                    <div class="slider-control">
-                                        <input type="range" id="linesSlider" min="1" max="10" value="3" />
-                                        <input type="number" id="linesInput" min="1" max="10" value="3" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="setting-row" id="pageSettings" style="display: none;">
-                                <label for="maxLinesSlider">最大行数：</label>
-                                <div class="slider-control">
-                                    <input type="range" id="maxLinesSlider" min="10" max="30" value="20" />
-                                    <input type="number" id="maxLinesInput" min="10" max="30" value="20" />
-                                </div>
-                            </div>
-
-                            <div class="setting-inline-row">
-                                <div class="setting-inline">
-                                    <label for="fontSlider">字体大小：</label>
-                                    <div class="slider-control">
-                                        <input type="range" id="fontSlider" min="16" max="48" value="28" />
-                                        <input type="number" id="fontInput" min="16" max="48" value="28" />
-                                        <span>px</span>
-                                    </div>
-                                </div>
-                                <div class="setting-inline setting-inline-select">
-                                    <label for="fontWeight">粗细：</label>
-                                    <select id="fontWeight">
-                                        <option value="normal">Normal</option>
-                                        <option value="bold">Bold</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="setting-inline-row">
-                                <div class="setting-inline setting-inline-select">
-                                    <label for="displayMode">显示模式：</label>
-                                    <select id="displayMode">
-                                        <option value="focus">焦点式</option>
-                                        <option value="page">整页式</option>
-                                    </select>
-                                </div>
-                                <div class="setting-inline setting-inline-select">
-                                    <label for="trainingMode">训练模式：</label>
-                                    <select id="trainingMode">
-                                        <option value="fixed">固定式</option>
-                                        <option value="scroll">滚动式</option>
-                                    </select>
-                                </div>
+                    <div class="settings-content">
+                        <!-- 阅读速度：单行，label + slider + 数字框 + 单位 -->
+                        <div class="setting-row speed-setting-row">
+                            <label for="speedSlider">阅读速度：</label>
+                            <div class="speed-control">
+                                <input type="range" id="speedSlider" min="100" max="10000" value="5000" />
+                                <input type="number" id="speedInput" min="100" max="10000" value="5000" size="5" />
+                                <span id="speedUnit">词/分钟</span>
                             </div>
                         </div>
 
-                        <div class="progress-section">
-                            <input type="range" id="progressSlider" class="progress-slider" min="0" max="1000" value="0" />
-                            <div class="progress-info">
-                                <span id="currentPos">0</span> / <span id="totalWords">0</span>
-                                <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
+                        <!-- 行宽 + 行数：两列grid -->
+                        <div class="setting-grid-row" id="focusSettings">
+                            <div class="setting-grid-cell">
+                                <label for="widthSlider">行宽：</label>
+                                <input type="range" id="widthSlider" min="5" max="50" value="35" />
+                                <input type="number" id="widthInput" min="5" max="50" value="35" />
+                            </div>
+                            <div class="setting-grid-cell">
+                                <label for="linesSlider">行数：</label>
+                                <input type="range" id="linesSlider" min="1" max="10" value="3" />
+                                <input type="number" id="linesInput" min="1" max="10" value="3" />
+                            </div>
+                        </div>
+
+                        <div class="setting-row" id="pageSettings" style="display: none;">
+                            <label for="maxLinesSlider">最大行数：</label>
+                            <div class="slider-control">
+                                <input type="range" id="maxLinesSlider" min="10" max="30" value="20" />
+                                <input type="number" id="maxLinesInput" min="10" max="30" value="20" />
+                            </div>
+                        </div>
+
+                        <!-- 字体大小 + 粗细：两列grid -->
+                        <div class="setting-grid-row">
+                            <div class="setting-grid-cell">
+                                <label for="fontSlider">字体大小：</label>
+                                <input type="range" id="fontSlider" min="16" max="48" value="28" />
+                                <input type="number" id="fontInput" min="16" max="48" value="28" />
+                                <span>px</span>
+                            </div>
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="fontWeight">粗细：</label>
+                                <select id="fontWeight">
+                                    <option value="normal">Normal</option>
+                                    <option value="bold">Bold</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 显示模式 + 训练模式：两列grid -->
+                        <div class="setting-grid-row">
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="displayMode">显示模式：</label>
+                                <select id="displayMode">
+                                    <option value="focus">焦点式</option>
+                                    <option value="page">整页式</option>
+                                </select>
+                            </div>
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="trainingMode">训练模式：</label>
+                                <select id="trainingMode">
+                                    <option value="fixed">固定式</option>
+                                    <option value="scroll">滚动式</option>
+                                </select>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- 中列：书单 -->
+                    <div class="progress-section">
+                        <input type="range" id="progressSlider" class="progress-slider" min="0" max="1000" value="0" />
+                        <div class="progress-info">
+                            <span id="currentPos">0</span> / <span id="totalWords">0</span>
+                            <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中列：书单 -->
             <div class="booklist-column">
                 <div class="booklist-header">
                     <h2>📋 书单</h2>
