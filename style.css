@@ -42,7 +42,7 @@ body.dark-mode {
 .left-column {
     display: flex;
     flex-direction: column;
-    width: 200px;
+    width: 360px;
     flex-shrink: 0;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-right: 1px solid rgba(255,255,255,0.18);
@@ -58,7 +58,7 @@ body.dark-mode .left-column {
 .booklist-column {
     display: flex;
     flex-direction: column;
-    width: 220px;
+    width: 360px;
     flex-shrink: 0;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-right: 1px solid rgba(255,255,255,0.18);
@@ -1168,7 +1168,7 @@ body.dark-mode .context-menu button:hover:not(:disabled) {
     background: #3a3f5f;
 }
 
-/* ==================== 阅读区点击暂停/继续 ==================== */
+/* ==================== 阅读状态/暂停提示/动画 ==================== */
 .reading-panel.is-reading {
     cursor: pointer;
 }
@@ -1221,7 +1221,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     background: #777;
 }
 
-/* ── Processing progress panel ───────────────────────────────────────── */
+/* ████ Processing progress panel ████████████████████████████████████████████ */
 .processing-panel {
     margin: 6px 0;
     padding: 8px 10px;
