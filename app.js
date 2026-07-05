@@ -46,8 +46,7 @@ const elements = {
     fontWeight: document.getElementById('fontWeight'),
     displayMode: document.getElementById('displayMode'),
     trainingMode: document.getElementById('trainingMode'),
-    startBtn: document.getElementById('startBtn'),
-    stopBtn: document.getElementById('stopBtn'),
+    readingToggleBtn: document.getElementById('readingToggleBtn'),
     currentPos: document.getElementById('currentPos'),
     totalWords: document.getElementById('totalWords'),
     progressSlider: document.getElementById('progressSlider'),
@@ -260,8 +259,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    elements.startBtn.addEventListener('click', startReading);
-    elements.stopBtn.addEventListener('click', stopReading);
+    elements.readingToggleBtn.addEventListener('click', () => {
+        if (state.isPlaying || state.isPaused) {
+            stopReading();
+        } else {
+            startReading();
+        }
+    });
     elements.progressSlider.addEventListener('input', (e) => {
         seekToProgress(Number(e.target.value) / Number(e.target.max || 1000));
     });
@@ -444,7 +448,12 @@ function clearReadingTimer() {
 }
 
 function updateStartButtonState() {
-    elements.startBtn.disabled = state.isContentLoading || !state.cachedContentBlob || state.isPlaying || state.isPaused;
+    const isActive = state.isPlaying || state.isPaused;
+    elements.readingToggleBtn.disabled = isActive
+        ? false
+        : (state.isContentLoading || !state.cachedContentBlob);
+    elements.readingToggleBtn.textContent = isActive ? '⏹' : '▶';
+    elements.readingToggleBtn.title = isActive ? '停止阅读' : '开始阅读';
 }
 
 async function decodeText(arrayBuffer) {
@@ -490,8 +499,7 @@ async function startReading() {
     }
 
     clearReadingTimer();
-    elements.startBtn.disabled = true;
-    elements.stopBtn.disabled = true;
+    elements.readingToggleBtn.disabled = true;
 
     try {
         await readTxtFile(state.cachedContentBlob);
@@ -510,12 +518,11 @@ async function startReading() {
     state.isPlaying = true;
     state.isPaused = false;
     state.startTime = Date.now();
-
-    elements.stopBtn.disabled = false;
     elements.readingPanel.classList.add('is-reading');
 
     disableSettingsDuringReading();
     startReadingLoop();
+    updateStartButtonState();
 }
 
 function pauseReading() {
@@ -550,8 +557,6 @@ function stopReading() {
     state.currentLine = 0;
     state.pendingImageMarkerIndex = null;
     clearReadingTimer();
-
-    elements.stopBtn.disabled = true;
     elements.readingPanel.classList.remove('is-reading');
 
     elements.chartDisplay.classList.remove('active');
