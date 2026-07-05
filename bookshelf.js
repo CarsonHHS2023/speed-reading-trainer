@@ -585,8 +585,7 @@ class BookShelf {
 
         this.renderBooks();
         this.setLoading(true, '⏳ 正在加载书籍内容...');
-        elements.startBtn.disabled = true;
-        elements.stopBtn.disabled = true;
+        updateStartButtonState();
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`);
@@ -616,7 +615,6 @@ class BookShelf {
             resetDisplay();
             updateProgress();
             state.isContentLoading = false;
-            elements.startBtn.disabled = false;
             updateStartButtonState();
         } catch (error) {
             console.error('加载书籍内容失败:', error);
