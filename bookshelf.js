@@ -1,20 +1,35 @@
-// ==================== 书架管理系统 ====================
-
 const API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
 
 class BookShelf {
     constructor() {
         this.books = [];
-        this.categories = [];
+        this.categories = this.getDefaultCategories();
         this.currentBook = null;
-        this.currentCategory = 'all';
+        this.currentCategory = 'uncategorized';
         this.isLoading = false;
+        this.expandedCategoryIds = new Set(['uncategorized']);
+        this.dragData = null;
+        this.categoryModalMode = 'createRoot';
+        this.categoryModalTargetId = null;
         this.init();
+    }
+
+    getDefaultCategories() {
+        return [{
+            id: 'uncategorized',
+            name: '未定',
+            parentId: null,
+            order: 0,
+            children: [],
+            locked: true
+        }];
     }
 
     async init() {
         this.setupEventListeners();
+        this.ensureCategoryIntegrity();
         this.renderCategories();
+        this.renderBooks();
         await this.loadBooksFromBackend();
     }
 
@@ -22,6 +37,14 @@ class BookShelf {
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const addCategoryBtn = document.getElementById('addCategoryBtn');
+        const closeProcessingBtn = document.getElementById('closeProcessingBtn');
+        const categoryModal = document.getElementById('categoryModal');
+        const categoryInput = document.getElementById('categoryInput');
+        const categoryCancelBtn = document.getElementById('categoryCancelBtn');
+        const categoryConfirmBtn = document.getElementById('categoryConfirmBtn');
+        const closeCategoryModalBtn = document.getElementById('closeCategoryModalBtn');
+        const bookInfoOverlay = document.getElementById('bookInfoOverlay');
+        const closeBookInfoBtn = document.getElementById('closeBookInfoBtn');
 
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -55,7 +78,58 @@ class BookShelf {
             }
         });
 
-        addCategoryBtn.addEventListener('click', () => showCategoryModal());
+        addCategoryBtn.addEventListener('click', () => {
+            this.openCategoryModal('createRoot');
+        });
+
+        closeProcessingBtn?.addEventListener('click', () => {
+            this.closeProcessingPanel();
+        });
+
+        categoryCancelBtn?.addEventListener('click', () => this.closeCategoryModal());
+        closeCategoryModalBtn?.addEventListener('click', () => this.closeCategoryModal());
+        categoryConfirmBtn?.addEventListener('click', () => this.confirmCategoryAction());
+        categoryInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.confirmCategoryAction();
+            }
+        });
+
+        closeBookInfoBtn?.addEventListener('click', () => this.hideBookInfo());
+
+        categoryModal?.addEventListener('click', (e) => {
+            if (e.target === categoryModal) {
+                this.closeCategoryModal();
+            }
+        });
+
+        bookInfoOverlay?.addEventListener('click', (e) => {
+            if (e.target === bookInfoOverlay) {
+                this.hideBookInfo();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            const contextMenu = document.getElementById('categoryContextMenu');
+            if (contextMenu && !contextMenu.contains(e.target)) {
+                this.hideCategoryContextMenu();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.hideCategoryContextMenu();
+                this.closeCategoryModal();
+                this.hideBookInfo();
+            }
+        });
+    }
+
+    closeProcessingPanel() {
+        const panel = document.getElementById('processingPanel');
+        if (panel) {
+            panel.style.display = 'none';
+        }
     }
 
     setLoading(isLoading, message = '📁 拖拽或<br><span>点击上传</span>') {
@@ -68,15 +142,138 @@ class BookShelf {
     }
 
     normalizeBook(rawBook) {
+        const categoryId = rawBook.category_id || rawBook.categoryId || rawBook.category || 'uncategorized';
         return {
             id: rawBook.book_id || rawBook.id,
             name: rawBook.book_title || rawBook.title || rawBook.name || '未命名书籍',
             fileType: rawBook.file_type || rawBook.fileType || 'txt',
-            category: rawBook.category || 'reading',
+            categoryId: String(categoryId || 'uncategorized'),
             uploadDate: rawBook.created_at || rawBook.uploadDate || new Date().toLocaleString('zh-CN'),
             progress: rawBook.progress || 0,
+            pageCount: rawBook.pages_count || rawBook.pageCount || rawBook.total_pages || null,
+            author: rawBook.author || '—',
+            publishDate: rawBook.publish_date || rawBook.publishDate || '—',
             status: rawBook.status || 'ready'
         };
+    }
+
+    getCategoryById(categoryId) {
+        return this.categories.find((category) => String(category.id) === String(categoryId)) || null;
+    }
+
+    isSpecialCategory(categoryId) {
+        return String(categoryId) === 'uncategorized';
+    }
+
+    getSortedCategories(parentId) {
+        return this.categories
+            .filter((category) => String(category.parentId) === String(parentId))
+            .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'zh-CN'));
+    }
+
+    getCategoryDepth(categoryId) {
+        let depth = 0;
+        let current = this.getCategoryById(categoryId);
+        while (current && current.parentId !== null) {
+            depth += 1;
+            current = this.getCategoryById(current.parentId);
+        }
+        return depth;
+    }
+
+    isDescendant(categoryId, potentialAncestorId) {
+        let current = this.getCategoryById(categoryId);
+        while (current && current.parentId !== null) {
+            if (String(current.parentId) === String(potentialAncestorId)) {
+                return true;
+            }
+            current = this.getCategoryById(current.parentId);
+        }
+        return false;
+    }
+
+    getDescendantCategoryIds(categoryId) {
+        const ids = new Set([String(categoryId)]);
+        const visit = (parentId) => {
+            this.categories
+                .filter((category) => String(category.parentId) === String(parentId))
+                .forEach((category) => {
+                    ids.add(String(category.id));
+                    visit(category.id);
+                });
+        };
+        visit(categoryId);
+        return ids;
+    }
+
+    canNestUnder(parentId) {
+        if (parentId === null) {
+            return true;
+        }
+        if (this.isSpecialCategory(parentId)) {
+            return false;
+        }
+        return this.getCategoryDepth(parentId) < 2;
+    }
+
+    normalizeCategoryId(categoryId) {
+        if (!categoryId || !this.getCategoryById(categoryId)) {
+            return 'uncategorized';
+        }
+        return String(categoryId);
+    }
+
+    ensureCategoryIntegrity() {
+        const uncategorized = this.getCategoryById('uncategorized');
+        if (!uncategorized) {
+            this.categories.unshift(...this.getDefaultCategories());
+        }
+
+        this.categories = this.categories.map((category, index) => ({
+            ...category,
+            id: String(category.id),
+            parentId: category.parentId === null || category.parentId === undefined ? null : String(category.parentId),
+            order: Number.isFinite(category.order) ? category.order : index,
+            children: [],
+            locked: this.isSpecialCategory(category.id) || Boolean(category.locked)
+        }));
+
+        this.categories.forEach((category) => {
+            if (this.isSpecialCategory(category.id)) {
+                category.parentId = null;
+                category.order = -1;
+                category.locked = true;
+                return;
+            }
+
+            if (category.parentId && !this.getCategoryById(category.parentId)) {
+                category.parentId = null;
+            }
+
+            if (category.parentId && this.getCategoryDepth(category.id) > 2) {
+                category.parentId = null;
+            }
+        });
+
+        const groupedParentIds = new Set(this.categories.map((category) => category.parentId));
+        groupedParentIds.forEach((parentId) => {
+            this.getSortedCategories(parentId).forEach((category, index) => {
+                category.order = parentId === null && this.isSpecialCategory(category.id) ? -1 : index;
+            });
+        });
+
+        this.categories.forEach((category) => {
+            category.children = this.getSortedCategories(category.id);
+        });
+
+        this.books = this.books.map((book) => ({
+            ...book,
+            categoryId: this.normalizeCategoryId(book.categoryId)
+        }));
+
+        if (!this.getCategoryById(this.currentCategory)) {
+            this.currentCategory = 'uncategorized';
+        }
     }
 
     async loadBooksFromBackend() {
@@ -94,44 +291,55 @@ class BookShelf {
                 .filter((book) => book.status !== 'processing')
                 .map((book) => this.normalizeBook(book));
 
+            this.ensureCategoryIntegrity();
+            this.renderCategories();
             this.renderBooks();
-            this.updateCategoryCounts();
         } catch (error) {
             console.error('加载书籍失败:', error);
             this.books = [];
+            this.ensureCategoryIntegrity();
+            this.renderCategories();
             this.renderBooks();
-            this.updateCategoryCounts();
         } finally {
             this.setLoading(false);
         }
     }
 
-    /**
-     * Poll GET /api/v1/books/{bookId} until status != 'processing'.
-     * Updates the #processingPanel UI while polling.
-     * @param {string} bookId
-     * @param {string} bookName
-     * @param {number|null} totalPages
-     * @returns {Promise<object>}
-     */
     async _pollBookStatus(bookId, bookName, totalPages) {
         const panel = document.getElementById('processingPanel');
         const nameEl = document.getElementById('processingBookName');
         const statusEl = document.getElementById('processingStatus');
+        const percentEl = document.getElementById('processingPercent');
         const fill = document.getElementById('processingBarFill');
         const info = document.getElementById('processingPageInfo');
 
-        if (!panel || !nameEl || !statusEl || !fill || !info) {
+        if (!panel || !nameEl || !statusEl || !percentEl || !fill || !info) {
             return { book_id: bookId, status: 'failed', error_message: '处理进度面板未初始化' };
         }
 
-        panel.style.display = 'block';
-        nameEl.textContent = bookName;
-        statusEl.textContent = '处理中…';
-        fill.className = 'processing-bar-fill indeterminate';
-        fill.style.width = '0%';
-        fill.style.background = '';
-        info.textContent = totalPages ? `共 ${totalPages} 页` : '';
+        const updateProgressUi = (statusText, progressValue, pageText, failed = false) => {
+            nameEl.textContent = bookName;
+            statusEl.textContent = statusText;
+            info.textContent = pageText || (totalPages ? `共 ${totalPages} 页` : '');
+            panel.style.display = 'block';
+
+            if (typeof progressValue === 'number') {
+                fill.className = 'processing-bar-fill';
+                fill.style.width = `${Math.max(0, Math.min(progressValue, 100))}%`;
+                percentEl.textContent = `${Math.round(progressValue)}%`;
+            } else {
+                fill.className = 'processing-bar-fill indeterminate';
+                fill.style.width = '0%';
+                percentEl.textContent = '处理中…';
+            }
+
+            fill.style.background = failed ? '#e53935' : '';
+            if (failed) {
+                percentEl.textContent = '失败';
+            }
+        };
+
+        updateProgressUi('处理中…', null, totalPages ? `共 ${totalPages} 页` : '');
 
         const POLL_INTERVAL_MS = 5000;
 
@@ -139,38 +347,32 @@ class BookShelf {
             const tick = async () => {
                 try {
                     const resp = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}`);
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    if (!resp.ok) {
+                        throw new Error(`HTTP ${resp.status}`);
+                    }
+
                     const book = await resp.json();
+                    const progress = typeof book.progress === 'number' ? book.progress : null;
 
                     if (book.status === 'completed') {
-                        fill.className = 'processing-bar-fill';
-                        fill.style.width = '100%';
-                        fill.style.background = '';
-                        statusEl.textContent = '处理完成 ✅';
-                        info.textContent = totalPages ? `共 ${totalPages} 页` : '';
+                        updateProgressUi('处理完成 ✅', 100, totalPages ? `共 ${totalPages} 页` : '');
                         setTimeout(() => {
                             panel.style.display = 'none';
                         }, 2000);
                         resolve(book);
                     } else if (book.status === 'failed') {
-                        fill.className = 'processing-bar-fill';
-                        fill.style.width = '100%';
-                        fill.style.background = '#e53935';
-                        statusEl.textContent = '处理失败 ❌';
-                        info.textContent = book.error_message || '';
-                        setTimeout(() => {
-                            panel.style.display = 'none';
-                            fill.style.background = '';
-                        }, 4000);
+                        updateProgressUi('处理失败 ❌', 100, book.error_message || '', true);
                         resolve(book);
                     } else {
+                        updateProgressUi('处理中…', progress, totalPages ? `共 ${totalPages} 页` : '');
                         setTimeout(tick, POLL_INTERVAL_MS);
                     }
-                } catch (err) {
-                    console.error('轮询状态失败:', err);
+                } catch (error) {
+                    console.error('轮询状态失败:', error);
                     setTimeout(tick, POLL_INTERVAL_MS);
                 }
             };
+
             setTimeout(tick, POLL_INTERVAL_MS);
         });
     }
@@ -203,15 +405,17 @@ class BookShelf {
                 if (finalBook.status === 'completed') {
                     const book = this.normalizeBook(finalBook);
                     this.books.unshift(book);
+                    this.ensureCategoryIntegrity();
+                    this.renderCategories();
                     this.renderBooks();
-                    this.updateCategoryCounts();
                     await this.selectBook(book.id);
                 }
             } else if (result.status === 'completed') {
                 const book = this.normalizeBook(result);
                 this.books.unshift(book);
+                this.ensureCategoryIntegrity();
+                this.renderCategories();
                 this.renderBooks();
-                this.updateCategoryCounts();
                 await this.selectBook(book.id);
                 this.setLoading(false);
             } else {
@@ -225,7 +429,9 @@ class BookShelf {
     }
 
     async handleMultiFileUpload(files) {
-        if (files.length === 0) return;
+        if (files.length === 0) {
+            return;
+        }
         if (files.length === 1) {
             return this.handleFileUpload(files[0]);
         }
@@ -243,10 +449,14 @@ class BookShelf {
 
         let nextIndex = 0;
         const runNext = async () => {
-            if (nextIndex >= items.length) return;
+            if (nextIndex >= items.length) {
+                return;
+            }
+
             const item = items[nextIndex++];
             item.status = 'uploading';
             this.renderBatchPanel(items);
+
             try {
                 const formData = new FormData();
                 formData.append('file', item.file);
@@ -254,7 +464,10 @@ class BookShelf {
                     method: 'POST',
                     body: formData
                 });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
                 const result = await response.json();
                 if (result.status === 'processing') {
                     item.status = 'success';
@@ -269,8 +482,9 @@ class BookShelf {
                             const book = this.normalizeBook(finalBook);
                             item.book = book;
                             this.books.unshift(book);
+                            this.ensureCategoryIntegrity();
+                            this.renderCategories();
                             this.renderBooks();
-                            this.updateCategoryCounts();
                             this.renderBatchPanel(items);
                         }
                     });
@@ -278,14 +492,16 @@ class BookShelf {
                     item.book = this.normalizeBook(result);
                     item.status = 'success';
                     this.books.unshift(item.book);
+                    this.ensureCategoryIntegrity();
+                    this.renderCategories();
                     this.renderBooks();
-                    this.updateCategoryCounts();
                 }
             } catch (error) {
                 item.status = 'failed';
                 item.error = error.message || '上传失败';
                 console.error('上传失败:', item.name, error);
             }
+
             this.renderBatchPanel(items);
             await runNext();
         };
@@ -299,9 +515,9 @@ class BookShelf {
         const list = document.getElementById('batchList');
 
         const total = items.length;
-        const success = items.filter((i) => i.status === 'success').length;
-        const failed = items.filter((i) => i.status === 'failed').length;
-        const active = items.filter((i) => i.status === 'uploading' || i.status === 'queued').length;
+        const success = items.filter((item) => item.status === 'success').length;
+        const failed = items.filter((item) => item.status === 'failed').length;
+        const active = items.filter((item) => item.status === 'uploading' || item.status === 'queued').length;
 
         panel.style.display = 'block';
         summary.textContent = `共${total} · 成功${success} · 失败${failed} · 处理中${active}`;
@@ -315,7 +531,9 @@ class BookShelf {
             const nameEl = document.createElement('span');
             nameEl.className = 'batch-item-name';
             nameEl.textContent = `${statusIcon[item.status] || ''} ${item.name}`;
-            if (item.error) nameEl.title = item.error;
+            if (item.error) {
+                nameEl.title = item.error;
+            }
             row.appendChild(nameEl);
 
             if (item.status === 'success' && item.book && item.book.status !== 'processing') {
@@ -338,7 +556,6 @@ class BookShelf {
     }
 
     async selectBook(bookId) {
-        // 清空旧数据
         state.content = '';
         state.cachedContentBlob = null;
         state.units = [];
@@ -355,55 +572,38 @@ class BookShelf {
         state.isContentLoading = true;
         clearReadingTimer();
 
-        this.currentBook = this.books.find((b) => String(b.id) === String(bookId)) || null;
-
-        document.querySelectorAll('.book-item').forEach((item) => {
-            item.classList.remove('active');
-        });
-
-        document.querySelector(`[data-book-id="${CSS.escape(String(bookId))}"]`)?.classList.add('active');
+        this.currentBook = this.books.find((book) => String(book.id) === String(bookId)) || null;
 
         if (!this.currentBook) {
-            state.content = '';
-            state.units = [];
             resetDisplay();
+            updateProgress();
             state.isContentLoading = false;
             updateStartButtonState();
+            this.renderBooks();
             return;
         }
 
+        this.renderBooks();
         this.setLoading(true, '⏳ 正在加载书籍内容...');
         elements.startBtn.disabled = true;
-        elements.pauseBtn.disabled = true;
-        elements.resumeBtn.disabled = true;
         elements.stopBtn.disabled = true;
 
         try {
-            const url = `${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`;
-            console.log('正在加载:', url);
-
-            const response = await fetch(url);
-            console.log('Response status:', response.status);
-            console.log('Response ok:', response.ok);
-
+            const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const result = await response.json();
-            console.log('Response result:', result);
-
             const content = typeof result.content === 'string' ? result.content : '';
-            console.log('Content length:', content.length);
 
-            // 检查内容是否为空
             if (!content || content.trim().length === 0) {
-                console.warn('加载的书籍内容为空');
                 state.content = '';
                 state.cachedContentBlob = null;
                 state.units = [];
                 state.imageMarkerMap = {};
                 resetDisplay();
+                updateProgress();
                 return;
             }
 
@@ -412,22 +612,21 @@ class BookShelf {
                 `${this.currentBook?.name || 'book'}.txt`,
                 { type: 'text/plain;charset=utf-8' }
             );
-            resetDisplay();
 
-            // 双保险：内容已就绪时立即允许开始
+            resetDisplay();
+            updateProgress();
             state.isContentLoading = false;
             elements.startBtn.disabled = false;
             updateStartButtonState();
         } catch (error) {
             console.error('加载书籍内容失败:', error);
-            console.error('Error stack:', error.stack);
-            // 错误时清空所有数据
             state.content = '';
             state.cachedContentBlob = null;
             state.units = [];
             state.pages = [];
             state.imageMarkerMap = {};
             resetDisplay();
+            updateProgress();
         } finally {
             state.isContentLoading = false;
             updateStartButtonState();
@@ -451,7 +650,7 @@ class BookShelf {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            this.books = this.books.filter((b) => String(b.id) !== String(bookId));
+            this.books = this.books.filter((book) => String(book.id) !== String(bookId));
 
             if (this.currentBook && String(this.currentBook.id) === String(bookId)) {
                 this.currentBook = null;
@@ -469,11 +668,14 @@ class BookShelf {
                 state.imageMarkerMap = {};
                 state.isContentLoading = false;
                 clearReadingTimer();
+                resetDisplay();
+                updateProgress();
                 updateStartButtonState();
             }
 
+            this.ensureCategoryIntegrity();
+            this.renderCategories();
             this.renderBooks();
-            this.updateCategoryCounts();
         } catch (error) {
             console.error('删除书籍失败:', error);
             alert('删除书籍失败，请稍后重试');
@@ -482,170 +684,586 @@ class BookShelf {
         }
     }
 
-    moveBook(bookId, category) {
-        const book = this.books.find((b) => String(b.id) === String(bookId));
-        if (book) {
-            book.category = category;
-            this.renderBooks();
-            this.updateCategoryCounts();
+    moveBookToCategory(bookId, categoryId) {
+        const book = this.books.find((item) => String(item.id) === String(bookId));
+        if (!book) {
+            return;
+        }
+
+        book.categoryId = this.normalizeCategoryId(categoryId);
+        this.renderCategories();
+        this.renderBooks();
+    }
+
+    moveBookBefore(sourceBookId, beforeBookId = null) {
+        const sourceIndex = this.books.findIndex((book) => String(book.id) === String(sourceBookId));
+        if (sourceIndex < 0) {
+            return;
+        }
+
+        const [sourceBook] = this.books.splice(sourceIndex, 1);
+        const targetIndex = beforeBookId === null
+            ? this.books.length
+            : this.books.findIndex((book) => String(book.id) === String(beforeBookId));
+
+        if (targetIndex < 0) {
+            this.books.push(sourceBook);
+        } else {
+            this.books.splice(targetIndex, 0, sourceBook);
+        }
+
+        this.renderBooks();
+    }
+
+    getVisibleBooks() {
+        if (this.currentCategory === 'uncategorized') {
+            return this.books.filter((book) => book.categoryId === 'uncategorized');
+        }
+
+        const visibleCategoryIds = this.getDescendantCategoryIds(this.currentCategory);
+        return this.books.filter((book) => visibleCategoryIds.has(String(book.categoryId)));
+    }
+
+    getCategoryBookCount(categoryId) {
+        if (String(categoryId) === 'uncategorized') {
+            return this.books.filter((book) => book.categoryId === 'uncategorized').length;
+        }
+
+        const categoryIds = this.getDescendantCategoryIds(categoryId);
+        return this.books.filter((book) => categoryIds.has(String(book.categoryId))).length;
+    }
+
+    setDragData(event, data) {
+        this.dragData = data;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', JSON.stringify(data));
+    }
+
+    getDragData(event) {
+        const raw = event.dataTransfer.getData('text/plain');
+        if (!raw) {
+            return this.dragData;
+        }
+        try {
+            return JSON.parse(raw);
+        } catch (error) {
+            return this.dragData;
         }
     }
 
     renderCategories() {
+        this.ensureCategoryIntegrity();
         const categoriesDiv = document.querySelector('.categories');
         categoriesDiv.innerHTML = '';
+        categoriesDiv.appendChild(this.buildCategoryLevel(null, 0));
+    }
 
-        const allCategoriesData = [
-            { id: 'all', name: '全部' },
-            { id: 'reading', name: '阅读中' },
-            { id: 'finished', name: '已完成' },
-            ...this.categories
-        ];
+    buildCategoryLevel(parentId, level) {
+        const fragment = document.createDocumentFragment();
+        const categories = this.getSortedCategories(parentId);
 
-        allCategoriesData.forEach((cat) => {
-            const categoryDiv = document.createElement('div');
-            categoryDiv.className = 'category';
-            categoryDiv.dataset.category = cat.id;
-
-            const header = document.createElement('div');
-            header.className = 'category-header';
-            header.innerHTML = `${cat.name}<span class="book-count">0</span>`;
-
-            header.addEventListener('click', () => this.selectCategory(cat.id));
-            categoryDiv.appendChild(header);
-            categoriesDiv.appendChild(categoryDiv);
+        categories.forEach((category) => {
+            fragment.appendChild(this.createCategoryDropGap(parentId, category.id, level));
+            fragment.appendChild(this.createCategoryNode(category, level));
         });
 
-        this.selectCategory(this.currentCategory);
+        fragment.appendChild(this.createCategoryDropGap(parentId, null, level));
+        return fragment;
+    }
+
+    createCategoryDropGap(parentId, beforeCategoryId, level) {
+        const gap = document.createElement('div');
+        gap.className = 'category-drop-gap';
+        gap.style.marginLeft = `${level * 16}px`;
+
+        gap.addEventListener('dragover', (e) => {
+            const dragData = this.getDragData(e);
+            if (dragData?.type === 'category') {
+                e.preventDefault();
+                gap.classList.add('drag-over');
+            }
+        });
+
+        gap.addEventListener('dragleave', () => {
+            gap.classList.remove('drag-over');
+        });
+
+        gap.addEventListener('drop', (e) => {
+            const dragData = this.getDragData(e);
+            gap.classList.remove('drag-over');
+            if (dragData?.type === 'category') {
+                e.preventDefault();
+                this.reorderCategory(dragData.categoryId, parentId, beforeCategoryId);
+            }
+        });
+
+        return gap;
+    }
+
+    createCategoryNode(category, level) {
+        const node = document.createElement('div');
+        node.className = 'category-node';
+        node.dataset.category = category.id;
+
+        const header = document.createElement('div');
+        header.className = 'category-header';
+        header.dataset.category = category.id;
+        header.style.paddingLeft = `${8 + level * 16}px`;
+        if (this.currentCategory === category.id) {
+            header.classList.add('active');
+        }
+
+        const hasChildren = category.children.length > 0;
+        const expanded = this.expandedCategoryIds.has(category.id);
+
+        const arrow = document.createElement('span');
+        arrow.className = 'category-arrow';
+        arrow.textContent = hasChildren && expanded ? '▼' : '▶';
+
+        const name = document.createElement('span');
+        name.className = 'category-name';
+        name.textContent = category.name;
+
+        const count = document.createElement('span');
+        count.className = 'book-count';
+        count.textContent = this.getCategoryBookCount(category.id);
+
+        header.appendChild(arrow);
+        header.appendChild(name);
+        header.appendChild(count);
+
+        if (!category.locked) {
+            header.draggable = true;
+            header.addEventListener('dragstart', (e) => {
+                header.classList.add('dragging');
+                this.setDragData(e, { type: 'category', categoryId: category.id });
+            });
+            header.addEventListener('dragend', () => {
+                header.classList.remove('dragging');
+                this.dragData = null;
+                document.querySelectorAll('.drag-over').forEach((element) => element.classList.remove('drag-over'));
+            });
+        }
+
+        header.addEventListener('click', () => {
+            this.selectCategory(category.id);
+            if (hasChildren) {
+                this.toggleCategoryExpanded(category.id);
+            }
+        });
+
+        header.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.showCategoryContextMenu(e, category);
+        });
+
+        header.addEventListener('dragover', (e) => {
+            const dragData = this.getDragData(e);
+            if (!dragData) {
+                return;
+            }
+            if (dragData.type === 'book' || dragData.type === 'category') {
+                e.preventDefault();
+                header.classList.add('drag-over');
+            }
+        });
+
+        header.addEventListener('dragleave', () => {
+            header.classList.remove('drag-over');
+        });
+
+        header.addEventListener('drop', (e) => {
+            const dragData = this.getDragData(e);
+            header.classList.remove('drag-over');
+            if (!dragData) {
+                return;
+            }
+            e.preventDefault();
+            if (dragData.type === 'book') {
+                this.moveBookToCategory(dragData.bookId, category.id);
+            } else if (dragData.type === 'category') {
+                this.moveCategoryAsChild(dragData.categoryId, category.id);
+            }
+        });
+
+        node.appendChild(header);
+
+        if (hasChildren && expanded) {
+            const children = document.createElement('div');
+            children.className = 'category-children';
+            children.appendChild(this.buildCategoryLevel(category.id, level + 1));
+            node.appendChild(children);
+        }
+
+        return node;
+    }
+
+    toggleCategoryExpanded(categoryId) {
+        if (this.expandedCategoryIds.has(categoryId)) {
+            this.expandedCategoryIds.delete(categoryId);
+        } else {
+            this.expandedCategoryIds.add(categoryId);
+        }
+        this.renderCategories();
     }
 
     selectCategory(categoryId) {
-        this.currentCategory = categoryId;
-        document.querySelectorAll('.category-header').forEach((h) => {
-            h.classList.remove('active');
+        this.currentCategory = this.normalizeCategoryId(categoryId);
+        this.renderCategories();
+        this.renderBooks();
+    }
+
+    reorderCategory(sourceCategoryId, parentId, beforeCategoryId) {
+        if (this.isSpecialCategory(sourceCategoryId)) {
+            return;
+        }
+        if (parentId !== null && !this.canNestUnder(parentId)) {
+            return;
+        }
+        if (String(sourceCategoryId) === String(parentId) || this.isDescendant(parentId, sourceCategoryId)) {
+            return;
+        }
+        if (beforeCategoryId && this.isDescendant(beforeCategoryId, sourceCategoryId)) {
+            return;
+        }
+
+        const sourceCategory = this.getCategoryById(sourceCategoryId);
+        if (!sourceCategory) {
+            return;
+        }
+
+        sourceCategory.parentId = parentId;
+        const siblings = this.getSortedCategories(parentId)
+            .filter((category) => String(category.id) !== String(sourceCategoryId));
+        const insertIndex = beforeCategoryId === null
+            ? siblings.length
+            : siblings.findIndex((category) => String(category.id) === String(beforeCategoryId));
+
+        siblings.splice(insertIndex < 0 ? siblings.length : insertIndex, 0, sourceCategory);
+        siblings.forEach((category, index) => {
+            category.parentId = parentId;
+            category.order = index;
         });
-        document.querySelector(`[data-category="${categoryId}"] .category-header`)?.classList.add('active');
+
+        this.ensureCategoryIntegrity();
+        this.renderCategories();
+        this.renderBooks();
+    }
+
+    moveCategoryAsChild(sourceCategoryId, targetCategoryId) {
+        if (this.isSpecialCategory(sourceCategoryId) || this.isSpecialCategory(targetCategoryId)) {
+            return;
+        }
+        if (!this.canNestUnder(targetCategoryId)) {
+            return;
+        }
+
+        this.expandedCategoryIds.add(String(targetCategoryId));
+        this.reorderCategory(sourceCategoryId, targetCategoryId, null);
+    }
+
+    showCategoryContextMenu(event, category) {
+        const menu = document.getElementById('categoryContextMenu');
+        if (!menu) {
+            return;
+        }
+
+        const actions = [
+            {
+                label: '重命名',
+                disabled: category.locked,
+                handler: () => this.openCategoryModal('rename', category.id, category.name)
+            },
+            {
+                label: '添加子目录',
+                disabled: !this.canNestUnder(category.id),
+                handler: () => this.openCategoryModal('createChild', category.id)
+            },
+            {
+                label: '删除',
+                disabled: category.locked,
+                handler: () => this.deleteCategory(category.id)
+            }
+        ];
+
+        menu.innerHTML = '';
+        actions.forEach((action) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = action.label;
+            button.disabled = action.disabled;
+            button.addEventListener('click', () => {
+                this.hideCategoryContextMenu();
+                action.handler();
+            });
+            menu.appendChild(button);
+        });
+
+        menu.style.left = `${event.clientX}px`;
+        menu.style.top = `${event.clientY}px`;
+        menu.classList.add('show');
+    }
+
+    hideCategoryContextMenu() {
+        const menu = document.getElementById('categoryContextMenu');
+        if (menu) {
+            menu.classList.remove('show');
+        }
+    }
+
+    openCategoryModal(mode, targetCategoryId = null, initialName = '') {
+        const modal = document.getElementById('categoryModal');
+        const title = document.getElementById('categoryModalTitle');
+        const input = document.getElementById('categoryInput');
+
+        this.categoryModalMode = mode;
+        this.categoryModalTargetId = targetCategoryId;
+
+        if (title) {
+            title.textContent = mode === 'rename' ? '重命名目录' : '添加目录';
+        }
+        if (input) {
+            input.value = initialName;
+            input.focus();
+        }
+        modal?.classList.add('show');
+    }
+
+    closeCategoryModal() {
+        const modal = document.getElementById('categoryModal');
+        const input = document.getElementById('categoryInput');
+        modal?.classList.remove('show');
+        if (input) {
+            input.value = '';
+        }
+        this.categoryModalMode = 'createRoot';
+        this.categoryModalTargetId = null;
+    }
+
+    confirmCategoryAction() {
+        const input = document.getElementById('categoryInput');
+        const name = input?.value.trim() || '';
+
+        if (!name) {
+            alert('请输入分类名称');
+            return;
+        }
+
+        if (this.categoryModalMode === 'rename') {
+            const category = this.getCategoryById(this.categoryModalTargetId);
+            if (category && !category.locked) {
+                category.name = name;
+            }
+        } else {
+            this.addCategory(name, this.categoryModalMode === 'createChild' ? this.categoryModalTargetId : null);
+        }
+
+        this.ensureCategoryIntegrity();
+        this.renderCategories();
+        this.renderBooks();
+        this.closeCategoryModal();
+    }
+
+    addCategory(name, parentId = null) {
+        if (parentId !== null && !this.canNestUnder(parentId)) {
+            alert('最多只支持三级目录');
+            return;
+        }
+
+        this.categories.push({
+            id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            name,
+            parentId,
+            order: this.getSortedCategories(parentId).length,
+            children: [],
+            locked: false
+        });
+
+        if (parentId !== null) {
+            this.expandedCategoryIds.add(String(parentId));
+        }
+    }
+
+    deleteCategory(categoryId) {
+        if (this.isSpecialCategory(categoryId)) {
+            return;
+        }
+        if (!confirm('确定要删除这个目录吗？')) {
+            return;
+        }
+
+        const category = this.getCategoryById(categoryId);
+        if (!category) {
+            return;
+        }
+
+        this.categories.forEach((item) => {
+            if (String(item.parentId) === String(categoryId)) {
+                item.parentId = category.parentId;
+            }
+        });
+
+        this.books.forEach((book) => {
+            if (String(book.categoryId) === String(categoryId)) {
+                book.categoryId = 'uncategorized';
+            }
+        });
+
+        this.categories = this.categories.filter((item) => String(item.id) !== String(categoryId));
+        this.expandedCategoryIds.delete(String(categoryId));
+        if (this.currentCategory === categoryId) {
+            this.currentCategory = 'uncategorized';
+        }
+
+        this.ensureCategoryIntegrity();
+        this.renderCategories();
         this.renderBooks();
     }
 
     renderBooks() {
         const booksList = document.getElementById('booksList');
+        const filteredBooks = this.getVisibleBooks();
         booksList.innerHTML = '';
 
-        let filteredBooks = this.books;
-        if (this.currentCategory !== 'all') {
-            filteredBooks = this.books.filter((b) => b.category === this.currentCategory);
-        }
-
         if (filteredBooks.length === 0) {
-            booksList.innerHTML = '<div style="padding: 8px; text-align: center; color: rgba(255,255,255,0.7); font-size: 0.8rem;">暂无书籍</div>';
+            booksList.innerHTML = '<div class="books-empty">暂无书籍</div>';
             return;
         }
 
         filteredBooks.forEach((book) => {
-            const bookId = String(book.id);
-            const bookItem = document.createElement('div');
-            bookItem.className = 'book-item';
-            bookItem.dataset.bookId = bookId;
-
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'book-item-name';
-            nameSpan.title = book.name;
-            nameSpan.textContent = book.name;
-
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'book-item-actions';
-
-            const finishBtn = document.createElement('button');
-            finishBtn.className = 'book-item-action';
-            finishBtn.title = '标记完成';
-            finishBtn.textContent = '✓';
-            finishBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.moveBook(book.id, 'finished');
-            });
-
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'book-item-action';
-            deleteBtn.title = '删除';
-            deleteBtn.textContent = '✕';
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.deleteBook(book.id);
-            });
-
-            actionsDiv.appendChild(finishBtn);
-            actionsDiv.appendChild(deleteBtn);
-            bookItem.appendChild(nameSpan);
-            bookItem.appendChild(actionsDiv);
-
-            if (this.currentBook && String(this.currentBook.id) === bookId) {
-                bookItem.classList.add('active');
-            }
-
-            bookItem.addEventListener('click', () => this.selectBook(book.id));
-            booksList.appendChild(bookItem);
+            booksList.appendChild(this.createBookDropGap(book.id));
+            booksList.appendChild(this.createBookItem(book));
         });
-
-        this.updateCategoryCounts();
+        booksList.appendChild(this.createBookDropGap(null));
     }
 
-    updateCategoryCounts() {
-        const counts = {
-            all: this.books.length,
-            reading: this.books.filter((b) => b.category === 'reading').length,
-            finished: this.books.filter((b) => b.category === 'finished').length
-        };
+    createBookDropGap(beforeBookId) {
+        const gap = document.createElement('div');
+        gap.className = 'book-drop-gap';
 
-        document.querySelectorAll('.category').forEach((cat) => {
-            const id = cat.dataset.category;
-            const count = counts[id] || 0;
-            const countSpan = cat.querySelector('.book-count');
-            if (countSpan) {
-                countSpan.textContent = count;
+        gap.addEventListener('dragover', (e) => {
+            const dragData = this.getDragData(e);
+            if (dragData?.type === 'book') {
+                e.preventDefault();
+                gap.classList.add('drag-over');
             }
         });
+
+        gap.addEventListener('dragleave', () => {
+            gap.classList.remove('drag-over');
+        });
+
+        gap.addEventListener('drop', (e) => {
+            const dragData = this.getDragData(e);
+            gap.classList.remove('drag-over');
+            if (dragData?.type === 'book') {
+                e.preventDefault();
+                this.moveBookBefore(dragData.bookId, beforeBookId);
+            }
+        });
+
+        return gap;
     }
 
-    addCategory(name) {
-        const newCategory = {
-            id: 'cat_' + Date.now(),
-            name: name
-        };
-        this.categories.push(newCategory);
-        this.renderCategories();
+    createBookItem(book) {
+        const bookItem = document.createElement('div');
+        bookItem.className = 'book-item';
+        bookItem.dataset.bookId = String(book.id);
+        bookItem.draggable = true;
+
+        if (this.currentBook && String(this.currentBook.id) === String(book.id)) {
+            bookItem.classList.add('active');
+        }
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'book-item-name';
+        nameSpan.title = book.name;
+        nameSpan.textContent = book.name;
+
+        nameSpan.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.showBookInfo(book);
+        });
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'book-item-actions';
+
+        const sortBtn = document.createElement('button');
+        sortBtn.type = 'button';
+        sortBtn.className = 'book-item-action book-item-handle';
+        sortBtn.title = '拖拽排序';
+        sortBtn.textContent = '↕';
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'book-item-action';
+        deleteBtn.title = '删除';
+        deleteBtn.textContent = '✕';
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.deleteBook(book.id);
+        });
+
+        actionsDiv.appendChild(sortBtn);
+        actionsDiv.appendChild(deleteBtn);
+        bookItem.appendChild(nameSpan);
+        bookItem.appendChild(actionsDiv);
+
+        bookItem.addEventListener('click', () => this.selectBook(book.id));
+
+        bookItem.addEventListener('dragstart', (e) => {
+            bookItem.classList.add('dragging');
+            this.setDragData(e, { type: 'book', bookId: book.id });
+        });
+
+        bookItem.addEventListener('dragend', () => {
+            bookItem.classList.remove('dragging');
+            this.dragData = null;
+            document.querySelectorAll('.drag-over').forEach((element) => element.classList.remove('drag-over'));
+        });
+
+        bookItem.addEventListener('dragover', (e) => {
+            const dragData = this.getDragData(e);
+            if (dragData?.type === 'book' && String(dragData.bookId) !== String(book.id)) {
+                e.preventDefault();
+                bookItem.classList.add('drag-over');
+            }
+        });
+
+        bookItem.addEventListener('dragleave', () => {
+            bookItem.classList.remove('drag-over');
+        });
+
+        bookItem.addEventListener('drop', (e) => {
+            const dragData = this.getDragData(e);
+            bookItem.classList.remove('drag-over');
+            if (dragData?.type === 'book' && String(dragData.bookId) !== String(book.id)) {
+                e.preventDefault();
+                this.moveBookBefore(dragData.bookId, book.id);
+            }
+        });
+
+        return bookItem;
+    }
+
+    showBookInfo(book) {
+        const overlay = document.getElementById('bookInfoOverlay');
+        document.getElementById('infoBookName').textContent = book.name || '—';
+        document.getElementById('infoFileType').textContent = book.fileType || '—';
+        document.getElementById('infoUploadDate').textContent = book.uploadDate || '—';
+        document.getElementById('infoPageCount').textContent = book.pageCount || book.progress || '—';
+        document.getElementById('infoAuthor').textContent = book.author || '—';
+        document.getElementById('infoPublishDate').textContent = book.publishDate || '—';
+        overlay?.classList.add('show');
+    }
+
+    hideBookInfo() {
+        document.getElementById('bookInfoOverlay')?.classList.remove('show');
     }
 }
 
-// 全局实例
 let bookshelf;
 
-// 初始化
 document.addEventListener('DOMContentLoaded', () => {
     bookshelf = new BookShelf();
-});
-
-// 模态框函数
-function showCategoryModal() {
-    document.getElementById('categoryModal').classList.add('show');
-    document.getElementById('categoryInput').focus();
-}
-
-function closeCategoryModal() {
-    document.getElementById('categoryModal').classList.remove('show');
-    document.getElementById('categoryInput').value = '';
-}
-
-function addCategory() {
-    const name = document.getElementById('categoryInput').value.trim();
-    if (name) {
-        bookshelf.addCategory(name);
-        closeCategoryModal();
-    } else {
-        alert('请输入分类名称');
-    }
-}
-
-document.getElementById('categoryInput')?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') addCategory();
 });
