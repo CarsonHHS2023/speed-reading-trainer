@@ -46,8 +46,7 @@ const elements = {
     fontWeight: document.getElementById('fontWeight'),
     displayMode: document.getElementById('displayMode'),
     trainingMode: document.getElementById('trainingMode'),
-    startBtn: document.getElementById('startBtn'),
-    stopBtn: document.getElementById('stopBtn'),
+    readingToggleBtn: document.getElementById('readingToggleBtn'),
     currentPos: document.getElementById('currentPos'),
     totalWords: document.getElementById('totalWords'),
     progressSlider: document.getElementById('progressSlider'),
@@ -260,8 +259,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    elements.startBtn.addEventListener('click', startReading);
-    elements.stopBtn.addEventListener('click', stopReading);
+    elements.readingToggleBtn?.addEventListener('click', () => {
+        if (state.isPlaying || state.isPaused) {
+            stopReading();
+        } else {
+            startReading();
+        }
+    });
     elements.progressSlider.addEventListener('input', (e) => {
         seekToProgress(Number(e.target.value) / Number(e.target.max || 1000));
     });
@@ -444,7 +448,17 @@ function clearReadingTimer() {
 }
 
 function updateStartButtonState() {
-    elements.startBtn.disabled = state.isContentLoading || !state.cachedContentBlob || state.isPlaying || state.isPaused;
+    const noContent = state.isContentLoading || !state.cachedContentBlob;
+    if (elements.readingToggleBtn) {
+        elements.readingToggleBtn.disabled = noContent;
+        if (state.isPlaying || state.isPaused) {
+            elements.readingToggleBtn.textContent = '⏹';
+            elements.readingToggleBtn.classList.add('active');
+        } else {
+            elements.readingToggleBtn.textContent = '▶';
+            elements.readingToggleBtn.classList.remove('active');
+        }
+    }
 }
 
 async function decodeText(arrayBuffer) {
@@ -490,8 +504,7 @@ async function startReading() {
     }
 
     clearReadingTimer();
-    elements.startBtn.disabled = true;
-    elements.stopBtn.disabled = true;
+    updateStartButtonState();
 
     try {
         await readTxtFile(state.cachedContentBlob);
@@ -511,7 +524,7 @@ async function startReading() {
     state.isPaused = false;
     state.startTime = Date.now();
 
-    elements.stopBtn.disabled = false;
+    updateStartButtonState();
     elements.readingPanel.classList.add('is-reading');
 
     disableSettingsDuringReading();
@@ -551,7 +564,6 @@ function stopReading() {
     state.pendingImageMarkerIndex = null;
     clearReadingTimer();
 
-    elements.stopBtn.disabled = true;
     elements.readingPanel.classList.remove('is-reading');
 
     elements.chartDisplay.classList.remove('active');

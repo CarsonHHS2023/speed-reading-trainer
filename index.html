@@ -9,77 +9,64 @@
 <body>
     <div class="app-wrapper">
         <div class="app-body">
-            <!-- 左侧：书架栏和设置栏 -->
-            <div class="left-panel">
+            <!-- 左列：书架 + 设置 -->
+            <div class="left-column">
                 <!-- 标题 -->
                 <div class="app-title">
                     <span>⚡ 快速阅读训练程序</span>
                     <button id="themeToggleBtn" class="theme-toggle-btn" title="切换主题">🌙</button>
                 </div>
 
-                <!-- 书架和设置容器 -->
-                <div class="left-content">
-                    <!-- 书架栏 -->
-                    <div class="shelf-panel">
-                        <div class="shelf-header">
-                            <h2>📚 书架</h2>
-                            <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
-                        </div>
+                <!-- 书架栏 -->
+                <div class="shelf-panel">
+                    <div class="shelf-header">
+                        <h2>📚 书架</h2>
+                        <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
+                    </div>
 
-                        <!-- 上传区域 -->
-                        <div class="upload-zone" id="uploadZone">
-                            <div class="upload-prompt">📁 拖拽或<br><span>点击上传</span></div>
-                            <input type="file" id="fileInput" accept=".txt,.pdf" multiple hidden>
-                        </div>
+                    <!-- 上传区域 -->
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-prompt">📁 拖拽或<br><span>点击上传</span></div>
+                        <input type="file" id="fileInput" accept=".txt,.pdf" multiple hidden>
+                    </div>
 
-                        <!-- 批量上传状态面板 -->
-                        <div id="batchPanel" class="batch-panel" style="display:none;">
-                            <div class="batch-summary" id="batchSummary"></div>
-                            <div class="batch-list" id="batchList"></div>
-                        </div>
+                    <!-- 批量上传状态面板 -->
+                    <div id="batchPanel" class="batch-panel" style="display:none;">
+                        <div class="batch-summary" id="batchSummary"></div>
+                        <div class="batch-list" id="batchList"></div>
+                    </div>
 
-                        <!-- 单本书处理进度 -->
-                        <div id="processingPanel" class="processing-panel" style="display:none;">
-                            <div class="processing-title">
-                                <span id="processingBookName" class="processing-book-name"></span>
-                                <div class="processing-title-right">
-                                    <span id="processingStatus" class="processing-status-text"></span>
-                                    <span id="processingPercent" class="processing-percent"></span>
-                                    <button id="closeProcessingBtn" class="processing-close-btn" title="关闭">✕</button>
-                                </div>
-                            </div>
-                            <div class="processing-bar-track">
-                                <div id="processingBarFill" class="processing-bar-fill"></div>
-                            </div>
-                            <div class="processing-info">
-                                <span id="processingPageInfo"></span>
+                    <!-- 单本书处理进度 -->
+                    <div id="processingPanel" class="processing-panel" style="display:none;">
+                        <div class="processing-title">
+                            <span id="processingBookName" class="processing-book-name"></span>
+                            <div class="processing-title-right">
+                                <span id="processingStatus" class="processing-status-text"></span>
+                                <span id="processingPercent" class="processing-percent"></span>
+                                <button id="closeProcessingBtn" class="processing-close-btn" title="关闭">✕</button>
                             </div>
                         </div>
-
-                        <div class="categories-panel">
-                            <div class="categories-header">
-                                <h2>🗂️ 目录</h2>
-                            </div>
-                            <div class="categories"></div>
+                        <div class="processing-bar-track">
+                            <div id="processingBarFill" class="processing-bar-fill"></div>
                         </div>
-
-                        <div class="booklist-panel">
-                            <div class="booklist-header">
-                                <h2>📋 书单</h2>
-                            </div>
-                            <div class="books-list" id="booksList"></div>
+                        <div class="processing-info">
+                            <span id="processingPageInfo"></span>
                         </div>
                     </div>
 
-                    <!-- 设置栏 -->
-                    <div class="settings-panel">
-                        <div class="settings-header">
-                            <h2>🎮 设置</h2>
-                            <div class="settings-header-actions">
-                                <button id="startBtn" class="btn btn-primary" disabled>开始</button>
-                                <button id="stopBtn" class="btn btn-secondary" disabled>停止</button>
-                            </div>
+                    <div class="categories-panel">
+                        <div class="categories-header">
+                            <h2>🗂️ 目录</h2>
                         </div>
+                        <div class="categories"></div>
+                    </div>
+                </div>
+
+                <!-- 设置栏 -->
+                <div class="settings-panel">
+                    <div class="settings-header">
+                        <h2>🎮 设置</h2>
+                    </div>
 
                         <div class="settings-content">
                             <div class="setting-row speed-setting-row">
@@ -161,6 +148,14 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- 中列：书单 -->
+            <div class="booklist-column">
+                <div class="booklist-header">
+                    <h2>📋 书单</h2>
+                    <button id="readingToggleBtn" class="reading-toggle-btn" title="开始/停止阅读" disabled>▶</button>
+                </div>
+                <div class="books-list" id="booksList"></div>
             </div>
 
             <!-- 右侧：阅读显示区 -->

@@ -38,21 +38,36 @@ body.dark-mode {
     overflow: hidden;
 }
 
-/* ==================== 左侧面板（书架+设置） ==================== */
-.left-panel {
+/* ==================== 左列（书架+设置） ==================== */
+.left-column {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    background: white;
-    border-right: 1px solid #ddd;
-    overflow: hidden;
+    width: 200px;
     flex-shrink: 0;
-    width: 430px;
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-right: 1px solid rgba(255,255,255,0.18);
+    overflow: hidden;
 }
 
-body.dark-mode .left-panel {
-    background: #2d2d2d;
+body.dark-mode .left-column {
+    background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
+    border-right-color: #444;
+}
+
+/* ==================== 中列（书单） ==================== */
+.booklist-column {
+    display: flex;
+    flex-direction: column;
+    width: 220px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-right: 1px solid rgba(255,255,255,0.18);
+    color: white;
+    overflow: hidden;
+}
+
+body.dark-mode .booklist-column {
+    background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
     border-right-color: #444;
 }
 
@@ -94,31 +109,20 @@ body.dark-mode .app-title {
     transform: scale(1.1);
 }
 
-/* 书架和设置容器（上下） */
-.left-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-    gap: 0;
-}
-
 /* 书架栏 */
 .shelf-panel {
     width: 100%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.18);
-    overflow: hidden;
-    transition: background 0.3s ease, border-color 0.3s ease;
+    overflow-y: auto;
+    transition: border-color 0.3s ease;
 }
 
 body.dark-mode .shelf-panel {
-    background: linear-gradient(135deg, #3a3f5f 0%, #4a3a5f 100%);
     border-bottom-color: #555;
 }
 
@@ -300,6 +304,42 @@ body.dark-mode .shelf-header {
     font-size: 0.9rem;
 }
 
+.booklist-column .booklist-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
+}
+
+.reading-toggle-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.reading-toggle-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.reading-toggle-btn.active {
+    background: rgba(255, 100, 100, 0.4);
+}
+
+.reading-toggle-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .categories {
     display: flex;
     flex-direction: column;
@@ -375,13 +415,11 @@ body.dark-mode .shelf-header {
 }
 
 /* 书籍列表 */
-.booklist-panel {
-    display: flex;
-    flex-direction: column;
+.booklist-column .books-list {
     flex: 1;
-    min-height: 160px;
-    overflow: hidden;
-    padding: 0 8px 8px;
+    overflow-y: auto;
+    padding: 8px;
+    font-size: 0.8rem;
 }
 
 .books-list {
@@ -474,7 +512,7 @@ body.dark-mode .shelf-header {
     display: flex;
     flex-direction: column;
     border-right: none;
-    border-top: 1px solid #ddd;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
     overflow: visible;
     flex-shrink: 0;
     transition: background-color 0.3s ease, border-color 0.3s ease;
@@ -492,7 +530,6 @@ body.dark-mode .settings-panel {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
@@ -504,16 +541,6 @@ body.dark-mode .settings-header {
 
 .settings-header h2 {
     font-size: 0.95rem;
-}
-
-.settings-header-actions {
-    display: flex;
-    gap: 6px;
-}
-
-.settings-header-actions .btn {
-    min-width: 56px;
-    padding: 6px 10px;
 }
 
 .settings-content {
@@ -603,10 +630,22 @@ body.dark-mode .setting-row select {
     min-width: 50px;
 }
 
-.speed-control input[type="number"],
-.slider-control input[type="number"] {
+.speed-control input[type="number"] {
     width: 4.5em;
     max-width: 4.5em;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    background: white;
+    color: #333;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+.slider-control input[type="number"] {
+    width: 2.2em;
+    max-width: 2.2em;
     flex-shrink: 0;
     padding: 6px;
     border: 1px solid #ddd;
