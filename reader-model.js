@@ -15,7 +15,7 @@
             partial: '部分可用',
             degraded: '部分降级',
             unavailable: '不可用',
-            no_usable_content: '没有可读内容',
+            no_usable_semantic_content: '没有可读内容',
         }[state] || String(state || '未知状态');
     }
 
@@ -25,16 +25,16 @@
             partial: '部分内容尚未完整恢复，当前可用内容仍可阅读。',
             degraded: '部分内容已降级显示；不会用推测内容替代缺失内容。',
             unavailable: '当前 Reader 内容不可用。',
-            no_usable_content: '当前文档没有可供 Reader 显示的语义内容。',
+            no_usable_semantic_content: '当前文档没有可供 Reader 显示的语义内容。',
         }[state] || 'Reader 返回了未知内容状态。';
     }
 
     function processingMessage(state) {
         return {
-            ready: '',
+            pending: '文档正在等待处理。',
             processing: '文档仍在处理中。',
+            completed: '',
             failed: '文档处理失败。',
-            unavailable: '处理状态不可用。',
         }[state] || '';
     }
 
