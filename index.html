@@ -148,13 +148,42 @@
             <div class="booklist-column">
                 <div class="booklist-header">
                     <h2>📋 书单</h2>
-                    <button id="readingToggleBtn" class="reading-toggle-btn" title="开始/停止阅读" disabled>▶</button>
+                    <div class="booklist-reader-actions">
+                        <button id="readerModeToggle" class="reader-mode-toggle" type="button" aria-pressed="false" title="启用 M5 结构化 Reader（Beta）">Reader β</button>
+                        <button id="readingToggleBtn" class="reading-toggle-btn" title="开始/停止阅读" disabled>▶</button>
+                    </div>
                 </div>
+                <div id="readerCompatibilityNotice" class="reader-compatibility-notice" role="status" hidden></div>
                 <div class="books-list" id="booksList"></div>
             </div>
 
             <!-- 右侧：阅读显示区 -->
             <div class="reading-panel">
+                <section id="structuredReader" class="structured-reader" aria-labelledby="readerDocumentTitle" hidden>
+                    <div class="reader-toolbar">
+                        <div>
+                            <div class="reader-kicker">M5 Reader · Contract v1</div>
+                            <h1 id="readerDocumentTitle" class="reader-document-title">结构化阅读</h1>
+                        </div>
+                        <div class="reader-page-controls" aria-label="页面导航">
+                            <button id="readerPrevPageBtn" type="button" title="上一页（Alt+左箭头）">← 上一页</button>
+                            <button id="readerNextPageBtn" type="button" title="下一页（Alt+右箭头）">下一页 →</button>
+                        </div>
+                    </div>
+                    <div id="readerRecoveryBanner" class="reader-recovery-banner" role="status" hidden></div>
+                    <div class="reader-layout">
+                        <nav class="reader-navigation-panel" aria-label="文档标题导航">
+                            <h2>导航</h2>
+                            <div id="readerNavigation" class="reader-navigation"></div>
+                        </nav>
+                        <div class="reader-document-column">
+                            <div id="readerStatus" class="reader-status" role="status" aria-live="polite"></div>
+                            <main id="readerContent" class="reader-content" tabindex="-1"></main>
+                            <button id="readerLoadMoreBtn" class="reader-load-more" type="button" hidden>加载更多页面</button>
+                        </div>
+                    </div>
+                </section>
+
                 <div id="focusModeDisplay" class="display-mode active">
                     <div id="focusText" class="focus-text">选择书籍开始阅读</div>
                 </div>
@@ -213,6 +242,9 @@
     </div>
 
     <script src="bookshelf.js"></script>
+    <script src="reader-api.js"></script>
+    <script src="reader-model.js"></script>
+    <script src="reader-ui.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
