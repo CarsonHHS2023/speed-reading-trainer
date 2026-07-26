@@ -1,0 +1,45 @@
+name: Reader v2 Client CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-v2-client-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reader-v2-client:
+    name: Reader v2 client and model tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript syntax checks
+        run: npm run check
+
+      - name: Reader v2 client/model tests
+        run: npm test
+
+      - name: Reader v2 boundary check
+        run: |
+          test -f reader-api.js
+          test -f reader-model.js
+          ! grep -q '/api/reader/v1' reader-api.js
+          ! grep -q '/api/v1/books/' reader-api.js
+          ! grep -q 'page_id' reader-model.js
+          ! grep -q 'page_order' reader-model.js
