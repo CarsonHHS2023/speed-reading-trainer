@@ -67,6 +67,14 @@
         while (target && target.firstChild) target.removeChild(target.firstChild);
     }
 
+    function renderPlaceholder(documentObject, target, nodeType, fallbackText) {
+        clear(target);
+        const placeholder = documentObject.createElement('div');
+        placeholder.className = 'reader-v2-placeholder';
+        placeholder.textContent = fallbackText || defaultLabel(nodeType);
+        target.appendChild(placeholder);
+    }
+
     async function renderAssetInto(options = {}) {
         const {
             documentObject,
@@ -81,21 +89,19 @@
         if (!documentObject || !resolver || !target) return null;
 
         const resolved = await resolver.resolveFirstAvailable(documentRef, candidateId, assetRefs || []);
-        clear(target);
         if (!resolved) {
-            const placeholder = documentObject.createElement('div');
-            placeholder.className = 'reader-v2-placeholder';
-            placeholder.textContent = fallbackText || defaultLabel(nodeType);
-            target.appendChild(placeholder);
+            renderPlaceholder(documentObject, target, nodeType, fallbackText);
             return null;
         }
 
+        clear(target);
         const figure = documentObject.createElement('figure');
         figure.className = 'reader-v2-asset';
         const image = documentObject.createElement('img');
         image.className = 'reader-v2-asset-image';
         image.src = resolved.contentUrl;
         image.alt = resolved.metadata.alt_text || resolved.metadata.caption || fallbackText || defaultLabel(nodeType);
+        image.onerror = () => renderPlaceholder(documentObject, target, nodeType, fallbackText);
         figure.appendChild(image);
         const captionText = resolved.metadata.caption || fallbackText;
         if (captionText) {
@@ -113,5 +119,6 @@
         ReaderAssetResolverV2,
         defaultLabel,
         renderAssetInto,
+        renderPlaceholder,
     };
 });
