@@ -180,6 +180,14 @@
             this.refreshFrames({ preserveIdentity: true });
         }
 
+        onDisplayModeChanged(event) {
+            if (!this.isReaderActive()) return;
+            event?.stopImmediatePropagation?.();
+            this.reader?.reflowAndRender?.();
+            this.refreshFrames({ preserveIdentity: true });
+            if (!['playing', 'paused', 'manual'].includes(this.playback.state)) this.showReaderSurface();
+        }
+
         bind() {
             if (this.bound || !this.document) return;
             this.bound = true;
@@ -209,7 +217,11 @@
                 this.seekFromSlider();
             }, true);
 
-            for (const id of ['speedInput', 'speedSlider', 'widthInput', 'widthSlider', 'linesInput', 'linesSlider', 'maxLinesInput', 'maxLinesSlider', 'displayMode']) {
+            const displayMode = this.element('displayMode');
+            displayMode?.addEventListener('input', (event) => this.onDisplayModeChanged(event), true);
+            displayMode?.addEventListener('change', (event) => this.onDisplayModeChanged(event), true);
+
+            for (const id of ['speedInput', 'speedSlider', 'widthInput', 'widthSlider', 'linesInput', 'linesSlider', 'maxLinesInput', 'maxLinesSlider']) {
                 const el = this.element(id);
                 el?.addEventListener('input', () => this.onSettingChanged());
                 el?.addEventListener('change', () => this.onSettingChanged());
