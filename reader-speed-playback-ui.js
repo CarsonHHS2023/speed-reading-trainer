@@ -3,10 +3,11 @@
         root && root.ReaderUIV2,
         root && root.SpeedReadingAdapter,
         root && root.ReaderPlaybackController,
+        root && root.ReaderAssetRendererV2,
     );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderSpeedPlaybackUI = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, Adapter, PlaybackModule) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, Adapter, PlaybackModule, Assets) {
     'use strict';
 
     function resolveDeps() {
@@ -14,9 +15,10 @@
             ReaderUI = ReaderUI || require('./reader-ui-v2.js');
             Adapter = Adapter || require('./speed-reading-adapter.js');
             PlaybackModule = PlaybackModule || require('./playback-controller.js');
+            Assets = Assets || require('./reader-assets.js');
         }
-        if (!ReaderUI || !Adapter || !PlaybackModule) throw new Error('Reader v2 playback dependencies are required');
-        return { ReaderUI, Adapter, PlaybackModule };
+        if (!ReaderUI || !Adapter || !PlaybackModule || !Assets) throw new Error('Reader v2 playback dependencies are required');
+        return { ReaderUI, Adapter, PlaybackModule, Assets };
     }
 
     class ReaderSpeedPlaybackUIController {
@@ -25,6 +27,7 @@
             this.document = options.documentObject || (typeof document !== 'undefined' ? document : null);
             this.reader = options.readerController || deps.ReaderUI.getDefaultController();
             this.adapter = options.adapter || deps.Adapter;
+            this.assets = options.assets || deps.Assets;
             this.playback = options.playback || new deps.PlaybackModule.PlaybackController({
                 scheduler: options.scheduler,
                 onChange: (snapshot) => this.renderSnapshot(snapshot),
@@ -116,25 +119,53 @@
             this.renderFrame(frame, usePage ? this.element('pageText') : this.element('focusText'));
         }
 
+        renderManualFrame(frame, target) {
+            const slot = this.document.createElement('div');
+            slot.className = 'reader-playback-asset-slot';
+            const placeholder = this.document.createElement('div');
+            placeholder.className = 'reader-v2-placeholder';
+            placeholder.textContent = frame.text || this.assets.defaultLabel(frame.node_type);
+            slot.appendChild(placeholder);
+            target.appendChild(slot);
+
+            this.assets.renderAssetInto({
+                documentObject: this.document,
+                resolver: this.reader?.assetResolver,
+                documentRef: frame.identity?.document_ref,
+                candidateId: frame.identity?.candidate_id,
+                assetRefs: frame.asset_refs || [],
+                nodeType: frame.node_type,
+                fallbackText: frame.text,
+                target: slot,
+            }).catch((error) => {
+                if (error?.code === 'reader_selection_changed' || error?.code === 'reader_identity_changed') {
+                    this.reader?.renderError?.(error);
+                }
+            });
+
+            const button = this.document.createElement('button');
+            button.type = 'button';
+            button.className = 'reader-playback-continue';
+            button.textContent = '继续';
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.playback.continueManual();
+            });
+            target.appendChild(button);
+        }
+
         renderFrame(frame, target) {
             if (!target) return;
             while (target.firstChild) target.removeChild(target.firstChild);
             if (!frame) return;
-            const text = this.document.createElement('div');
-            text.className = frame.kind === 'manual' ? 'reader-playback-manual-text' : 'reader-playback-frame-text';
-            text.textContent = frame.text || (frame.node_type === 'figure' ? '图像' : frame.node_type === 'table' ? '表格' : '公式');
-            target.appendChild(text);
             if (frame.kind === 'manual') {
-                const button = this.document.createElement('button');
-                button.type = 'button';
-                button.className = 'reader-playback-continue';
-                button.textContent = '继续';
-                button.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    this.playback.continueManual();
-                });
-                target.appendChild(button);
+                this.renderManualFrame(frame, target);
+                return;
             }
+            const text = this.document.createElement('div');
+            text.className = 'reader-playback-frame-text';
+            text.textContent = frame.text || '';
+            target.appendChild(text);
         }
 
         renderSnapshot(snapshot) {

@@ -145,6 +145,28 @@
                 },
             );
         }
+
+        async asset(documentRef, assetId, options = {}) {
+            if (!options.candidateId) throw new Error('candidateId is required for Reader v2 assets');
+            const doc = encodeURIComponent(String(documentRef));
+            const asset = encodeURIComponent(String(assetId));
+            const params = new URLSearchParams({ candidate_id: String(options.candidateId) });
+            return assertIdentity(
+                await this.requestJson(`/api/reader/v2/documents/${doc}/assets/${asset}?${params.toString()}`),
+                {
+                    document_ref: String(documentRef),
+                    candidate_id: String(options.candidateId),
+                },
+            );
+        }
+
+        assetContentUrl(documentRef, assetId, options = {}) {
+            if (!options.candidateId) throw new Error('candidateId is required for Reader v2 assets');
+            const doc = encodeURIComponent(String(documentRef));
+            const asset = encodeURIComponent(String(assetId));
+            const params = new URLSearchParams({ candidate_id: String(options.candidateId) });
+            return `${this.baseUrl}/api/reader/v2/documents/${doc}/assets/${asset}/content?${params.toString()}`;
+        }
     }
 
     return {

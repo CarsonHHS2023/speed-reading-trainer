@@ -68,7 +68,7 @@
             candidate_schema_version: Number(documentView?.candidate_schema_version || 2),
             node_id: String(node?.node_id || ''),
             source_unit_id: node?.location?.source_unit_id || node?.source_unit_ids?.[0] || null,
-            source_anchor: node?.location?.source_anchor || node?.anchors?.[0] || null,
+            source_anchor: node?.location?.source_anchor || node?.source_anchors?.[0] || null,
         };
     }
 
@@ -82,6 +82,7 @@
                 kind: manual ? 'manual' : 'text',
                 node_type: node.node_type,
                 text,
+                asset_refs: Array.isArray(node.asset_refs) ? [...node.asset_refs] : [],
                 reading_units: manual ? 0 : countReadingUnits(text),
                 identity: identityForNode(documentView, node),
             };
@@ -148,6 +149,7 @@
                 kind: 'manual',
                 node_type: element.node_type,
                 text: element.text,
+                asset_refs: [...element.asset_refs],
                 reading_units: 0,
                 duration_ms: null,
                 auto_advance: false,
