@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, and asset tests
+    name: Reader v2 client, presentation, playback, asset, and cutover tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,7 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/playback/asset tests
+      - name: Reader v2 client/presentation/playback/asset/cutover tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -42,16 +42,17 @@ jobs:
           test -f reader-presentation.js
           test -f reader-assets.js
           test -f reader-ui-v2.js
-          test -f reader-bookshelf-cutover.js
           test -f speed-reading-adapter.js
           test -f playback-controller.js
           test -f reader-speed-playback-ui.js
           test -f reader-v2.css
+          test ! -e reader-bookshelf-cutover.js
           grep -q 'readerV2Display' index.html
           grep -q 'reader-assets.js' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
           grep -q 'reader-speed-playback-ui.js' index.html
+          ! grep -q 'reader-bookshelf-cutover.js' index.html
           ! grep -q '/api/reader/v1' reader-api.js
           ! grep -q '/api/v1/books/' reader-api.js
           ! grep -q '/api/v1/images/' reader-assets.js
@@ -59,7 +60,8 @@ jobs:
           ! grep -q 'storage_ref' reader-assets.js
           ! grep -q 'page_id' reader-model.js
           ! grep -q 'page_order' reader-model.js
-          ! grep -q '/api/v1/books/.*/content' reader-bookshelf-cutover.js
+          ! grep -q '/api/v1/books/.*/content' bookshelf.js
+          ! grep -q 'BookShelf.prototype.selectBook' bookshelf.js
           ! grep -q '/api/v1/books/' reader-speed-playback-ui.js
           ! grep -q 'cachedContentBlob' reader-speed-playback-ui.js
           ! grep -q 'tokenizeContent' reader-speed-playback-ui.js
