@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, and UI tests
+    name: Reader v2 client, presentation, and playback tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,7 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/UI tests
+      - name: Reader v2 client/presentation/playback tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -42,11 +42,21 @@ jobs:
           test -f reader-presentation.js
           test -f reader-ui-v2.js
           test -f reader-bookshelf-cutover.js
+          test -f speed-reading-adapter.js
+          test -f playback-controller.js
+          test -f reader-speed-playback-ui.js
           test -f reader-v2.css
           grep -q 'readerV2Display' index.html
+          grep -q 'speed-reading-adapter.js' index.html
+          grep -q 'playback-controller.js' index.html
+          grep -q 'reader-speed-playback-ui.js' index.html
           ! grep -q '/api/reader/v1' reader-api.js
           ! grep -q '/api/v1/books/' reader-api.js
           ! grep -q 'page_id' reader-model.js
           ! grep -q 'page_order' reader-model.js
           ! grep -q '/api/v1/books/.*/content' reader-bookshelf-cutover.js
+          ! grep -q '/api/v1/books/' reader-speed-playback-ui.js
+          ! grep -q 'cachedContentBlob' reader-speed-playback-ui.js
+          ! grep -q 'tokenizeContent' reader-speed-playback-ui.js
+          ! grep -q 'imageMarkerMap' reader-speed-playback-ui.js
           ! grep -q 'readerModeToggle' index.html
