@@ -7,6 +7,8 @@
 
     const DEFAULT_REFLOW_LINE_WIDTH = 35;
     const DEFAULT_REFLOW_MAX_LINES = 20;
+    const DEFAULT_FONT_SIZE = 28;
+    const DEFAULT_VIEWPORT_WIDTH = 700;
 
     function requireModel() {
         if (!Model && typeof require === 'function') Model = require('./reader-model.js');
@@ -50,6 +52,19 @@
         return result;
     }
 
+    function effectiveReflowMetrics(options = {}) {
+        const requestedWidth = Math.max(5, Number(options.lineWidth || DEFAULT_REFLOW_LINE_WIDTH));
+        const requestedLines = Math.max(1, Number(options.maxLines || DEFAULT_REFLOW_MAX_LINES));
+        const fontSize = Math.max(10, Number(options.fontSize || DEFAULT_FONT_SIZE));
+        const viewportWidth = Math.max(240, Number(options.viewportWidth || DEFAULT_VIEWPORT_WIDTH));
+        const widthScale = viewportWidth / DEFAULT_VIEWPORT_WIDTH;
+        const fontScale = DEFAULT_FONT_SIZE / fontSize;
+        return {
+            lineWidth: Math.max(5, Math.floor(requestedWidth * widthScale * fontScale)),
+            maxLines: Math.max(1, Math.floor(requestedLines * fontScale)),
+        };
+    }
+
     function estimateNodeLines(node, lineWidth) {
         const width = Math.max(5, Number(lineWidth || DEFAULT_REFLOW_LINE_WIDTH));
         const text = typeof node?.text === 'string' ? node.text : '';
@@ -64,8 +79,7 @@
 
     function deriveReflowPages(nodes, options = {}) {
         const model = requireModel();
-        const lineWidth = Math.max(5, Number(options.lineWidth || DEFAULT_REFLOW_LINE_WIDTH));
-        const maxLines = Math.max(1, Number(options.maxLines || DEFAULT_REFLOW_MAX_LINES));
+        const metrics = effectiveReflowMetrics(options);
         const ordered = model.orderedNodes(nodes);
         const pages = [];
         let current = null;
@@ -82,9 +96,9 @@
         }
 
         for (const node of ordered) {
-            const lines = estimateNodeLines(node, lineWidth);
+            const lines = estimateNodeLines(node, metrics.lineWidth);
             if (!current) startPage();
-            if (current.nodes.length && current.estimated_lines + lines > maxLines) startPage();
+            if (current.nodes.length && current.estimated_lines + lines > metrics.maxLines) startPage();
             current.nodes.push(node);
             current.estimated_lines += lines;
         }
@@ -114,6 +128,7 @@
         DEFAULT_REFLOW_MAX_LINES,
         derivePhysicalPages,
         deriveReflowPages,
+        effectiveReflowMetrics,
         estimateNodeLines,
         findPresentationPageForNode,
         presentationForDocument,
