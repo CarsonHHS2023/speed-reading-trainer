@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>快速阅读训练程序</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="reader-v2.css">
 </head>
 <body>
     <div class="app-wrapper">
@@ -155,6 +156,21 @@
 
             <!-- 右侧：阅读显示区 -->
             <div class="reading-panel">
+                <div id="readerV2Display" class="display-mode reader-v2-display">
+                    <div class="reader-v2-shell">
+                        <aside class="reader-v2-sidebar" aria-label="文档导航">
+                            <div id="readerV2Title" class="reader-v2-title">结构化阅读</div>
+                            <div id="readerV2Meta" class="reader-v2-meta"></div>
+                            <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
+                        </aside>
+                        <main class="reader-v2-main">
+                            <div id="readerV2Status" class="reader-v2-status" role="status" aria-live="polite"></div>
+                            <div id="readerV2Pages" class="reader-v2-pages"></div>
+                            <button id="readerV2LoadMore" class="reader-v2-load-more" type="button" hidden>加载更多</button>
+                        </main>
+                    </div>
+                </div>
+
                 <div id="focusModeDisplay" class="display-mode active">
                     <div id="focusText" class="focus-text">选择书籍开始阅读</div>
                 </div>
@@ -212,6 +228,10 @@
         </div>
     </div>
 
+    <script src="reader-api.js"></script>
+    <script src="reader-model.js"></script>
+    <script src="reader-presentation.js"></script>
+    <script src="reader-ui-v2.js"></script>
     <script src="bookshelf.js"></script>
     <script src="app.js"></script>
 </body>
