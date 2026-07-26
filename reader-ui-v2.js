@@ -1,8 +1,13 @@
 (function (root, factory) {
-    const api = factory(root && root.ReaderApiV2, root && root.ReaderModelV2, root && root.ReaderPresentationV2);
+    const api = factory(
+        root && root.ReaderApiV2,
+        root && root.ReaderModelV2,
+        root && root.ReaderPresentationV2,
+        root && root.ReaderAssetRendererV2,
+    );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderUIV2 = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation, Assets) {
     'use strict';
 
     const NODE_LIMIT = 150;
@@ -12,9 +17,10 @@
             ReaderApi = ReaderApi || require('./reader-api.js');
             Model = Model || require('./reader-model.js');
             Presentation = Presentation || require('./reader-presentation.js');
+            Assets = Assets || require('./reader-assets.js');
         }
-        if (!ReaderApi || !Model || !Presentation) throw new Error('Reader v2 UI dependencies are required');
-        return { ReaderApi, Model, Presentation };
+        if (!ReaderApi || !Model || !Presentation || !Assets) throw new Error('Reader v2 UI dependencies are required');
+        return { ReaderApi, Model, Presentation, Assets };
     }
 
     function safeMessage(error) {
@@ -44,6 +50,8 @@
             this.api = options.api || new deps.ReaderApi.ReaderApiClientV2(options.apiOptions || {});
             this.model = deps.Model;
             this.presentation = deps.Presentation;
+            this.assets = deps.Assets;
+            this.assetResolver = options.assetResolver || new deps.Assets.ReaderAssetResolverV2({ api: this.api });
             this.reset();
         }
 
@@ -56,6 +64,7 @@
             this.hasMore = false;
             this.nextNodeOrder = 0;
             this.presentationState = { mode: 'reflow', pages: [] };
+            this.assetResolver?.reset?.();
         }
 
         element(id) {
@@ -87,10 +96,7 @@
             if (chart) chart.classList.remove('active');
             if (reader) reader.classList.add('active');
             const start = this.element('readingToggleBtn');
-            if (start) {
-                start.disabled = true;
-                start.title = 'Reader v2 已启用；速度播放将在 SpeedReadingAdapter 阶段接入';
-            }
+            if (start) start.disabled = true;
         }
 
         setStatus(message, kind = 'info') {
@@ -211,15 +217,35 @@
             }
         }
 
+        renderSemanticAsset(node, wrapper) {
+            const target = createElement(this.document, 'div', 'reader-v2-asset-slot');
+            target.appendChild(createElement(this.document, 'div', 'reader-v2-placeholder', node.text || this.assets.defaultLabel(node.node_type)));
+            wrapper.appendChild(target);
+            this.assets.renderAssetInto({
+                documentObject: this.document,
+                resolver: this.assetResolver,
+                documentRef: this.documentRef,
+                candidateId: this.candidateId,
+                assetRefs: node.asset_refs || [],
+                nodeType: node.node_type,
+                fallbackText: node.text,
+                target,
+            }).catch((error) => {
+                if (error?.code === 'reader_selection_changed' || error?.code === 'reader_identity_changed') {
+                    this.renderError(error);
+                    return;
+                }
+                this.setStatus('部分图像资源暂时不可用。', 'info');
+            });
+        }
+
         renderNode(node) {
             const wrapper = createElement(this.document, 'article', `reader-v2-node reader-v2-node-${node.node_type || 'unknown'}`);
             wrapper.dataset.readerNodeId = node.node_id;
             wrapper.tabIndex = -1;
             const tag = this.model.nodeTag(node);
-            if (node.node_type === 'table') {
-                wrapper.appendChild(createElement(this.document, 'div', 'reader-v2-placeholder', node.text || '表格'));
-            } else if (node.node_type === 'figure') {
-                wrapper.appendChild(createElement(this.document, 'div', 'reader-v2-placeholder', node.text || '图像'));
+            if (['table', 'figure', 'formula'].includes(node.node_type)) {
+                this.renderSemanticAsset(node, wrapper);
             } else if (node.node_type === 'list') {
                 const list = createElement(this.document, 'ul', 'reader-v2-list');
                 if (node.text) list.appendChild(createElement(this.document, 'li', '', node.text));
