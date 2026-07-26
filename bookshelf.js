@@ -555,79 +555,52 @@ class BookShelf {
         });
     }
 
-    async selectBook(bookId) {
-        state.content = '';
-        state.cachedContentBlob = null;
-        state.units = [];
-        state.pages = [];
-        state.currentIndex = 0;
-        state.currentPageIndex = 0;
-        state.currentLineIndex = 0;
-        state.totalPausedDuration = 0;
-        state.currentLine = 0;
-        state.isPlaying = false;
-        state.isPaused = false;
-        state.pendingImageMarkerIndex = null;
-        state.imageMarkerMap = {};
-        state.isContentLoading = true;
-        clearReadingTimer();
+    resetReaderV2Session() {
+        const playback = globalThis.ReaderSpeedPlaybackUI?.getDefaultController?.();
+        playback?.stop?.();
 
+        const reader = globalThis.ReaderUIV2?.getDefaultController?.();
+        reader?.reset?.();
+
+        if (document.body) {
+            delete document.body.dataset.readerV2Active;
+        }
+        const readerDisplay = document.getElementById('readerV2Display');
+        readerDisplay?.classList.remove('active');
+        const navigation = document.getElementById('readerV2Navigation');
+        const pages = document.getElementById('readerV2Pages');
+        const status = document.getElementById('readerV2Status');
+        if (navigation) navigation.replaceChildren();
+        if (pages) pages.replaceChildren();
+        if (status) {
+            status.textContent = '';
+            status.dataset.kind = 'info';
+        }
+        playback?.refreshFrames?.({ preserveIdentity: false });
+    }
+
+    async selectBook(bookId) {
         this.currentBook = this.books.find((book) => String(book.id) === String(bookId)) || null;
+        this.renderBooks();
+
+        const playback = globalThis.ReaderSpeedPlaybackUI?.getDefaultController?.();
+        playback?.stop?.();
 
         if (!this.currentBook) {
-            resetDisplay();
-            updateProgress();
-            state.isContentLoading = false;
-            updateStartButtonState();
-            this.renderBooks();
+            this.resetReaderV2Session();
             return;
         }
 
-        this.renderBooks();
-        this.setLoading(true, '⏳ 正在加载书籍内容...');
-        updateStartButtonState();
-
+        this.setLoading(true, '⏳ 正在打开结构化 Reader...');
         try {
-            const response = await fetch(`${API_BASE_URL}/api/v1/books/${encodeURIComponent(bookId)}/content`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            if (!globalThis.ReaderUIV2 || typeof globalThis.ReaderUIV2.openBook !== 'function') {
+                throw new Error('Reader v2 UI is unavailable');
             }
-
-            const result = await response.json();
-            const content = typeof result.content === 'string' ? result.content : '';
-
-            if (!content || content.trim().length === 0) {
-                state.content = '';
-                state.cachedContentBlob = null;
-                state.units = [];
-                state.imageMarkerMap = {};
-                resetDisplay();
-                updateProgress();
-                return;
-            }
-
-            state.cachedContentBlob = new File(
-                [content],
-                `${this.currentBook?.name || 'book'}.txt`,
-                { type: 'text/plain;charset=utf-8' }
-            );
-
-            resetDisplay();
-            updateProgress();
-            state.isContentLoading = false;
-            updateStartButtonState();
+            await globalThis.ReaderUIV2.openBook(this.currentBook);
         } catch (error) {
-            console.error('加载书籍内容失败:', error);
-            state.content = '';
-            state.cachedContentBlob = null;
-            state.units = [];
-            state.pages = [];
-            state.imageMarkerMap = {};
-            resetDisplay();
-            updateProgress();
+            console.error('打开 Reader v2 失败:', error);
+            globalThis.ReaderUIV2?.getDefaultController?.().renderError?.(error);
         } finally {
-            state.isContentLoading = false;
-            updateStartButtonState();
             this.setLoading(false);
         }
     }
@@ -652,23 +625,7 @@ class BookShelf {
 
             if (this.currentBook && String(this.currentBook.id) === String(bookId)) {
                 this.currentBook = null;
-                state.content = '';
-                state.cachedContentBlob = null;
-                state.units = [];
-                state.pages = [];
-                state.currentIndex = 0;
-                state.currentPageIndex = 0;
-                state.totalPausedDuration = 0;
-                state.currentLine = 0;
-                state.isPlaying = false;
-                state.isPaused = false;
-                state.pendingImageMarkerIndex = null;
-                state.imageMarkerMap = {};
-                state.isContentLoading = false;
-                clearReadingTimer();
-                resetDisplay();
-                updateProgress();
-                updateStartButtonState();
+                this.resetReaderV2Session();
             }
 
             this.ensureCategoryIntegrity();

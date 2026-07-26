@@ -119,19 +119,35 @@ test('Reader v2 UI exposes bounded selection errors', () => {
   assert.equal(safeMessage({ code: 'reader_not_ready' }), '这本文档还没有可读取的结构化内容。');
 });
 
-test('bookshelf cutover delegates selection to Reader v2 without a legacy content request', () => {
-  const source = fs.readFileSync('reader-bookshelf-cutover.js', 'utf8');
-  assert.match(source, /ReaderUIV2\.openBook/);
-  assert.doesNotMatch(source, /\/api\/v1\/books\/.*\/content/);
-  assert.doesNotMatch(source, /\/api\/reader\/v1/);
-  assert.doesNotMatch(source, /Reader\s*β|reader_v1|readerModeToggle/);
+test('BookShelf selected-book path is natively Reader v2 and has no legacy content fallback', () => {
+  const source = fs.readFileSync('bookshelf.js', 'utf8');
+  const start = source.indexOf('    async selectBook(bookId)');
+  const end = source.indexOf('    moveBookToCategory(', start);
+  assert.ok(start >= 0 && end > start);
+  const selectedBookPath = source.slice(start, end);
+  assert.match(selectedBookPath, /ReaderUIV2\.openBook\(this\.currentBook\)/);
+  assert.match(selectedBookPath, /resetReaderV2Session/);
+  for (const forbidden of ['/api/v1/books/${encodeURIComponent(bookId)}/content', 'cachedContentBlob', 'state.content', 'imageMarkerMap', '/api/reader/v1', 'BookShelf.prototype.selectBook']) {
+    assert.equal(selectedBookPath.includes(forbidden), false, forbidden);
+  }
 });
 
-test('main HTML mounts Reader v2 cutover scripts and has no Reader beta toggle', () => {
+test('deleting the active book clears Reader v2 instead of legacy playback state', () => {
+  const source = fs.readFileSync('bookshelf.js', 'utf8');
+  const start = source.indexOf('    async deleteBook(bookId)');
+  const end = source.indexOf('    moveBookToCategory(', start);
+  const deletePath = source.slice(start, end);
+  assert.match(deletePath, /this\.resetReaderV2Session\(\)/);
+  assert.match(deletePath, /\/api\/v1\/books\/\$\{encodeURIComponent\(bookId\)\}/);
+  assert.doesNotMatch(deletePath, /cachedContentBlob|state\.content|imageMarkerMap|tokenizeContent/);
+});
+
+test('main HTML mounts Reader v2 directly and no longer loads a bookshelf cutover shim', () => {
   const html = fs.readFileSync('index.html', 'utf8');
-  for (const file of ['reader-api.js', 'reader-model.js', 'reader-presentation.js', 'reader-ui-v2.js', 'reader-bookshelf-cutover.js']) {
+  for (const file of ['reader-api.js', 'reader-model.js', 'reader-presentation.js', 'reader-assets.js', 'reader-ui-v2.js', 'bookshelf.js']) {
     assert.match(html, new RegExp(file.replace('.', '\\.')));
   }
   assert.match(html, /id="readerV2Display"/);
-  assert.doesNotMatch(html, /readerModeToggle|Reader\s*β/);
+  assert.doesNotMatch(html, /reader-bookshelf-cutover\.js|readerModeToggle|Reader\s*β/);
+  assert.equal(fs.existsSync('reader-bookshelf-cutover.js'), false);
 });
