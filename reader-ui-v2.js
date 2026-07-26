@@ -67,13 +67,17 @@
         }
 
         presentationOptions() {
+            const main = this.document?.querySelector('.reader-v2-main');
             return {
                 lineWidth: Number(this.element('widthInput')?.value || 35),
                 maxLines: Number(this.element('maxLinesInput')?.value || 20),
+                fontSize: Number(this.element('fontInput')?.value || 28),
+                viewportWidth: Number(main?.clientWidth || 700),
             };
         }
 
         activateReaderSurface() {
+            if (this.document?.body) this.document.body.dataset.readerV2Active = '1';
             const reader = this.element('readerV2Display');
             const focus = this.element('focusModeDisplay');
             const page = this.element('pageModeDisplay');
@@ -141,6 +145,7 @@
 
         reflowAndRender() {
             if (!this.openResponse) return;
+            this.activateReaderSurface();
             this.presentationState = this.presentation.presentationForDocument(
                 this.openResponse,
                 this.nodes,
@@ -229,6 +234,7 @@
         }
 
         renderError(error) {
+            this.activateReaderSurface();
             this.setStatus(safeMessage(error), 'error');
             const container = this.element('readerV2Pages');
             if (container) {
@@ -250,6 +256,10 @@
                     el.addEventListener('input', () => this.reflowAndRender());
                     el.addEventListener('change', () => this.reflowAndRender());
                 }
+            }
+            if (typeof window !== 'undefined' && !window.__readerV2ResizeBound) {
+                window.__readerV2ResizeBound = true;
+                window.addEventListener('resize', () => this.reflowAndRender());
             }
         }
     }
