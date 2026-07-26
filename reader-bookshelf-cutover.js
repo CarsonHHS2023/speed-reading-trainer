@@ -24,6 +24,10 @@
         if (typeof updateStartButtonState === 'function') updateStartButtonState();
     }
 
+    function refreshReaderV2Playback() {
+        root.ReaderSpeedPlaybackUI?.getDefaultController?.().refreshFrames?.({ preserveIdentity: false });
+    }
+
     BookShelf.prototype.selectBook = async function selectBookWithReaderV2(bookId) {
         this.currentBook = this.books.find((book) => String(book.id) === String(bookId)) || null;
         resetLegacyPlaybackState();
@@ -31,6 +35,7 @@
 
         if (!this.currentBook) {
             root.ReaderUIV2?.getDefaultController?.().reset();
+            root.ReaderSpeedPlaybackUI?.getDefaultController?.().stop?.();
             if (typeof resetDisplay === 'function') resetDisplay();
             return;
         }
@@ -46,6 +51,7 @@
         } finally {
             this.setLoading(false);
             resetLegacyPlaybackState();
+            refreshReaderV2Playback();
         }
     };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
