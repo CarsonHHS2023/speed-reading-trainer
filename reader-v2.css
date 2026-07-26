@@ -39,6 +39,12 @@ body.dark-mode .reader-v2-node { color: #e5e5e5; }
 body.dark-mode .reader-v2-node-code pre, body.dark-mode .reader-v2-node-formula pre { background: #303030; }
 .reader-v2-placeholder { min-height: 80px; display: flex; align-items: center; justify-content: center; border: 1px dashed #aaa; border-radius: 5px; color: #777; background: #fafafa; }
 body.dark-mode .reader-v2-placeholder { background: #2c2c2c; color: #bbb; border-color: #666; }
+.reader-v2-asset-slot, .reader-playback-asset-slot { width: 100%; }
+.reader-v2-asset { margin: .5rem auto; max-width: 100%; text-align: center; }
+.reader-v2-asset-image { display: block; max-width: 100%; max-height: min(72vh, 900px); width: auto; height: auto; margin: 0 auto; object-fit: contain; border-radius: 4px; }
+.reader-v2-asset-caption { margin-top: .45rem; font-size: .8rem; line-height: 1.4; color: #666; }
+body.dark-mode .reader-v2-asset-caption { color: #aaa; }
+.reader-playback-asset-slot .reader-v2-asset-image { max-height: min(62vh, 720px); }
 .reader-v2-state { display: inline-block; margin-top: 6px; font-size: .68rem; color: #8a5a00; }
 .reader-v2-empty, .reader-v2-error { padding: 18px; color: #777; text-align: center; }
 .reader-v2-error { color: #b42318; border: 1px solid #f4b9b4; border-radius: 5px; background: #fff4f2; }
