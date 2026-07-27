@@ -32,6 +32,9 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
+      - name: Reader v2 StudyContext focused tests
+        run: node --test tests/reader-study-context.test.js
+
       - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation/highlight/study-context tests
         run: npm test
 
