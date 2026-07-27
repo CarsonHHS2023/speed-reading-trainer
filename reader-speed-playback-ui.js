@@ -4,10 +4,11 @@
         root && root.SpeedReadingAdapter,
         root && root.ReaderPlaybackController,
         root && root.ReaderAssetRendererV2,
+        root && root.ReaderTrainingSessionClock,
     );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderSpeedPlaybackUI = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, Adapter, PlaybackModule, Assets) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, Adapter, PlaybackModule, Assets, TrainingClockModule) {
     'use strict';
 
     const ACTIVE_STATES = new Set(['playing', 'paused', 'manual']);
@@ -20,9 +21,10 @@
             Adapter = Adapter || require('./speed-reading-adapter.js');
             PlaybackModule = PlaybackModule || require('./playback-controller.js');
             Assets = Assets || require('./reader-assets.js');
+            TrainingClockModule = TrainingClockModule || require('./training-session-clock.js');
         }
-        if (!ReaderUI || !Adapter || !PlaybackModule || !Assets) throw new Error('Reader v2 playback dependencies are required');
-        return { ReaderUI, Adapter, PlaybackModule, Assets };
+        if (!ReaderUI || !Adapter || !PlaybackModule || !Assets || !TrainingClockModule) throw new Error('Reader v2 playback dependencies are required');
+        return { ReaderUI, Adapter, PlaybackModule, Assets, TrainingClockModule };
     }
 
     class ReaderSpeedPlaybackUIController {
@@ -36,12 +38,54 @@
                 scheduler: options.scheduler,
                 onChange: (snapshot) => this.renderSnapshot(snapshot),
             });
+            this.trainingClock = options.trainingClock || new deps.TrainingClockModule.TrainingSessionClock({
+                now: options.trainingNow,
+            });
+            this.trainingPaused = false;
+            this.comprehensionPaused = false;
+            this.resumePlaybackAfterTrainingPause = false;
+            const view = this.document?.defaultView || null;
+            this.setIntervalFn = options.setIntervalFn || (view?.setInterval ? view.setInterval.bind(view) : null);
+            this.clearIntervalFn = options.clearIntervalFn || (view?.clearInterval ? view.clearInterval.bind(view) : null);
+            this.trainingTicker = null;
             this.bound = false;
             this.openBookPatched = false;
         }
 
         element(id) {
             return this.document ? this.document.getElementById(id) : null;
+        }
+
+        formatElapsed(ms) {
+            const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        updateTrainingTime() {
+            const target = this.element('readingTime');
+            if (target) target.textContent = this.formatElapsed(this.trainingClock?.elapsedMs?.() || 0);
+        }
+
+        startTrainingTicker() {
+            this.stopTrainingTicker();
+            this.updateTrainingTime();
+            if (!this.setIntervalFn) return;
+            this.trainingTicker = this.setIntervalFn(() => this.updateTrainingTime(), 250);
+        }
+
+        stopTrainingTicker() {
+            if (this.trainingTicker !== null && this.clearIntervalFn) this.clearIntervalFn(this.trainingTicker);
+            this.trainingTicker = null;
+        }
+
+        beginTrainingSession() {
+            this.trainingPaused = false;
+            this.comprehensionPaused = false;
+            this.resumePlaybackAfterTrainingPause = false;
+            this.trainingClock.start();
+            this.startTrainingTicker();
         }
 
         isReaderActive() {
@@ -225,21 +269,74 @@
             await this.ensureAllContent();
             this.refreshFrames();
             this.applyVisualSettings();
-            return this.playback.play();
+            this.beginTrainingSession();
+            const started = this.playback.play();
+            if (!started) {
+                this.trainingClock.stop();
+                this.stopTrainingTicker();
+            }
+            return started;
         }
 
         stop() {
             this.persistResume();
+            this.trainingClock.stop();
+            this.stopTrainingTicker();
+            this.trainingPaused = false;
+            this.comprehensionPaused = false;
+            this.resumePlaybackAfterTrainingPause = false;
+            this.updateTrainingTime();
             this.playback.stop();
             this.showReaderSurface();
         }
 
-        togglePause() {
-            if (!this.isReaderActive()) return false;
-            if (this.playback.state === 'playing') return this.playback.pause();
-            if (this.playback.state === 'paused') return this.playback.resume();
-            if (this.playback.state === 'manual') return this.playback.continueManual();
+        toggleComprehensionPause() {
+            if (!this.isReaderActive() || this.trainingPaused) return false;
+            if (this.playback.state === 'playing') {
+                this.comprehensionPaused = true;
+                return this.playback.pause();
+            }
+            if (this.playback.state === 'paused' && this.comprehensionPaused) {
+                this.comprehensionPaused = false;
+                return this.playback.resume();
+            }
             return false;
+        }
+
+        toggleTrainingPause() {
+            if (!this.isReaderActive() || !ACTIVE_STATES.has(this.playback.state)) return false;
+            if (!this.trainingPaused) {
+                this.trainingPaused = true;
+                this.resumePlaybackAfterTrainingPause = this.playback.state === 'playing';
+                this.trainingClock.pause();
+                if (this.resumePlaybackAfterTrainingPause) this.playback.pause();
+                else {
+                    this.updateTrainingTime();
+                    this.updateControls();
+                }
+                return true;
+            }
+
+            this.trainingPaused = false;
+            this.trainingClock.resume();
+            const shouldResumePlayback = this.resumePlaybackAfterTrainingPause;
+            this.resumePlaybackAfterTrainingPause = false;
+            if (shouldResumePlayback && this.playback.state === 'paused') {
+                this.comprehensionPaused = false;
+                return this.playback.resume();
+            }
+            this.updateTrainingTime();
+            this.updateControls();
+            return true;
+        }
+
+        togglePause() {
+            return this.toggleTrainingPause();
+        }
+
+        continueManual() {
+            if (this.trainingPaused || this.playback.state !== 'manual') return false;
+            return this.playback.continueManual();
         }
 
         previousFrame() {
@@ -250,7 +347,7 @@
         nextFrame() {
             if (!this.isReaderActive() || !this.playback.frames.length) return null;
             if (this.playback.state === 'manual') {
-                this.playback.continueManual();
+                this.continueManual();
                 if (this.playback.state === 'playing') this.playback.pause();
                 return this.playback.currentFrame();
             }
@@ -312,7 +409,7 @@
             button.textContent = '继续';
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                this.playback.continueManual();
+                this.continueManual();
             });
             target.appendChild(button);
         }
@@ -333,14 +430,24 @@
 
         stateLabel(snapshot) {
             if (!snapshot.frame_count) return '无可播放内容';
+            if (this.trainingPaused) return '训练已暂停';
             if (snapshot.state === 'playing') return '播放中';
-            if (snapshot.state === 'paused') return '已暂停';
-            if (snapshot.state === 'manual') return '等待继续';
+            if (snapshot.state === 'paused' && this.comprehensionPaused) return '理解中 · 计时继续';
+            if (snapshot.state === 'paused') return '自动播放已暂停';
+            if (snapshot.state === 'manual') return '阅读图表/公式 · 计时继续';
             if (snapshot.state === 'completed') return '已完成';
             return '未开始';
         }
 
         renderSnapshot(snapshot) {
+            if (snapshot.state === 'completed') {
+                this.trainingClock.stop();
+                this.stopTrainingTicker();
+                this.trainingPaused = false;
+                this.comprehensionPaused = false;
+                this.resumePlaybackAfterTrainingPause = false;
+            }
+            this.updateTrainingTime();
             const current = this.element('currentPos');
             const total = this.element('totalWords');
             const slider = this.element('progressSlider');
@@ -380,8 +487,9 @@
             if (next) next.disabled = !playable || snapshot.index >= snapshot.frame_count - 1;
             if (pause) {
                 pause.disabled = !active;
-                pause.textContent = snapshot.state === 'playing' ? '⏸' : (snapshot.state === 'manual' ? '▶' : '▶');
-                pause.title = snapshot.state === 'manual' ? '继续' : (snapshot.state === 'playing' ? '暂停' : '继续');
+                pause.textContent = this.trainingPaused ? '▶' : '⏸';
+                pause.title = this.trainingPaused ? '继续训练（恢复计时）' : '暂停训练（暂停计时）';
+                pause.setAttribute?.('aria-label', pause.title);
             }
             if (stop) stop.disabled = !active && snapshot.state !== 'completed';
             if (state) state.textContent = `${this.stateLabel(snapshot)} · ${snapshot.frame_count ? snapshot.index + 1 : 0}/${snapshot.frame_count}`;
@@ -455,7 +563,7 @@
                     if (!this.isReaderActive() || !['playing', 'paused'].includes(this.playback.state)) return;
                     event.preventDefault();
                     event.stopImmediatePropagation();
-                    this.togglePause();
+                    this.toggleComprehensionPause();
                 }, true);
             }
 

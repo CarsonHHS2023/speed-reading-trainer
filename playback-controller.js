@@ -154,12 +154,16 @@
             this.index = Math.min(this.frames.length - 1, Math.floor(bounded * this.frames.length));
             this.remainingMs = null;
             const frame = this.currentFrame();
-            if (this.state === STATES.PLAYING) {
-                if (frame.kind === 'manual') this.state = STATES.MANUAL;
+            if (frame.kind === 'manual') {
+                this.state = STATES.MANUAL;
                 this.emit();
-                if (this.state === STATES.PLAYING) this.scheduleCurrent();
+                return frame;
+            }
+            if (this.state === STATES.PLAYING) {
+                this.emit();
+                this.scheduleCurrent();
             } else {
-                this.state = frame.kind === 'manual' && this.state === STATES.MANUAL ? STATES.MANUAL : STATES.PAUSED;
+                this.state = STATES.PAUSED;
                 this.emit();
             }
             return frame;
