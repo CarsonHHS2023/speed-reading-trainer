@@ -167,6 +167,14 @@
                                 </div>
                                 <div id="readerV2HighlightsList" class="reader-v2-highlights-list"></div>
                             </section>
+                            <section class="reader-v2-study-context" aria-label="学习上下文">
+                                <div class="reader-v2-study-header">
+                                    <strong>学习上下文</strong>
+                                    <button id="readerV2StudyContextBuild" type="button">生成预览</button>
+                                </div>
+                                <div id="readerV2StudyContextStats" class="reader-v2-study-stats">尚未生成</div>
+                                <div id="readerV2StudyContextPreview" class="reader-v2-study-preview"></div>
+                            </section>
                             <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
                         </aside>
                         <main class="reader-v2-main">
@@ -226,12 +234,14 @@
     <script src="reader-resume.js"></script>
     <script src="reader-annotations.js"></script>
     <script src="reader-highlights.js"></script>
+    <script src="reader-study-context.js"></script>
     <script src="reader-ui-v2.js"></script>
     <script src="speed-reading-adapter.js"></script>
     <script src="playback-controller.js"></script>
     <script src="reader-speed-playback-ui.js"></script>
     <script src="reader-annotations-ui.js"></script>
     <script src="reader-highlights-ui.js"></script>
+    <script src="reader-study-context-ui.js"></script>
     <script src="bookshelf.js"></script>
     <script src="reader-resume-lifecycle.js"></script>
     <script src="app.js"></script>
