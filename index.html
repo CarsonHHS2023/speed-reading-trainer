@@ -132,6 +132,17 @@
                         <aside class="reader-v2-sidebar" aria-label="文档导航">
                             <div id="readerV2Title" class="reader-v2-title">结构化阅读</div>
                             <div id="readerV2Meta" class="reader-v2-meta"></div>
+                            <div class="reader-v2-find" role="search" aria-label="文档内查找">
+                                <div class="reader-v2-find-row">
+                                    <input id="readerV2FindInput" class="reader-v2-find-input" type="search" placeholder="查找…" autocomplete="off" />
+                                    <button id="readerV2FindButton" class="reader-v2-find-button" type="button">查找</button>
+                                </div>
+                                <div class="reader-v2-find-nav">
+                                    <button id="readerV2FindPrev" type="button" title="上一个匹配" disabled>↑</button>
+                                    <span id="readerV2FindCount" aria-live="polite">0 / 0</span>
+                                    <button id="readerV2FindNext" type="button" title="下一个匹配" disabled>↓</button>
+                                </div>
+                            </div>
                             <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
                         </aside>
                         <main class="reader-v2-main">
@@ -187,6 +198,7 @@
     <script src="reader-model.js"></script>
     <script src="reader-presentation.js"></script>
     <script src="reader-assets.js"></script>
+    <script src="reader-find.js"></script>
     <script src="reader-ui-v2.js"></script>
     <script src="speed-reading-adapter.js"></script>
     <script src="playback-controller.js"></script>
