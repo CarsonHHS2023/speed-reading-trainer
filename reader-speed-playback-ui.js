@@ -409,7 +409,7 @@
             button.textContent = '继续';
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                this.playback.continueManual();
+                this.continueManual();
             });
             target.appendChild(button);
         }
