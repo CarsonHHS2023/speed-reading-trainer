@@ -450,15 +450,6 @@
                 else this.start().catch((error) => this.reader?.renderError?.(error));
             }, true);
 
-            for (const id of ['focusModeDisplay', 'pageModeDisplay']) {
-                this.element(id)?.addEventListener('click', (event) => {
-                    if (!this.isReaderActive() || !['playing', 'paused'].includes(this.playback.state)) return;
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    this.togglePause();
-                }, true);
-            }
-
             this.element('speedReadingPrev')?.addEventListener('click', () => this.previousFrame());
             this.element('speedReadingPause')?.addEventListener('click', () => this.togglePause());
             this.element('speedReadingNext')?.addEventListener('click', () => this.nextFrame());

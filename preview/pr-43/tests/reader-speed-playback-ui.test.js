@@ -119,7 +119,7 @@ test('Reader v2 playback start loads remaining nodes, builds frames, and enables
     assert.equal(playback.playCalls, 1);
 });
 
-test('clicking the active reading surface toggles timed playback pause and resume but never advances manual content', () => {
+test('reading-surface clicks do not pause playback; explicit playback controls own timing changes', () => {
     const documentObject = fakeDocument();
     const reader = fakeReader();
     const playback = fakePlayback();
@@ -131,23 +131,22 @@ test('clicking the active reading surface toggles timed playback pause and resum
         adapter: { buildPlaybackFrames: () => ({ frames: playback.frames }) },
     });
     controller.bind();
-    const surface = documentObject.elements.get('focusModeDisplay');
-    const click = surface.listeners.find((listener) => listener.type === 'click').callback;
-    const event = { preventDefault() {}, stopImmediatePropagation() {} };
+
+    const focusSurface = documentObject.elements.get('focusModeDisplay');
+    const pageSurface = documentObject.elements.get('pageModeDisplay');
+    assert.equal(focusSurface.listeners.some((listener) => listener.type === 'click'), false);
+    assert.equal(pageSurface.listeners.some((listener) => listener.type === 'click'), false);
 
     playback.state = 'playing';
-    click(event);
+    const pauseButton = documentObject.elements.get('speedReadingPause');
+    const pauseClick = pauseButton.listeners.find((listener) => listener.type === 'click').callback;
+    pauseClick();
     assert.equal(playback.pauseCalls, 1);
     assert.equal(playback.state, 'paused');
 
-    click(event);
+    pauseClick();
     assert.equal(playback.resumeCalls, 1);
     assert.equal(playback.state, 'playing');
-
-    playback.state = 'manual';
-    click(event);
-    assert.equal(playback.manualContinueCalls, 0);
-    assert.equal(playback.state, 'manual');
 });
 
 test('manual UX and new playback bridge contain no legacy content/blob/tokenizer/image-marker dependencies', () => {
@@ -157,7 +156,7 @@ test('manual UX and new playback bridge contain no legacy content/blob/tokenizer
     ]) {
         assert.equal(source.includes(forbidden), false, forbidden);
     }
-    assert.match(source, /\['playing', 'paused'\]\.includes\(this\.playback\.state\)/);
+    assert.doesNotMatch(source, /focusModeDisplay', 'pageModeDisplay/);
     assert.match(source, /continueManual/);
     assert.match(source, /renderAssetInto/);
     assert.match(source, /stopImmediatePropagation/);
@@ -168,7 +167,7 @@ test('manual playback styling is visually distinct and keeps Continue keyboard f
     const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
     assert.match(css, /\.reader-playback-asset-slot/);
     assert.match(css, /\.reader-playback-continue:focus-visible/);
-    assert.match(css, /#focusModeDisplay\.active/);
+    assert.doesNotMatch(css, /#focusModeDisplay\.active,[\s\S]*cursor:\s*pointer/);
 });
 
 test('index loads deterministic adapter and playback bridge before legacy app script', () => {
