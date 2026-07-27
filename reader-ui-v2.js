@@ -4,13 +4,15 @@
         root && root.ReaderModelV2,
         root && root.ReaderPresentationV2,
         root && root.ReaderAssetRendererV2,
+        root && root.ReaderFindV2,
     );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderUIV2 = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation, Assets) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation, Assets, Find) {
     'use strict';
 
     const NODE_LIMIT = 150;
+    const FIND_RESULT_LIMIT = 200;
 
     function resolveDeps() {
         if (typeof require === 'function') {
@@ -18,9 +20,10 @@
             Model = Model || require('./reader-model.js');
             Presentation = Presentation || require('./reader-presentation.js');
             Assets = Assets || require('./reader-assets.js');
+            Find = Find || require('./reader-find.js');
         }
-        if (!ReaderApi || !Model || !Presentation || !Assets) throw new Error('Reader v2 UI dependencies are required');
-        return { ReaderApi, Model, Presentation, Assets };
+        if (!ReaderApi || !Model || !Presentation || !Assets || !Find) throw new Error('Reader v2 UI dependencies are required');
+        return { ReaderApi, Model, Presentation, Assets, Find };
     }
 
     function safeMessage(error) {
@@ -51,6 +54,7 @@
             this.model = deps.Model;
             this.presentation = deps.Presentation;
             this.assets = deps.Assets;
+            this.finder = deps.Find;
             this.assetResolver = options.assetResolver || new deps.Assets.ReaderAssetResolverV2({ api: this.api });
             this.reset();
         }
@@ -64,7 +68,15 @@
             this.hasMore = false;
             this.nextNodeOrder = 0;
             this.presentationState = { mode: 'reflow', pages: [] };
+            this.findQuery = '';
+            this.findResults = [];
+            this.findIndex = -1;
+            this.findTruncated = false;
+            this.findGeneration = (this.findGeneration || 0) + 1;
             this.assetResolver?.reset?.();
+            const input = this.element('readerV2FindInput');
+            if (input) input.value = '';
+            this.updateFindControls();
         }
 
         element(id) {
@@ -131,7 +143,7 @@
 
         async loadMore(options = {}) {
             if (!this.documentRef || !this.candidateId) return null;
-            this.setStatus('正在加载内容…');
+            if (!options.silent) this.setStatus('正在加载内容…');
             const chunk = await this.api.content(this.documentRef, {
                 candidateId: this.candidateId,
                 startNodeOrder: options.replace ? 0 : this.nextNodeOrder,
@@ -142,10 +154,10 @@
                 : this.model.mergeNodes(this.nodes, chunk.nodes || []);
             this.hasMore = Boolean(chunk.has_more);
             this.nextNodeOrder = chunk.next_node_order == null ? this.nodes.length : Number(chunk.next_node_order);
-            this.reflowAndRender();
+            if (!options.deferRender) this.reflowAndRender();
             const button = this.element('readerV2LoadMore');
             if (button) button.hidden = !this.hasMore;
-            this.setStatus('');
+            if (!options.silent) this.setStatus('');
             return chunk;
         }
 
@@ -199,6 +211,106 @@
             }
         }
 
+        currentFindResult() {
+            if (this.findIndex < 0 || this.findIndex >= this.findResults.length) return null;
+            const result = this.findResults[this.findIndex];
+            return this.finder.sameCandidate(result, this.openResponse) ? result : null;
+        }
+
+        clearFind(options = {}) {
+            this.findGeneration += 1;
+            this.findQuery = '';
+            this.findResults = [];
+            this.findIndex = -1;
+            this.findTruncated = false;
+            if (options.clearInput !== false) {
+                const input = this.element('readerV2FindInput');
+                if (input) input.value = '';
+            }
+            this.updateFindControls();
+            if (options.render !== false && this.openResponse) this.reflowAndRender();
+        }
+
+        updateFindControls() {
+            const count = this.element('readerV2FindCount');
+            const prev = this.element('readerV2FindPrev');
+            const next = this.element('readerV2FindNext');
+            const hasResults = this.findResults.length > 0;
+            if (count) {
+                const position = hasResults ? this.findIndex + 1 : 0;
+                const suffix = this.findTruncated ? '+' : '';
+                count.textContent = `${position} / ${this.findResults.length}${suffix}`;
+                count.title = this.findTruncated ? `最多显示前 ${FIND_RESULT_LIMIT} 个结果` : '';
+            }
+            if (prev) prev.disabled = !hasResults;
+            if (next) next.disabled = !hasResults;
+        }
+
+        async runFind(query) {
+            const normalized = this.finder.normalizeQuery(query);
+            const generation = ++this.findGeneration;
+            this.findQuery = normalized;
+            this.findResults = [];
+            this.findIndex = -1;
+            this.findTruncated = false;
+            if (!normalized || !this.openResponse) {
+                this.updateFindControls();
+                if (this.openResponse) this.reflowAndRender();
+                return [];
+            }
+
+            this.setStatus('正在查找…');
+            try {
+                let search = this.finder.findInNodes(this.openResponse, this.nodes, normalized, { maxResults: FIND_RESULT_LIMIT });
+                while (generation === this.findGeneration && this.hasMore && search.results.length < FIND_RESULT_LIMIT && !search.truncated) {
+                    await this.loadMore({ silent: true, deferRender: true });
+                    search = this.finder.findInNodes(this.openResponse, this.nodes, normalized, { maxResults: FIND_RESULT_LIMIT });
+                }
+                if (generation !== this.findGeneration) return [];
+
+                this.findResults = search.results;
+                this.findTruncated = Boolean(search.truncated || (this.hasMore && search.results.length >= FIND_RESULT_LIMIT));
+                this.findIndex = this.findResults.length ? 0 : -1;
+                this.updateFindControls();
+                this.reflowAndRender();
+                const active = this.currentFindResult();
+                if (active) this.navigateTo({ node_id: active.node_id });
+                this.setStatus(this.findResults.length ? '' : '没有找到匹配内容。');
+                return this.findResults;
+            } catch (error) {
+                if (generation === this.findGeneration) this.renderError(error);
+                throw error;
+            }
+        }
+
+        navigateFind(delta) {
+            if (!this.findResults.length) return;
+            const nextIndex = (this.findIndex + Number(delta) + this.findResults.length) % this.findResults.length;
+            this.findIndex = nextIndex;
+            const active = this.currentFindResult();
+            if (!active) {
+                this.clearFind({ clearInput: false });
+                return;
+            }
+            this.updateFindControls();
+            this.reflowAndRender();
+            this.navigateTo({ node_id: active.node_id });
+        }
+
+        appendHighlightedText(parent, text, node) {
+            const active = this.currentFindResult();
+            if (!active || active.node_id !== node.node_id) {
+                parent.textContent = text || '';
+                return;
+            }
+            const before = String(text || '').slice(0, active.match_start);
+            const match = String(text || '').slice(active.match_start, active.match_end);
+            const after = String(text || '').slice(active.match_end);
+            if (before) parent.appendChild(createElement(this.document, 'span', '', before));
+            parent.appendChild(createElement(this.document, 'mark', 'reader-v2-find-highlight', match));
+            if (after) parent.appendChild(createElement(this.document, 'span', '', after));
+        }
+
         renderPages() {
             const container = this.element('readerV2Pages');
             if (!container) return;
@@ -246,12 +358,23 @@
             const tag = this.model.nodeTag(node);
             if (['table', 'figure', 'formula'].includes(node.node_type)) {
                 this.renderSemanticAsset(node, wrapper);
+                if (node.text && this.currentFindResult()?.node_id === node.node_id) {
+                    const text = createElement(this.document, 'div', 'reader-v2-find-asset-text');
+                    this.appendHighlightedText(text, node.text, node);
+                    wrapper.appendChild(text);
+                }
             } else if (node.node_type === 'list') {
                 const list = createElement(this.document, 'ul', 'reader-v2-list');
-                if (node.text) list.appendChild(createElement(this.document, 'li', '', node.text));
+                if (node.text) {
+                    const item = createElement(this.document, 'li', '');
+                    this.appendHighlightedText(item, node.text, node);
+                    list.appendChild(item);
+                }
                 wrapper.appendChild(list);
             } else {
-                wrapper.appendChild(createElement(this.document, tag, 'reader-v2-node-text', node.text || ''));
+                const text = createElement(this.document, tag, 'reader-v2-node-text');
+                this.appendHighlightedText(text, node.text || '', node);
+                wrapper.appendChild(text);
             }
             if (node.content_state && node.content_state !== 'ready') {
                 wrapper.appendChild(createElement(this.document, 'span', 'reader-v2-state', node.content_state));
@@ -275,6 +398,32 @@
                 more.dataset.bound = '1';
                 more.addEventListener('click', () => this.loadMore().catch((error) => this.renderError(error)));
             }
+            const findInput = this.element('readerV2FindInput');
+            const findButton = this.element('readerV2FindButton');
+            const findPrev = this.element('readerV2FindPrev');
+            const findNext = this.element('readerV2FindNext');
+            if (findInput && !findInput.dataset.readerV2FindBound) {
+                findInput.dataset.readerV2FindBound = '1';
+                findInput.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') this.runFind(findInput.value).catch(() => {});
+                    if (event.key === 'Escape') this.clearFind();
+                });
+                findInput.addEventListener('input', () => {
+                    if (!findInput.value.trim()) this.clearFind({ clearInput: false });
+                });
+            }
+            if (findButton && !findButton.dataset.readerV2FindBound) {
+                findButton.dataset.readerV2FindBound = '1';
+                findButton.addEventListener('click', () => this.runFind(findInput?.value || '').catch(() => {}));
+            }
+            if (findPrev && !findPrev.dataset.readerV2FindBound) {
+                findPrev.dataset.readerV2FindBound = '1';
+                findPrev.addEventListener('click', () => this.navigateFind(-1));
+            }
+            if (findNext && !findNext.dataset.readerV2FindBound) {
+                findNext.dataset.readerV2FindBound = '1';
+                findNext.addEventListener('click', () => this.navigateFind(1));
+            }
             for (const id of ['widthInput', 'widthSlider', 'maxLinesInput', 'maxLinesSlider', 'fontInput', 'fontSlider']) {
                 const el = this.element(id);
                 if (el && !el.dataset.readerV2Bound) {
@@ -287,6 +436,7 @@
                 window.__readerV2ResizeBound = true;
                 window.addEventListener('resize', () => this.reflowAndRender());
             }
+            this.updateFindControls();
         }
     }
 
@@ -309,5 +459,5 @@
         return getDefaultController().openBook(book);
     }
 
-    return { ReaderV2Controller, getDefaultController, openBook, safeMessage };
+    return { FIND_RESULT_LIMIT, ReaderV2Controller, getDefaultController, openBook, safeMessage };
 });
