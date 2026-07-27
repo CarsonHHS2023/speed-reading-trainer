@@ -10,16 +10,24 @@ const documentView = {
     candidate_schema_version: 2,
 };
 
-function node(id, order, type, text, sourceUnit = 'su-1') {
+function withSourceUnits(sourceUnits) {
+    return { ...documentView, source_units: sourceUnits };
+}
+
+function sourceUnit(id, order, kind) {
+    return { source_unit_id: id, source_order: order, kind };
+}
+
+function node(id, order, type, text, sourceUnitId = 'su-1') {
     return {
         node_id: id,
         order,
         node_type: type,
         text,
-        source_unit_ids: [sourceUnit],
+        source_unit_ids: [sourceUnitId],
         location: {
             node_id: id,
-            source_unit_id: sourceUnit,
+            source_unit_id: sourceUnitId,
             source_anchor: { kind: 'text_span', start: order * 10, end: order * 10 + String(text || '').length },
         },
     };
@@ -152,6 +160,86 @@ test('page scope packs bounded complete lines and does not split English words',
     assert.equal((joined.match(/extraordinary/g) || []).length, 1);
 });
 
+test('PDF page scope follows physical source-unit order and never mixes physical pages', () => {
+    const pdf = withSourceUnits([
+        sourceUnit('pdf-p2', 1, 'physical_page'),
+        sourceUnit('pdf-p1', 0, 'physical_page'),
+    ]);
+    const result = Adapter.buildPlaybackFrames(pdf, [
+        node('p2a', 2, 'paragraph', 'Page two text', 'pdf-p2'),
+        node('p1b', 1, 'paragraph', 'Page one second', 'pdf-p1'),
+        node('p1a', 0, 'heading', 'Page one heading', 'pdf-p1'),
+    ], { displayScope: 'page', lineWidth: 5, maxLines: 1, speedPerMinute: 600 });
+
+    assert.equal(Adapter.hasPhysicalPageSemantics(pdf), true);
+    assert.equal(result.frames.length, 2);
+    assert.match(result.frames[0].text, /Page one heading/);
+    assert.match(result.frames[0].text, /Page one second/);
+    assert.equal(result.frames[0].text.includes('Page two text'), false);
+    assert.equal(result.frames[0].identity.source_unit_id, 'pdf-p1');
+    assert.equal(result.frames[1].text, 'Page two text');
+    assert.equal(result.frames[1].identity.source_unit_id, 'pdf-p2');
+});
+
+test('PDF physical page grouping is invariant to TXT reflow layout settings and speed changes only duration', () => {
+    const pdf = withSourceUnits([
+        sourceUnit('pdf-p1', 0, 'physical_page'),
+        sourceUnit('pdf-p2', 1, 'physical_page'),
+    ]);
+    const nodes = [
+        node('p1', 0, 'paragraph', 'alpha beta gamma delta', 'pdf-p1'),
+        node('p2', 1, 'paragraph', '中文 第二页 内容', 'pdf-p2'),
+    ];
+    const narrow = Adapter.buildPlaybackFrames(pdf, nodes, { displayScope: 'page', lineWidth: 5, maxLines: 1, speedPerMinute: 600 });
+    const wide = Adapter.buildPlaybackFrames(pdf, nodes, { displayScope: 'page', lineWidth: 50, maxLines: 30, speedPerMinute: 1200 });
+    assert.deepEqual(narrow.frames.map((frame) => frame.text), wide.frames.map((frame) => frame.text));
+    assert.deepEqual(narrow.frames.map((frame) => frame.frame_id), wide.frames.map((frame) => frame.frame_id));
+    assert.deepEqual(narrow.frames.map((frame) => frame.identity), wide.frames.map((frame) => frame.identity));
+    assert.ok(narrow.frames.some((frame, index) => frame.duration_ms !== wide.frames[index].duration_ms));
+});
+
+test('PDF manual content remains explicit and splits automatic text within the same physical page', () => {
+    const pdf = withSourceUnits([sourceUnit('pdf-p1', 0, 'physical_page')]);
+    const result = Adapter.buildPlaybackFrames(pdf, [
+        node('before', 0, 'paragraph', 'Before figure', 'pdf-p1'),
+        node('fig', 1, 'figure', 'Figure 1', 'pdf-p1'),
+        node('after', 2, 'paragraph', 'After figure', 'pdf-p1'),
+    ], { displayScope: 'page', speedPerMinute: 600 });
+    assert.deepEqual(result.frames.map((frame) => frame.kind), ['timed_text', 'manual', 'timed_text']);
+    assert.equal(result.frames[1].auto_advance, false);
+    assert.equal(result.frames[1].identity.node_id, 'fig');
+});
+
+test('TXT page scope dynamically reflows by line width and page density', () => {
+    const txt = withSourceUnits([sourceUnit('flow-1', 0, 'text_flow')]);
+    const nodes = [
+        node('n1', 0, 'paragraph', 'alpha beta gamma delta', 'flow-1'),
+        node('n2', 1, 'paragraph', 'epsilon zeta eta theta', 'flow-1'),
+    ];
+    assert.equal(Adapter.hasPhysicalPageSemantics(txt), false);
+    const compact = Adapter.buildPlaybackFrames(txt, nodes, { displayScope: 'page', lineWidth: 40, maxLines: 10, speedPerMinute: 600 });
+    const narrow = Adapter.buildPlaybackFrames(txt, nodes, { displayScope: 'page', lineWidth: 8, maxLines: 2, speedPerMinute: 600 });
+    assert.ok(compact.frames.length < narrow.frames.length);
+    assert.deepEqual(
+        narrow.frames,
+        Adapter.buildPlaybackFrames(txt, [...nodes].reverse(), { displayScope: 'page', lineWidth: 8, maxLines: 2, speedPerMinute: 600 }).frames,
+    );
+    assert.ok(narrow.frames.every((frame) => frame.identity.source_unit_id === 'flow-1'));
+});
+
+test('TXT speed-only changes preserve reflow page grouping, text, IDs and semantic identity', () => {
+    const txt = withSourceUnits([sourceUnit('flow-1', 0, 'text_flow')]);
+    const nodes = [node('n1', 0, 'paragraph', '中文 alpha beta gamma delta epsilon', 'flow-1')];
+    const base = { displayScope: 'page', lineWidth: 10, maxLines: 2 };
+    const slow = Adapter.buildPlaybackFrames(txt, nodes, { ...base, speedPerMinute: 600 });
+    const fast = Adapter.buildPlaybackFrames(txt, nodes, { ...base, speedPerMinute: 1200 });
+    assert.deepEqual(
+        slow.frames.map(({ duration_ms, ...frame }) => frame),
+        fast.frames.map(({ duration_ms, ...frame }) => frame),
+    );
+    assert.ok(slow.frames.some((frame, index) => frame.duration_ms !== fast.frames[index].duration_ms));
+});
+
 test('speed-only changes preserve frame text, IDs, units and identity while changing durations', () => {
     const input = [node('p1', 0, 'paragraph', '中文 alpha beta 12.5% gamma')];
     const base = { displayScope: 'line', lineWidth: 12, maxLines: 2 };
@@ -182,12 +270,12 @@ test('reading elements and frames preserve typed source location identity', () =
     assert.deepEqual(result.frames[0].identity.source_anchor, { kind: 'text_span', start: 12, end: 20 });
 });
 
-test('adapter source has no legacy blob/tokenizer/image marker dependencies', () => {
+test('adapter source has no legacy or canonical presentation-page dependencies', () => {
     const fs = require('node:fs');
     const source = fs.readFileSync(require.resolve('../speed-reading-adapter.js'), 'utf8');
     for (const forbidden of [
         'state.content', 'cachedContentBlob', 'tokenizeContent(', 'CONTENT_DELIMITER', '/api/v1/books/',
-        '/api/reader/v1', 'imageMarkerMap', 'page_id', 'presentation_id',
+        '/api/reader/v1', 'imageMarkerMap', 'page_id', 'presentation_id', 'scroll_offset', 'token_index',
     ]) {
         assert.equal(source.includes(forbidden), false, forbidden);
     }

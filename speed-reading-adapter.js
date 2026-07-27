@@ -138,11 +138,19 @@
         };
     }
 
+    function sourceUnitMap(documentView) {
+        const model = requireModel();
+        return new Map(model.orderedSourceUnits(documentView?.source_units || []).map((unit) => [unit.source_unit_id, unit]));
+    }
+
     function buildReadingElements(documentView, nodes) {
         const model = requireModel();
+        const units = sourceUnitMap(documentView);
         return model.orderedNodes(nodes).map((node) => {
             const manual = MANUAL_NODE_TYPES.has(node.node_type);
             const text = typeof node.text === 'string' ? node.text : '';
+            const identity = identityForNode(documentView, node);
+            const sourceUnit = identity.source_unit_id ? units.get(identity.source_unit_id) : null;
             return {
                 element_id: `reading-element:${documentView.candidate_id}:${node.node_id}`,
                 kind: manual ? 'manual' : 'text',
@@ -150,7 +158,9 @@
                 text,
                 asset_refs: Array.isArray(node.asset_refs) ? [...node.asset_refs] : [],
                 reading_units: manual ? 0 : countReadingUnits(text),
-                identity: identityForNode(documentView, node),
+                identity,
+                source_unit_kind: sourceUnit?.kind || null,
+                source_order: sourceUnit ? Number(sourceUnit.source_order) : null,
             };
         }).filter((element) => element.kind === 'manual' || TEXT_NODE_TYPES.has(element.node_type));
     }
@@ -219,7 +229,7 @@
         return `playback-frame:${element.identity.candidate_id}:${element.identity.node_id}:${String(ordinal).padStart(4, '0')}`;
     }
 
-    function makeTimedFrame(element, ordinal, text, readingUnits, options) {
+    function makeTimedFrame(element, ordinal, text, options) {
         const normalizedText = String(text || '');
         if (!normalizedText.trim()) return null;
         const actualUnits = countReadingUnits(normalizedText);
@@ -235,44 +245,130 @@
         };
     }
 
+    function manualFrame(element) {
+        return {
+            frame_id: frameId(element, 0),
+            kind: 'manual',
+            node_type: element.node_type,
+            text: element.text,
+            asset_refs: [...element.asset_refs],
+            reading_units: 0,
+            duration_ms: null,
+            auto_advance: false,
+            identity: element.identity,
+            frame_ordinal: 0,
+        };
+    }
+
     function framesForElement(element, options) {
-        if (element.kind === 'manual') {
-            return [{
-                frame_id: frameId(element, 0),
-                kind: 'manual',
-                node_type: element.node_type,
-                text: element.text,
-                asset_refs: [...element.asset_refs],
-                reading_units: 0,
-                duration_ms: null,
-                auto_advance: false,
-                identity: element.identity,
-                frame_ordinal: 0,
-            }];
-        }
+        if (element.kind === 'manual') return [manualFrame(element)];
         if (!element.text) return [];
         const tokens = tokenizeReadingText(element.text);
         const lines = tokensToLines(tokens, options.lineWidth);
         if (!lines.length) return [];
         const scope = options.displayScope;
         if (scope === 'line') {
-            return lines.map((line, index) => makeTimedFrame(element, index, lineText(line), line.reading_units, options)).filter(Boolean);
+            return lines.map((line, index) => makeTimedFrame(element, index, lineText(line), options)).filter(Boolean);
         }
         const maxLines = Math.max(1, Number(options.maxLines) || 20);
         const frames = [];
-        const groupSize = scope === 'page' ? maxLines : Math.max(1, Math.min(maxLines, lines.length));
+        const groupSize = Math.max(1, Math.min(maxLines, lines.length));
         for (let i = 0; i < lines.length; i += groupSize) {
             const group = lines.slice(i, i + groupSize);
-            const frame = makeTimedFrame(
-                element,
-                frames.length,
-                group.map(lineText).join('\n'),
-                group.reduce((sum, line) => sum + line.reading_units, 0),
-                options,
-            );
+            const frame = makeTimedFrame(element, frames.length, group.map(lineText).join('\n'), options);
             if (frame) frames.push(frame);
         }
         return frames;
+    }
+
+    function hasPhysicalPageSemantics(documentView) {
+        const model = requireModel();
+        const units = model.orderedSourceUnits(documentView?.source_units || []);
+        const physical = units.filter((unit) => unit.kind === 'physical_page');
+        const reflowable = units.filter(model.isReflowableSourceUnit);
+        return physical.length > 0 && reflowable.length === 0;
+    }
+
+    function buildPhysicalPageFrames(documentView, elements, options) {
+        const model = requireModel();
+        const pages = model.physicalPageSourceUnits(documentView?.source_units || []);
+        const byUnit = new Map(pages.map((unit) => [unit.source_unit_id, []]));
+        const overflow = [];
+        for (const element of elements) {
+            const bucket = byUnit.get(element.identity.source_unit_id);
+            if (bucket) bucket.push(element);
+            else overflow.push(element);
+        }
+
+        const frames = [];
+        const emitGroup = (group) => {
+            let textGroup = [];
+            const flushText = () => {
+                if (!textGroup.length) return;
+                const anchor = textGroup[0];
+                const text = textGroup.map((element) => element.text).filter((value) => String(value || '').trim()).join('\n');
+                const ordinal = frames.filter((frame) => frame.identity.node_id === anchor.identity.node_id).length;
+                const frame = makeTimedFrame(anchor, ordinal, text, options);
+                if (frame) frames.push(frame);
+                textGroup = [];
+            };
+            for (const element of group) {
+                if (element.kind === 'manual') {
+                    flushText();
+                    frames.push(manualFrame(element));
+                } else if (String(element.text || '').trim()) {
+                    textGroup.push(element);
+                }
+            }
+            flushText();
+        };
+
+        for (const page of pages) emitGroup(byUnit.get(page.source_unit_id) || []);
+        emitGroup(overflow);
+        return frames;
+    }
+
+    function buildReflowPageFrames(elements, options) {
+        const maxLines = Math.max(1, Number(options.maxLines) || 20);
+        const frames = [];
+        let pageLines = [];
+        let anchorElement = null;
+        const ordinalByNode = new Map();
+
+        const flushPage = () => {
+            if (!pageLines.length || !anchorElement) return;
+            const nodeId = anchorElement.identity.node_id;
+            const ordinal = ordinalByNode.get(nodeId) || 0;
+            const frame = makeTimedFrame(anchorElement, ordinal, pageLines.map((entry) => entry.text).join('\n'), options);
+            if (frame) {
+                frames.push(frame);
+                ordinalByNode.set(nodeId, ordinal + 1);
+            }
+            pageLines = [];
+            anchorElement = null;
+        };
+
+        for (const element of elements) {
+            if (element.kind === 'manual') {
+                flushPage();
+                frames.push(manualFrame(element));
+                continue;
+            }
+            if (!String(element.text || '').trim()) continue;
+            const lines = tokensToLines(tokenizeReadingText(element.text), options.lineWidth);
+            for (const line of lines) {
+                if (pageLines.length >= maxLines) flushPage();
+                if (!anchorElement) anchorElement = element;
+                pageLines.push({ text: lineText(line), element });
+            }
+        }
+        flushPage();
+        return frames;
+    }
+
+    function buildPageFrames(documentView, elements, options) {
+        if (hasPhysicalPageSemantics(documentView)) return buildPhysicalPageFrames(documentView, elements, options);
+        return buildReflowPageFrames(elements, options);
     }
 
     function buildPlaybackFrames(documentView, nodes, options = {}) {
@@ -285,7 +381,9 @@
             speedPerMinute: Number(options.speedPerMinute) || 5000,
         };
         const elements = buildReadingElements(documentView, nodes);
-        const frames = elements.flatMap((element) => framesForElement(element, normalizedOptions));
+        const frames = displayScope === 'page'
+            ? buildPageFrames(documentView, elements, normalizedOptions)
+            : elements.flatMap((element) => framesForElement(element, normalizedOptions));
         return { elements, frames, options: normalizedOptions };
     }
 
@@ -295,11 +393,13 @@
         MANUAL_NODE_TYPES,
         MIN_FRAME_DURATION_MS,
         ZERO_UNIT_FRAME_DURATION_MS,
+        buildPageFrames,
         buildPlaybackFrames,
         buildReadingElements,
         countReadingUnits,
         durationMs,
         frameDurationMs,
+        hasPhysicalPageSemantics,
         tokenizeReadingText,
         tokensToLines,
     };
