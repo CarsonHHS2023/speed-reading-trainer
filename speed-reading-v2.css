@@ -70,6 +70,11 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
     padding-top: 52px;
 }
 
+#focusModeDisplay.active,
+#pageModeDisplay.active {
+    cursor: pointer;
+}
+
 #focusText,
 #pageText {
     box-sizing: border-box;
@@ -109,6 +114,19 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
     margin-top: clamp(18px, 8vh, 72px);
 }
 
+.reader-playback-asset-slot {
+    padding: 16px;
+    border: 1px solid rgba(124, 142, 232, .42);
+    border-radius: 12px;
+    background: rgba(238, 241, 255, .55);
+    cursor: default;
+}
+
+body.dark-mode .reader-playback-asset-slot {
+    border-color: rgba(124, 142, 232, .48);
+    background: rgba(48, 57, 94, .46);
+}
+
 .reader-playback-continue {
     display: block;
     margin: 14px auto 0;
@@ -119,6 +137,11 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
     color: #3347a8;
     cursor: pointer;
     font-weight: 600;
+}
+
+.reader-playback-continue:focus-visible {
+    outline: 3px solid rgba(124, 142, 232, .38);
+    outline-offset: 3px;
 }
 
 body.dark-mode .reader-playback-continue {
