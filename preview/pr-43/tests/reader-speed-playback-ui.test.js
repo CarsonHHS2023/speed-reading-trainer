@@ -43,7 +43,7 @@ function element(value = '') {
 
 function fakeDocument() {
     const elements = new Map([
-        ['readingToggleBtn', element()], ['currentPos', element()], ['totalWords', element()],
+        ['readingToggleBtn', element()], ['currentPos', element()], ['totalWords', element()], ['readingTime', element()],
         ['progressSlider', element('0')], ['displayMode', element('focus')], ['speedInput', element('600')],
         ['speedSlider', element('600')], ['widthInput', element('10')], ['widthSlider', element('10')],
         ['linesInput', element('2')], ['linesSlider', element('2')], ['maxLinesInput', element('5')],
@@ -87,6 +87,7 @@ function fakePlayback() {
         manualContinueCalls: 0,
         setFrames(frames) { this.frames = [...frames]; },
         snapshot() { return { state: this.state, index: 0, frame: this.frames[0] || null, frame_count: this.frames.length }; },
+        currentFrame() { return this.frames[0] || null; },
         play() { this.playCalls += 1; this.state = 'playing'; return true; },
         stop() { this.state = 'idle'; },
         seek() {},
@@ -98,10 +99,35 @@ function fakePlayback() {
     };
 }
 
-test('Reader v2 playback start loads remaining nodes, builds frames, and enables play control', async () => {
+function fakeTrainingClock() {
+    return {
+        state: 'idle',
+        elapsed: 0,
+        startCalls: 0,
+        pauseCalls: 0,
+        resumeCalls: 0,
+        stopCalls: 0,
+        start() { this.startCalls += 1; this.elapsed = 0; this.state = 'running'; },
+        pause() { if (this.state !== 'running') return false; this.pauseCalls += 1; this.state = 'paused'; return true; },
+        resume() { if (this.state !== 'paused') return false; this.resumeCalls += 1; this.state = 'running'; return true; },
+        stop() { this.stopCalls += 1; this.state = 'stopped'; return this.elapsed; },
+        elapsedMs() { return this.elapsed; },
+    };
+}
+
+function clickListener(target) {
+    return target.listeners.find((listener) => listener.type === 'click')?.callback;
+}
+
+function clickEvent() {
+    return { preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {} };
+}
+
+test('Reader v2 playback start loads remaining nodes, starts training clock, and enables play control', async () => {
     const documentObject = fakeDocument();
     const reader = fakeReader();
     const playback = fakePlayback();
+    const trainingClock = fakeTrainingClock();
     const adapter = {
         buildPlaybackFrames(view, nodes, options) {
             assert.equal(view.candidate_id, 'cand');
@@ -110,54 +136,146 @@ test('Reader v2 playback start loads remaining nodes, builds frames, and enables
             return { frames: [{ frame_id: 'f1', kind: 'timed_text', text: 'hello', identity: { candidate_id: 'cand', node_id: 'n1' } }] };
         },
     };
-    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, adapter });
+    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, adapter, trainingClock });
     controller.refreshFrames({ preserveIdentity: false });
     assert.equal(documentObject.elements.get('readingToggleBtn').disabled, false);
     const started = await controller.start();
     assert.equal(started, true);
     assert.equal(reader.loadCalls, 1);
     assert.equal(playback.playCalls, 1);
+    assert.equal(trainingClock.startCalls, 1);
+    assert.equal(trainingClock.state, 'running');
 });
 
-test('reading-surface clicks do not pause playback; explicit playback controls own timing changes', () => {
+test('reading-area click pauses only auto-play while training time keeps running, then resumes auto-play', () => {
     const documentObject = fakeDocument();
-    documentObject.elements.set('speedReadingPause', element());
     const reader = fakeReader();
     const playback = fakePlayback();
+    const trainingClock = fakeTrainingClock();
+    trainingClock.state = 'running';
     playback.frames = [{ frame_id: 'f1', kind: 'timed_text', identity: { node_id: 'n1' } }];
-    const controller = new ReaderSpeedPlaybackUIController({
-        documentObject,
-        readerController: reader,
-        playback,
-        adapter: { buildPlaybackFrames: () => ({ frames: playback.frames }) },
-    });
+    playback.state = 'playing';
+    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, trainingClock });
     controller.bind();
 
     const focusSurface = documentObject.elements.get('focusModeDisplay');
     const pageSurface = documentObject.elements.get('pageModeDisplay');
-    assert.equal(focusSurface.listeners.some((listener) => listener.type === 'click'), false);
-    assert.equal(pageSurface.listeners.some((listener) => listener.type === 'click'), false);
+    assert.ok(clickListener(focusSurface));
+    assert.ok(clickListener(pageSurface));
 
+    clickListener(focusSurface)(clickEvent());
+    assert.equal(playback.pauseCalls, 1);
+    assert.equal(playback.state, 'paused');
+    assert.equal(controller.comprehensionPaused, true);
+    assert.equal(trainingClock.pauseCalls, 0);
+    assert.equal(trainingClock.state, 'running');
+
+    trainingClock.elapsed = 4200;
+    controller.updateTrainingTime();
+    assert.equal(documentObject.elements.get('readingTime').textContent, '00:04');
+
+    clickListener(focusSurface)(clickEvent());
+    assert.equal(playback.resumeCalls, 1);
+    assert.equal(playback.state, 'playing');
+    assert.equal(controller.comprehensionPaused, false);
+    assert.equal(trainingClock.resumeCalls, 0);
+    assert.equal(trainingClock.state, 'running');
+});
+
+test('playback UI Pause/Resume pauses and resumes both auto-play and training clock', () => {
+    const documentObject = fakeDocument();
+    documentObject.elements.set('speedReadingPause', element());
+    const reader = fakeReader();
+    const playback = fakePlayback();
+    const trainingClock = fakeTrainingClock();
+    trainingClock.state = 'running';
+    playback.frames = [{ frame_id: 'f1', kind: 'timed_text', identity: { node_id: 'n1' } }];
     playback.state = 'playing';
-    const pauseButton = documentObject.elements.get('speedReadingPause');
-    const pauseClick = pauseButton.listeners.find((listener) => listener.type === 'click').callback;
+    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, trainingClock });
+    controller.bind();
+
+    const pauseClick = clickListener(documentObject.elements.get('speedReadingPause'));
     pauseClick();
     assert.equal(playback.pauseCalls, 1);
     assert.equal(playback.state, 'paused');
+    assert.equal(trainingClock.pauseCalls, 1);
+    assert.equal(trainingClock.state, 'paused');
+    assert.equal(controller.trainingPaused, true);
 
     pauseClick();
     assert.equal(playback.resumeCalls, 1);
     assert.equal(playback.state, 'playing');
+    assert.equal(trainingClock.resumeCalls, 1);
+    assert.equal(trainingClock.state, 'running');
+    assert.equal(controller.trainingPaused, false);
 });
 
-test('manual UX and new playback bridge contain no legacy content/blob/tokenizer/image-marker dependencies', () => {
+test('UI training pause during comprehension preserves comprehension pause after training resumes', () => {
+    const documentObject = fakeDocument();
+    documentObject.elements.set('speedReadingPause', element());
+    const reader = fakeReader();
+    const playback = fakePlayback();
+    const trainingClock = fakeTrainingClock();
+    trainingClock.state = 'running';
+    playback.frames = [{ frame_id: 'f1', kind: 'timed_text', identity: { node_id: 'n1' } }];
+    playback.state = 'playing';
+    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, trainingClock });
+    controller.bind();
+
+    clickListener(documentObject.elements.get('focusModeDisplay'))(clickEvent());
+    assert.equal(controller.comprehensionPaused, true);
+    assert.equal(playback.state, 'paused');
+
+    const pauseClick = clickListener(documentObject.elements.get('speedReadingPause'));
+    pauseClick();
+    assert.equal(trainingClock.state, 'paused');
+    pauseClick();
+    assert.equal(trainingClock.state, 'running');
+    assert.equal(playback.state, 'paused');
+    assert.equal(controller.comprehensionPaused, true);
+
+    clickListener(documentObject.elements.get('focusModeDisplay'))(clickEvent());
+    assert.equal(playback.state, 'playing');
+});
+
+test('manual frames keep training time running; UI pause controls training clock without advancing manual content', () => {
+    const documentObject = fakeDocument();
+    documentObject.elements.set('speedReadingPause', element());
+    const reader = fakeReader();
+    const playback = fakePlayback();
+    const trainingClock = fakeTrainingClock();
+    trainingClock.state = 'running';
+    playback.frames = [{ frame_id: 'm1', kind: 'manual', identity: { node_id: 'figure-1' } }];
+    playback.state = 'manual';
+    const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, trainingClock });
+    controller.bind();
+
+    assert.equal(trainingClock.state, 'running');
+    assert.equal(controller.continueManual(), true);
+    assert.equal(playback.manualContinueCalls, 1);
+
+    playback.state = 'manual';
+    clickListener(documentObject.elements.get('speedReadingPause'))();
+    assert.equal(trainingClock.state, 'paused');
+    assert.equal(playback.state, 'manual');
+    assert.equal(controller.continueManual(), false);
+    assert.equal(playback.manualContinueCalls, 1);
+
+    clickListener(documentObject.elements.get('speedReadingPause'))();
+    assert.equal(trainingClock.state, 'running');
+    assert.equal(playback.state, 'manual');
+});
+
+test('manual UX and playback bridge contain no legacy content/blob/tokenizer/image-marker dependencies', () => {
     const source = fs.readFileSync(require.resolve('../reader-speed-playback-ui.js'), 'utf8');
     for (const forbidden of [
         'state.content', 'cachedContentBlob', 'tokenizeContent(', 'generatePages(', 'imageMarkerMap', '/api/v1/images/', '/api/v1/books/',
     ]) {
         assert.equal(source.includes(forbidden), false, forbidden);
     }
-    assert.doesNotMatch(source, /focusModeDisplay', 'pageModeDisplay/);
+    assert.match(source, /toggleComprehensionPause/);
+    assert.match(source, /toggleTrainingPause/);
+    assert.match(source, /ReaderTrainingSessionClock/);
     assert.match(source, /continueManual/);
     assert.match(source, /renderAssetInto/);
     assert.match(source, /stopImmediatePropagation/);
@@ -168,14 +286,14 @@ test('manual playback styling is visually distinct and keeps Continue keyboard f
     const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
     assert.match(css, /\.reader-playback-asset-slot/);
     assert.match(css, /\.reader-playback-continue:focus-visible/);
-    assert.doesNotMatch(css, /#focusModeDisplay\.active,\s*#pageModeDisplay\.active\s*\{\s*cursor:\s*pointer/);
 });
 
-test('index loads deterministic adapter and playback bridge before legacy app script', () => {
+test('index loads playback controller, training clock, and bridge before legacy app script', () => {
     const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
     const adapter = html.indexOf('speed-reading-adapter.js');
     const controller = html.indexOf('playback-controller.js');
+    const clock = html.indexOf('training-session-clock.js');
     const bridge = html.indexOf('reader-speed-playback-ui.js');
     const app = html.indexOf('app.js');
-    assert.ok(adapter >= 0 && controller > adapter && bridge > controller && app > bridge);
+    assert.ok(adapter >= 0 && controller > adapter && clock > controller && bridge > clock && app > bridge);
 });
