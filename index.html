@@ -155,6 +155,18 @@
                                 </div>
                                 <div id="readerV2AnnotationsList" class="reader-v2-annotations-list"></div>
                             </section>
+                            <section class="reader-v2-highlights" aria-label="文本高亮">
+                                <div class="reader-v2-highlights-header"><strong>文本高亮</strong></div>
+                                <div class="reader-v2-highlight-controls">
+                                    <select id="readerV2HighlightStyle" aria-label="高亮颜色">
+                                        <option value="yellow">黄色</option>
+                                        <option value="green">绿色</option>
+                                        <option value="blue">蓝色</option>
+                                    </select>
+                                    <button id="readerV2HighlightCreate" type="button" disabled>高亮选中文字</button>
+                                </div>
+                                <div id="readerV2HighlightsList" class="reader-v2-highlights-list"></div>
+                            </section>
                             <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
                         </aside>
                         <main class="reader-v2-main">
@@ -213,11 +225,13 @@
     <script src="reader-find.js"></script>
     <script src="reader-resume.js"></script>
     <script src="reader-annotations.js"></script>
+    <script src="reader-highlights.js"></script>
     <script src="reader-ui-v2.js"></script>
     <script src="speed-reading-adapter.js"></script>
     <script src="playback-controller.js"></script>
     <script src="reader-speed-playback-ui.js"></script>
     <script src="reader-annotations-ui.js"></script>
+    <script src="reader-highlights-ui.js"></script>
     <script src="bookshelf.js"></script>
     <script src="reader-resume-lifecycle.js"></script>
     <script src="app.js"></script>
