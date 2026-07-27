@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, annotation, and highlight tests
+    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, annotation, highlight, and study-context tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,10 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation/highlight tests
+      - name: Reader v2 StudyContext focused tests
+        run: node --test tests/reader-study-context.test.js
+
+      - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation/highlight/study-context tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -47,6 +50,8 @@ jobs:
           test -f reader-annotations-ui.js
           test -f reader-highlights.js
           test -f reader-highlights-ui.js
+          test -f reader-study-context.js
+          test -f reader-study-context-ui.js
           test -f reader-resume-lifecycle.js
           test -f reader-ui-v2.js
           test -f speed-reading-adapter.js
@@ -62,6 +67,8 @@ jobs:
           grep -q 'reader-annotations-ui.js' index.html
           grep -q 'reader-highlights.js' index.html
           grep -q 'reader-highlights-ui.js' index.html
+          grep -q 'reader-study-context.js' index.html
+          grep -q 'reader-study-context-ui.js' index.html
           grep -q 'reader-resume-lifecycle.js' index.html
           grep -q 'readerV2FindInput' index.html
           grep -q 'readerV2AnnotationsList' index.html
@@ -69,6 +76,8 @@ jobs:
           grep -q 'readerV2NoteInput' index.html
           grep -q 'readerV2HighlightCreate' index.html
           grep -q 'readerV2HighlightsList' index.html
+          grep -q 'readerV2StudyContextBuild' index.html
+          grep -q 'readerV2StudyContextPreview' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
           grep -q 'reader-speed-playback-ui.js' index.html
@@ -120,6 +129,27 @@ jobs:
           ! grep -q 'tokenizeContent' reader-highlights-ui.js
           ! grep -q 'page_id' reader-highlights-ui.js
           ! grep -q 'presentation_id' reader-highlights-ui.js
+          ! grep -q '/api/reader/v1' reader-study-context.js
+          ! grep -q '/api/v1/books/' reader-study-context.js
+          ! grep -q 'cachedContentBlob' reader-study-context.js
+          ! grep -q 'state.content' reader-study-context.js
+          ! grep -q 'tokenizeContent' reader-study-context.js
+          ! grep -q 'page_id' reader-study-context.js
+          ! grep -q 'presentation_id' reader-study-context.js
+          ! grep -q 'localStorage' reader-study-context.js
+          ! grep -q 'sessionStorage' reader-study-context.js
+          ! grep -q 'setItem(' reader-study-context.js
+          ! grep -q 'artifact_ref' reader-study-context.js
+          ! grep -q 'storage_ref' reader-study-context.js
+          ! grep -q 'signed_url' reader-study-context.js
+          ! grep -q '/api/reader/v1' reader-study-context-ui.js
+          ! grep -q '/api/v1/books/' reader-study-context-ui.js
+          ! grep -q 'cachedContentBlob' reader-study-context-ui.js
+          ! grep -q 'state.content' reader-study-context-ui.js
+          ! grep -q 'tokenizeContent' reader-study-context-ui.js
+          ! grep -q 'page_id' reader-study-context-ui.js
+          ! grep -q 'presentation_id' reader-study-context-ui.js
+          ! grep -q 'setItem(' reader-study-context-ui.js
           ! grep -q '/api/v1/images/' reader-assets.js
           ! grep -q 'artifact_ref' reader-assets.js
           ! grep -q 'storage_ref' reader-assets.js
