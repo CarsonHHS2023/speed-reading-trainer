@@ -9,11 +9,12 @@
 
         const originalDeleteBook = prototype.deleteBook;
         if (typeof originalDeleteBook === 'function') {
-            prototype.deleteBook = async function deleteBookWithResumeCleanup(bookId) {
+            prototype.deleteBook = async function deleteBookWithReaderV2LocalCleanup(bookId) {
                 await originalDeleteBook.call(this, bookId);
                 const stillExists = (this.books || []).some((book) => String(book.id) === String(bookId));
                 if (!stillExists) {
                     root.ReaderUIV2?.getDefaultController?.().clearResume?.(bookId);
+                    root.ReaderAnnotationsUIV2?.getDefaultController?.().clearDocument?.(bookId);
                 }
             };
         }
