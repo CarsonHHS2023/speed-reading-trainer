@@ -37,6 +37,7 @@
             this.annotationStore = options.annotationStore || new deps.Annotations.ReaderAnnotationStoreV2({ storage: options.storage });
             this.highlightStore = options.highlightStore || new deps.Highlights.ReaderHighlightStoreV2({ storage: options.storage });
             this.bound = false;
+            this.openBookPatched = false;
             this.lastContext = null;
         }
 
@@ -62,8 +63,7 @@
         async build() {
             if (!this.reader?.openResponse) {
                 this.reader?.setStatus?.('请先打开一本 Reader v2 文档。');
-                this.lastContext = null;
-                this.render(null);
+                this.reset();
                 return null;
             }
             const records = this.sourceRecords();
@@ -105,8 +105,7 @@
                 row.appendChild(createElement(this.document, 'strong', 'reader-v2-study-kind', type));
                 if (item.note_text) row.appendChild(createElement(this.document, 'div', 'reader-v2-study-note', item.note_text));
                 if (item.excerpt) row.appendChild(createElement(this.document, 'div', 'reader-v2-study-excerpt', item.excerpt));
-                const identity = createElement(this.document, 'code', 'reader-v2-study-identity', item.node_id);
-                row.appendChild(identity);
+                row.appendChild(createElement(this.document, 'code', 'reader-v2-study-identity', item.node_id));
                 preview.appendChild(row);
             }
         }
@@ -114,6 +113,20 @@
         reset() {
             this.lastContext = null;
             this.render(null);
+        }
+
+        patchReaderOpenBook() {
+            if (this.openBookPatched) return;
+            this.openBookPatched = true;
+            const original = ReaderUI.openBook;
+            if (typeof original !== 'function') return;
+            const self = this;
+            ReaderUI.openBook = async function openBookWithStudyContextReset(book) {
+                self.reset();
+                const result = await original(book);
+                self.reader = ReaderUI.getDefaultController();
+                return result;
+            };
         }
 
         bind() {
@@ -132,6 +145,7 @@
 
     function install() {
         const controller = getDefaultController();
+        controller.patchReaderOpenBook();
         controller.bind();
         return controller;
     }
