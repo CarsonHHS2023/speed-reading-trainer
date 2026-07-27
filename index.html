@@ -143,6 +143,18 @@
                                     <button id="readerV2FindNext" type="button" title="下一个匹配" disabled>↓</button>
                                 </div>
                             </div>
+                            <section class="reader-v2-annotations" aria-label="书签和笔记">
+                                <div class="reader-v2-annotations-header">
+                                    <strong>书签与笔记</strong>
+                                    <button id="readerV2BookmarkButton" type="button" disabled>☆ 添加书签</button>
+                                </div>
+                                <textarea id="readerV2NoteInput" class="reader-v2-note-input" rows="3" placeholder="在当前位置写笔记…"></textarea>
+                                <div class="reader-v2-note-actions">
+                                    <button id="readerV2NoteSave" type="button">保存笔记</button>
+                                    <button id="readerV2NoteCancel" type="button" hidden>取消</button>
+                                </div>
+                                <div id="readerV2AnnotationsList" class="reader-v2-annotations-list"></div>
+                            </section>
                             <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
                         </aside>
                         <main class="reader-v2-main">
@@ -200,10 +212,12 @@
     <script src="reader-assets.js"></script>
     <script src="reader-find.js"></script>
     <script src="reader-resume.js"></script>
+    <script src="reader-annotations.js"></script>
     <script src="reader-ui-v2.js"></script>
     <script src="speed-reading-adapter.js"></script>
     <script src="playback-controller.js"></script>
     <script src="reader-speed-playback-ui.js"></script>
+    <script src="reader-annotations-ui.js"></script>
     <script src="bookshelf.js"></script>
     <script src="reader-resume-lifecycle.js"></script>
     <script src="app.js"></script>

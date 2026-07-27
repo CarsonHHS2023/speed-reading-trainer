@@ -4,6 +4,6 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check reader-api.js && node --check reader-model.js && node --check reader-presentation.js && node --check reader-assets.js && node --check reader-find.js && node --check reader-resume.js && node --check reader-ui-v2.js && node --check speed-reading-adapter.js && node --check playback-controller.js && node --check reader-speed-playback-ui.js && node --check bookshelf.js && node --check reader-resume-lifecycle.js && node --check app.js"
+    "check": "node --check reader-api.js && node --check reader-model.js && node --check reader-presentation.js && node --check reader-assets.js && node --check reader-find.js && node --check reader-resume.js && node --check reader-annotations.js && node --check reader-ui-v2.js && node --check speed-reading-adapter.js && node --check playback-controller.js && node --check reader-speed-playback-ui.js && node --check reader-annotations-ui.js && node --check bookshelf.js && node --check reader-resume-lifecycle.js && node --check app.js"
   }
 }

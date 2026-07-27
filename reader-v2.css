@@ -5,7 +5,7 @@ body[data-reader-v2-active="1"] #focusModeDisplay,
 body[data-reader-v2-active="1"] #pageModeDisplay,
 body[data-reader-v2-active="1"] #chartDisplay { display: none !important; }
 
-.reader-v2-shell { display: grid; grid-template-columns: minmax(170px, 23%) 1fr; width: 100%; height: 100%; min-height: 0; }
+.reader-v2-shell { display: grid; grid-template-columns: minmax(190px, 25%) 1fr; width: 100%; height: 100%; min-height: 0; }
 .reader-v2-sidebar { min-width: 0; overflow-y: auto; padding: 14px 10px; border-right: 1px solid #d9dce4; background: #fafbfc; }
 body.dark-mode .reader-v2-sidebar { background: #242424; border-right-color: #444; }
 .reader-v2-title { font-size: 1rem; font-weight: 700; color: #222; overflow-wrap: anywhere; }
@@ -25,6 +25,26 @@ body.dark-mode .reader-v2-find-input { background: #303030; color: #eee; border-
 .reader-v2-find-nav button:disabled { opacity: .4; cursor: default; }
 body.dark-mode .reader-v2-find-button, body.dark-mode .reader-v2-find-nav button { background: #303030; color: #ddd; border-color: #555; }
 body.dark-mode .reader-v2-find-nav { color: #aaa; }
+.reader-v2-annotations { margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid #e0e2e8; }
+body.dark-mode .reader-v2-annotations { border-bottom-color: #444; }
+.reader-v2-annotations-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: .74rem; color: #555; }
+.reader-v2-annotations-header button, .reader-v2-note-actions button, .reader-v2-annotation-action { border: 1px solid #cfd3dc; border-radius: 4px; background: #fff; color: #444; cursor: pointer; font-size: .68rem; padding: 4px 6px; }
+.reader-v2-annotations-header button:disabled, .reader-v2-annotation-action:disabled { opacity: .45; cursor: default; }
+body.dark-mode .reader-v2-annotations-header { color: #ddd; }
+body.dark-mode .reader-v2-annotations-header button, body.dark-mode .reader-v2-note-actions button, body.dark-mode .reader-v2-annotation-action { background: #303030; color: #ddd; border-color: #555; }
+.reader-v2-note-input { box-sizing: border-box; width: 100%; min-height: 58px; margin-top: 7px; padding: 6px 7px; resize: vertical; border: 1px solid #cfd3dc; border-radius: 4px; background: #fff; color: #222; font: inherit; font-size: .72rem; line-height: 1.35; }
+.reader-v2-note-input:focus { outline: 2px solid #8798f5; outline-offset: 1px; }
+body.dark-mode .reader-v2-note-input { background: #303030; color: #eee; border-color: #555; }
+.reader-v2-note-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 5px; }
+.reader-v2-annotations-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.reader-v2-annotation-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; align-items: start; }
+.reader-v2-annotation-go { min-width: 0; border: 0; border-radius: 4px; background: transparent; color: #444; padding: 5px 4px; text-align: left; cursor: pointer; font-size: .7rem; line-height: 1.25; overflow-wrap: anywhere; }
+.reader-v2-annotation-go:hover, .reader-v2-annotation-go:focus-visible { background: #e9edff; outline: none; }
+.reader-v2-annotation-item.is-stale .reader-v2-annotation-go { color: #999; }
+body.dark-mode .reader-v2-annotation-go { color: #ddd; }
+body.dark-mode .reader-v2-annotation-go:hover, body.dark-mode .reader-v2-annotation-go:focus-visible { background: #343950; }
+body.dark-mode .reader-v2-annotation-item.is-stale .reader-v2-annotation-go { color: #888; }
+.reader-v2-annotation-empty { margin: 0; padding: 5px 2px; font-size: .68rem; color: #999; }
 .reader-v2-navigation { display: flex; flex-direction: column; gap: 3px; }
 .reader-v2-nav-item { border: 0; border-radius: 4px; background: transparent; color: #444; padding: 6px 7px 6px calc(7px + var(--reader-level, 0) * 10px); text-align: left; cursor: pointer; font-size: .78rem; }
 .reader-v2-nav-item:hover, .reader-v2-nav-item:focus-visible { background: #e9edff; outline: none; }
@@ -70,6 +90,6 @@ body.dark-mode .reader-v2-error { color: #ffaaa1; border-color: #663b38; backgro
 
 @media (max-width: 900px) {
     .reader-v2-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    .reader-v2-sidebar { max-height: 190px; border-right: 0; border-bottom: 1px solid #d9dce4; }
+    .reader-v2-sidebar { max-height: 250px; border-right: 0; border-bottom: 1px solid #d9dce4; }
     .reader-v2-navigation { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 }
