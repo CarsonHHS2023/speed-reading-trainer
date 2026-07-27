@@ -70,6 +70,11 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
     padding-top: 52px;
 }
 
+#focusModeDisplay.active .reader-playback-frame-text,
+#pageModeDisplay.active .reader-playback-frame-text {
+    cursor: pointer;
+}
+
 #focusText,
 #pageText {
     box-sizing: border-box;
