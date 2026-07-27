@@ -92,11 +92,43 @@ test('manual frame blocks until explicit continue', () => {
     scheduler.tick(100);
     assert.equal(controller.state, STATES.MANUAL);
     assert.equal(controller.index, 1);
+    assert.equal(scheduler.tasks.size, 0);
     scheduler.tick(5000);
     assert.equal(controller.index, 1);
     assert.equal(controller.continueManual(), true);
     assert.equal(controller.state, STATES.PLAYING);
     assert.equal(controller.index, 2);
+});
+
+test('consecutive manual frames require one explicit continue per frame', () => {
+    const scheduler = new FakeScheduler();
+    const controller = new PlaybackController({ scheduler });
+    controller.setFrames([timed('f1', 'n1', 100), manual('m1', 'fig'), manual('m2', 'tbl'), timed('f2', 'n2', 100)]);
+    controller.play();
+    scheduler.tick(100);
+    assert.equal(controller.state, STATES.MANUAL);
+    assert.equal(controller.index, 1);
+    controller.continueManual();
+    assert.equal(controller.state, STATES.MANUAL);
+    assert.equal(controller.index, 2);
+    assert.equal(scheduler.tasks.size, 0);
+    controller.continueManual();
+    assert.equal(controller.state, STATES.PLAYING);
+    assert.equal(controller.index, 3);
+    assert.equal(scheduler.tasks.size, 1);
+});
+
+test('seek into a manual frame always lands in manual state without autoplay', () => {
+    const scheduler = new FakeScheduler();
+    const controller = new PlaybackController({ scheduler });
+    controller.setFrames([timed('f1', 'n1', 500), manual('m1', 'fig'), timed('f2', 'n2', 500)]);
+    controller.seek(1 / 3);
+    assert.equal(controller.index, 1);
+    assert.equal(controller.state, STATES.MANUAL);
+    assert.equal(scheduler.tasks.size, 0);
+    controller.play();
+    assert.equal(controller.state, STATES.MANUAL);
+    assert.equal(scheduler.tasks.size, 0);
 });
 
 test('stop resets and seek maps progress to frame index', () => {
