@@ -12,6 +12,13 @@
     ]);
     const DISPLAY_SCOPES = new Set(['block', 'line', 'page']);
     const MIN_FRAME_DURATION_MS = 1000 / 12;
+    const ZERO_UNIT_FRAME_DURATION_MS = 500;
+    const LEXICAL_READING_UNITS = 3;
+    const CLOSING_PUNCTUATION = new Set([
+        ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '>',
+        '，', '。', '；', '：', '！', '？', '％', '）', '】', '》', '〉', '」', '』', '〕', '］', '｝',
+        '、', '…', '—', '”', '’', '」', '』',
+    ]);
 
     function requireModel() {
         if (!Model && typeof require === 'function') Model = require('./reader-model.js');
@@ -23,22 +30,77 @@
         return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(char);
     }
 
+    function codePointLength(text) {
+        return [...String(text || '')].length;
+    }
+
+    function lexicalToken(kind, text) {
+        return {
+            kind,
+            text,
+            reading_units: LEXICAL_READING_UNITS,
+            display_width: codePointLength(text),
+        };
+    }
+
     function tokenizeReadingText(text) {
         const input = String(text || '');
         const tokens = [];
         let i = 0;
         while (i < input.length) {
             const rest = input.slice(i);
-            const english = rest.match(/^[A-Za-z]+(?:['’-][A-Za-z]+)*/u);
-            if (english) {
-                tokens.push({ kind: 'english_word', text: english[0], reading_units: 3, display_width: [...english[0]].length });
-                i += english[0].length;
+
+            const newline = rest.match(/^(?:\r\n|\r|\n)/u);
+            if (newline) {
+                tokens.push({ kind: 'newline', text: newline[0], reading_units: 0, display_width: 0 });
+                i += newline[0].length;
                 continue;
             }
+
+            const horizontalSpace = rest.match(/^[\t\f\v ]+/u);
+            if (horizontalSpace) {
+                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 1 });
+                i += horizontalSpace[0].length;
+                continue;
+            }
+
+            const email = rest.match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/u);
+            if (email) {
+                tokens.push(lexicalToken('latin_lexical', email[0]));
+                i += email[0].length;
+                continue;
+            }
+
+            const url = rest.match(/^(?:https?:\/\/|www\.)[^\s<>]+/iu);
+            if (url) {
+                let value = url[0];
+                while (value.length > 1 && CLOSING_PUNCTUATION.has(value.slice(-1)) && /[.,;:!?，。；：！？]/u.test(value.slice(-1))) {
+                    value = value.slice(0, -1);
+                }
+                tokens.push(lexicalToken('latin_lexical', value));
+                i += value.length;
+                continue;
+            }
+
+            const number = rest.match(/^[+-]?(?:\d{1,4}(?:[-/:]\d{1,4})+(?:[T ]\d{1,2}:\d{2}(?::\d{2})?)?|\d+(?:[.,]\d+)*(?:%|％)?)/u);
+            if (number) {
+                tokens.push(lexicalToken('number', number[0]));
+                i += number[0].length;
+                continue;
+            }
+
+            const latin = rest.match(/^[A-Za-z]+(?:['’\-][A-Za-z]+)*(?:\.[A-Za-z]+\.?)*\.?/u);
+            if (latin) {
+                const value = latin[0];
+                tokens.push(lexicalToken('latin_lexical', value));
+                i += value.length;
+                continue;
+            }
+
             const char = String.fromCodePoint(input.codePointAt(i));
             i += char.length;
             if (/\s/u.test(char)) {
-                tokens.push({ kind: char.includes('\n') || char.includes('\r') ? 'newline' : 'space', text: char, reading_units: 0, display_width: 0 });
+                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 1 });
             } else if (isCjk(char)) {
                 tokens.push({ kind: 'cjk', text: char, reading_units: 1, display_width: 1 });
             } else {
@@ -57,6 +119,10 @@
         if (!Number.isFinite(speed) || speed <= 0) throw new Error('speedPerMinute must be positive');
         const units = Math.max(0, Number(readingUnits) || 0);
         return Math.max(units * 60000 / speed, MIN_FRAME_DURATION_MS);
+    }
+
+    function frameDurationMs(readingUnits, speedPerMinute) {
+        return readingUnits > 0 ? durationMs(readingUnits, speedPerMinute) : ZERO_UNIT_FRAME_DURATION_MS;
     }
 
     function identityForNode(documentView, node) {
@@ -89,14 +155,35 @@
         }).filter((element) => element.kind === 'manual' || TEXT_NODE_TYPES.has(element.node_type));
     }
 
+    function isClosingPunctuation(token) {
+        return token?.kind === 'punctuation' && CLOSING_PUNCTUATION.has(token.text);
+    }
+
+    function trimLineSpaces(line) {
+        while (line.tokens.length && line.tokens[0].kind === 'space') line.tokens.shift();
+        while (line.tokens.length && line.tokens[line.tokens.length - 1].kind === 'space') line.tokens.pop();
+        line.display_width = line.tokens.reduce((sum, token) => sum + token.display_width, 0);
+        line.reading_units = line.tokens.reduce((sum, token) => sum + token.reading_units, 0);
+        return line;
+    }
+
     function appendToken(line, token, lineWidth) {
-        if (token.kind === 'newline') return { accepted: false, forcedBreak: true };
+        if (token.kind === 'newline') return { accepted: false, forcedBreak: true, retry: false };
+        if (token.kind === 'space' && !line.tokens.length) return { accepted: true, ignored: true };
         const projected = line.display_width + token.display_width;
-        if (line.tokens.length && token.display_width > 0 && projected > lineWidth) return { accepted: false, forcedBreak: false };
+        if (line.tokens.length && token.display_width > 0 && projected > lineWidth) {
+            if (isClosingPunctuation(token)) {
+                line.tokens.push(token);
+                line.display_width = projected;
+                line.reading_units += token.reading_units;
+                return { accepted: true, overflowPunctuation: true };
+            }
+            return { accepted: false, forcedBreak: false, retry: true };
+        }
         line.tokens.push(token);
         line.display_width = projected;
         line.reading_units += token.reading_units;
-        return { accepted: true, forcedBreak: false };
+        return { accepted: true };
     }
 
     function tokensToLines(tokens, lineWidth) {
@@ -104,6 +191,7 @@
         const lines = [];
         let line = { tokens: [], display_width: 0, reading_units: 0 };
         const flush = () => {
+            trimLineSpaces(line);
             if (line.tokens.length) lines.push(line);
             line = { tokens: [], display_width: 0, reading_units: 0 };
         };
@@ -111,18 +199,20 @@
             const result = appendToken(line, token, width);
             if (result.accepted) continue;
             flush();
-            if (!result.forcedBreak) {
-                line.tokens.push(token);
-                line.display_width = token.display_width;
-                line.reading_units = token.reading_units;
-            }
+            if (result.forcedBreak) continue;
+            const retry = appendToken(line, token, width);
+            if (!retry.accepted) throw new Error('token must fit an empty line without splitting');
         }
         flush();
         return lines;
     }
 
     function lineText(line) {
-        return line.tokens.map((token) => token.text).join('').trim();
+        return trimLineSpaces({
+            tokens: [...line.tokens],
+            display_width: line.display_width,
+            reading_units: line.reading_units,
+        }).tokens.map((token) => token.text).join('');
     }
 
     function frameId(element, ordinal) {
@@ -130,13 +220,16 @@
     }
 
     function makeTimedFrame(element, ordinal, text, readingUnits, options) {
+        const normalizedText = String(text || '');
+        if (!normalizedText.trim()) return null;
+        const actualUnits = countReadingUnits(normalizedText);
         return {
             frame_id: frameId(element, ordinal),
             kind: 'timed_text',
             node_type: element.node_type,
-            text,
-            reading_units: readingUnits,
-            duration_ms: durationMs(readingUnits, options.speedPerMinute),
+            text: normalizedText,
+            reading_units: actualUnits,
+            duration_ms: frameDurationMs(actualUnits, options.speedPerMinute),
             identity: element.identity,
             frame_ordinal: ordinal,
         };
@@ -160,36 +253,24 @@
         if (!element.text) return [];
         const tokens = tokenizeReadingText(element.text);
         const lines = tokensToLines(tokens, options.lineWidth);
+        if (!lines.length) return [];
         const scope = options.displayScope;
         if (scope === 'line') {
-            return lines.map((line, index) => makeTimedFrame(element, index, lineText(line), line.reading_units, options));
+            return lines.map((line, index) => makeTimedFrame(element, index, lineText(line), line.reading_units, options)).filter(Boolean);
         }
         const maxLines = Math.max(1, Number(options.maxLines) || 20);
-        if (scope === 'page') {
-            const frames = [];
-            for (let i = 0; i < lines.length; i += maxLines) {
-                const group = lines.slice(i, i + maxLines);
-                frames.push(makeTimedFrame(
-                    element,
-                    frames.length,
-                    group.map(lineText).join('\n'),
-                    group.reduce((sum, line) => sum + line.reading_units, 0),
-                    options,
-                ));
-            }
-            return frames;
-        }
-        if (lines.length <= maxLines) return [makeTimedFrame(element, 0, element.text, element.reading_units, options)];
         const frames = [];
-        for (let i = 0; i < lines.length; i += maxLines) {
-            const group = lines.slice(i, i + maxLines);
-            frames.push(makeTimedFrame(
+        const groupSize = scope === 'page' ? maxLines : Math.max(1, Math.min(maxLines, lines.length));
+        for (let i = 0; i < lines.length; i += groupSize) {
+            const group = lines.slice(i, i + groupSize);
+            const frame = makeTimedFrame(
                 element,
                 frames.length,
                 group.map(lineText).join('\n'),
                 group.reduce((sum, line) => sum + line.reading_units, 0),
                 options,
-            ));
+            );
+            if (frame) frames.push(frame);
         }
         return frames;
     }
@@ -210,12 +291,15 @@
 
     return {
         DISPLAY_SCOPES,
+        LEXICAL_READING_UNITS,
         MANUAL_NODE_TYPES,
         MIN_FRAME_DURATION_MS,
+        ZERO_UNIT_FRAME_DURATION_MS,
         buildPlaybackFrames,
         buildReadingElements,
         countReadingUnits,
         durationMs,
+        frameDurationMs,
         tokenizeReadingText,
         tokensToLines,
     };
