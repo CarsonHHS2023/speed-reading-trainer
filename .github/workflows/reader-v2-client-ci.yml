@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, annotation, highlight, and study-context tests
+    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, annotation, highlight, study-context, and Speed Reading MVP acceptance tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -34,6 +34,9 @@ jobs:
 
       - name: Reader v2 StudyContext focused tests
         run: node --test tests/reader-study-context.test.js
+
+      - name: Speed Reading MVP acceptance tests
+        run: node --test tests/speed-reading-mvp-acceptance.test.js
 
       - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation/highlight/study-context tests
         run: npm test
@@ -56,8 +59,12 @@ jobs:
           test -f reader-ui-v2.js
           test -f speed-reading-adapter.js
           test -f playback-controller.js
+          test -f training-session-clock.js
           test -f reader-speed-playback-ui.js
           test -f reader-v2.css
+          test -f tests/fixtures/speed-reading-mvp.js
+          test -f tests/speed-reading-mvp-acceptance.test.js
+          test -f docs/speed-reading-mvp-acceptance.md
           test ! -e reader-bookshelf-cutover.js
           grep -q 'readerV2Display' index.html
           grep -q 'reader-assets.js' index.html
@@ -80,6 +87,7 @@ jobs:
           grep -q 'readerV2StudyContextPreview' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
+          grep -q 'training-session-clock.js' index.html
           grep -q 'reader-speed-playback-ui.js' index.html
           ! grep -q 'reader-bookshelf-cutover.js' index.html
           ! grep -q '/api/reader/v1' reader-api.js
