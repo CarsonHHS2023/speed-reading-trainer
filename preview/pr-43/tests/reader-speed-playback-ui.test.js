@@ -121,6 +121,7 @@ test('Reader v2 playback start loads remaining nodes, builds frames, and enables
 
 test('reading-surface clicks do not pause playback; explicit playback controls own timing changes', () => {
     const documentObject = fakeDocument();
+    documentObject.elements.set('speedReadingPause', element());
     const reader = fakeReader();
     const playback = fakePlayback();
     playback.frames = [{ frame_id: 'f1', kind: 'timed_text', identity: { node_id: 'n1' } }];
