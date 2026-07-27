@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, and annotation tests
+    name: Reader v2 client, presentation, playback, asset, cutover, find, resume, annotation, and highlight tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,7 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation tests
+      - name: Reader v2 client/presentation/playback/asset/cutover/find/resume/annotation/highlight tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -45,6 +45,8 @@ jobs:
           test -f reader-resume.js
           test -f reader-annotations.js
           test -f reader-annotations-ui.js
+          test -f reader-highlights.js
+          test -f reader-highlights-ui.js
           test -f reader-resume-lifecycle.js
           test -f reader-ui-v2.js
           test -f speed-reading-adapter.js
@@ -58,11 +60,15 @@ jobs:
           grep -q 'reader-resume.js' index.html
           grep -q 'reader-annotations.js' index.html
           grep -q 'reader-annotations-ui.js' index.html
+          grep -q 'reader-highlights.js' index.html
+          grep -q 'reader-highlights-ui.js' index.html
           grep -q 'reader-resume-lifecycle.js' index.html
           grep -q 'readerV2FindInput' index.html
           grep -q 'readerV2AnnotationsList' index.html
           grep -q 'readerV2BookmarkButton' index.html
           grep -q 'readerV2NoteInput' index.html
+          grep -q 'readerV2HighlightCreate' index.html
+          grep -q 'readerV2HighlightsList' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
           grep -q 'reader-speed-playback-ui.js' index.html
@@ -97,6 +103,23 @@ jobs:
           ! grep -q 'tokenizeContent' reader-annotations-ui.js
           ! grep -q 'page_id' reader-annotations-ui.js
           ! grep -q 'presentation_id' reader-annotations-ui.js
+          ! grep -q '/api/reader/v1' reader-highlights.js
+          ! grep -q '/api/v1/books/' reader-highlights.js
+          ! grep -q 'cachedContentBlob' reader-highlights.js
+          ! grep -q 'state.content' reader-highlights.js
+          ! grep -q 'tokenizeContent' reader-highlights.js
+          ! grep -q 'page_id' reader-highlights.js
+          ! grep -q 'presentation_id' reader-highlights.js
+          ! grep -q 'canonical_text' reader-highlights.js
+          ! grep -q 'signed_url' reader-highlights.js
+          ! grep -q 'storage_ref' reader-highlights.js
+          ! grep -q '/api/reader/v1' reader-highlights-ui.js
+          ! grep -q '/api/v1/books/' reader-highlights-ui.js
+          ! grep -q 'cachedContentBlob' reader-highlights-ui.js
+          ! grep -q 'state.content' reader-highlights-ui.js
+          ! grep -q 'tokenizeContent' reader-highlights-ui.js
+          ! grep -q 'page_id' reader-highlights-ui.js
+          ! grep -q 'presentation_id' reader-highlights-ui.js
           ! grep -q '/api/v1/images/' reader-assets.js
           ! grep -q 'artifact_ref' reader-assets.js
           ! grep -q 'storage_ref' reader-assets.js
