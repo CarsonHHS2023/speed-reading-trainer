@@ -10,6 +10,10 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, Adapter, PlaybackModule, Assets) {
     'use strict';
 
+    const ACTIVE_STATES = new Set(['playing', 'paused', 'manual']);
+    const DISPLAY_SCOPES = new Set(['block', 'line', 'page']);
+    const READING_MODES = new Set(['focus', 'moving']);
+
     function resolveDeps() {
         if (typeof require === 'function') {
             ReaderUI = ReaderUI || require('./reader-ui-v2.js');
@@ -44,22 +48,134 @@
             return Boolean(this.document?.body?.dataset?.readerV2Active === '1' && this.reader?.openResponse);
         }
 
+        displayScope() {
+            const value = this.element('displayMode')?.value || 'line';
+            return DISPLAY_SCOPES.has(value) ? value : (value === 'page' ? 'page' : 'line');
+        }
+
+        readingMode() {
+            const value = this.element('trainingMode')?.value || 'focus';
+            if (READING_MODES.has(value)) return value;
+            return value === 'scroll' ? 'moving' : 'focus';
+        }
+
         adapterOptions() {
-            const displayMode = this.element('displayMode')?.value || 'focus';
+            const scope = this.displayScope();
             return {
-                displayScope: displayMode === 'page' ? 'page' : 'line',
+                displayScope: scope,
                 lineWidth: Number(this.element('widthInput')?.value || 35),
-                maxLines: displayMode === 'page'
+                maxLines: scope === 'page'
                     ? Number(this.element('maxLinesInput')?.value || 20)
                     : Number(this.element('linesInput')?.value || 3),
                 speedPerMinute: Number(this.element('speedInput')?.value || 5000),
             };
         }
 
+        ensureStylesheet() {
+            if (!this.document?.head || this.element('speedReadingV2Styles')) return;
+            const link = this.document.createElement('link');
+            link.id = 'speedReadingV2Styles';
+            link.rel = 'stylesheet';
+            link.href = 'speed-reading-v2.css';
+            this.document.head.appendChild(link);
+        }
+
+        configureModeControls() {
+            const scope = this.element('displayMode');
+            if (scope && scope.dataset.readerV2Configured !== '1') {
+                const previous = scope.value;
+                scope.textContent = '';
+                for (const [value, label] of [['block', '段落'], ['line', '行'], ['page', '页']]) {
+                    const option = this.document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    scope.appendChild(option);
+                }
+                scope.value = previous === 'page' ? 'page' : 'line';
+                scope.dataset.readerV2Configured = '1';
+                const label = scope.closest?.('.setting-grid-cell')?.querySelector?.('label');
+                if (label) label.textContent = '显示范围：';
+            }
+            const mode = this.element('trainingMode');
+            if (mode && mode.dataset.readerV2Configured !== '1') {
+                const previous = mode.value;
+                mode.textContent = '';
+                for (const [value, label] of [['focus', '焦点式'], ['moving', '移动式']]) {
+                    const option = this.document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    mode.appendChild(option);
+                }
+                mode.value = previous === 'scroll' ? 'moving' : 'focus';
+                mode.dataset.readerV2Configured = '1';
+                const label = mode.closest?.('.setting-grid-cell')?.querySelector?.('label');
+                if (label) label.textContent = '阅读模式：';
+            }
+            this.updateSettingsVisibility();
+        }
+
+        updateSettingsVisibility() {
+            const scope = this.displayScope();
+            const pageSettings = this.element('pageSettings');
+            const focusSettings = this.element('focusSettings');
+            if (pageSettings) pageSettings.style.display = scope === 'page' ? '' : 'none';
+            if (focusSettings) focusSettings.style.display = scope === 'page' ? 'none' : '';
+        }
+
+        ensureToolbar() {
+            if (!this.document || this.element('speedReadingV2Toolbar')) return;
+            const panel = this.document.querySelector?.('.reading-panel');
+            if (!panel) return;
+            const toolbar = this.document.createElement('div');
+            toolbar.id = 'speedReadingV2Toolbar';
+            toolbar.className = 'speed-reading-v2-toolbar';
+            toolbar.setAttribute('aria-label', '速度阅读控制');
+            const controls = [
+                ['speedReadingPrev', '⏮', '上一帧'],
+                ['speedReadingPause', '⏸', '暂停/继续'],
+                ['speedReadingNext', '⏭', '下一帧'],
+                ['speedReadingStop', '⏹', '停止'],
+            ];
+            for (const [id, text, title] of controls) {
+                const button = this.document.createElement('button');
+                button.id = id;
+                button.type = 'button';
+                button.textContent = text;
+                button.title = title;
+                button.disabled = true;
+                toolbar.appendChild(button);
+            }
+            const state = this.document.createElement('span');
+            state.id = 'speedReadingState';
+            state.className = 'speed-reading-v2-state';
+            state.setAttribute('aria-live', 'polite');
+            state.textContent = '未开始';
+            toolbar.appendChild(state);
+            const hint = this.document.createElement('span');
+            hint.className = 'speed-reading-v2-shortcuts';
+            hint.textContent = 'Space 暂停/继续 · ←/→ 上一帧/下一帧 · Esc 停止';
+            toolbar.appendChild(hint);
+            panel.prepend(toolbar);
+        }
+
+        applyVisualSettings() {
+            if (!this.document) return;
+            const panel = this.document.querySelector?.('.reading-panel');
+            if (!panel) return;
+            const fontSize = Math.max(12, Math.min(72, Number(this.element('fontInput')?.value || 28)));
+            const lineWidth = Math.max(5, Math.min(80, Number(this.element('widthInput')?.value || 35)));
+            const weight = this.element('fontWeight')?.value === 'bold' ? '700' : '400';
+            panel.style.setProperty('--speed-reading-font-size', `${fontSize}px`);
+            panel.style.setProperty('--speed-reading-measure', `${lineWidth}ch`);
+            panel.style.setProperty('--speed-reading-font-weight', weight);
+            panel.dataset.speedReadingMode = this.readingMode();
+            panel.dataset.speedReadingScope = this.displayScope();
+        }
+
         refreshFrames(options = {}) {
             if (!this.reader?.openResponse) {
                 this.playback.setFrames([], { preserveIdentity: false });
-                this.updateStartButton();
+                this.updateControls();
                 return [];
             }
             const built = this.adapter.buildPlaybackFrames(
@@ -68,7 +184,7 @@
                 this.adapterOptions(),
             );
             this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
-            this.updateStartButton();
+            this.updateControls();
             return built.frames;
         }
 
@@ -84,8 +200,10 @@
 
         restoreResumeFrame() {
             const record = this.reader?.resumeRecord;
-            if (!record?.frame_id || !this.playback.frames.length) return false;
-            let index = this.playback.frames.findIndex((frame) => frame.frame_id === record.frame_id);
+            if ((!record?.frame_id && record?.frame_ordinal == null) || !this.playback.frames.length) return false;
+            let index = record.frame_id
+                ? this.playback.frames.findIndex((frame) => frame.frame_id === record.frame_id)
+                : -1;
             if (index < 0 && record.node_id) {
                 index = this.playback.frames.findIndex((frame) => (
                     frame?.identity?.node_id === record.node_id
@@ -106,18 +224,37 @@
             if (!this.isReaderActive()) return false;
             await this.ensureAllContent();
             this.refreshFrames();
+            this.applyVisualSettings();
             return this.playback.play();
         }
 
         stop() {
+            this.persistResume();
             this.playback.stop();
             this.showReaderSurface();
         }
 
         togglePause() {
-            if (!this.isReaderActive()) return;
-            if (this.playback.state === 'playing') this.playback.pause();
-            else if (this.playback.state === 'paused') this.playback.resume();
+            if (!this.isReaderActive()) return false;
+            if (this.playback.state === 'playing') return this.playback.pause();
+            if (this.playback.state === 'paused') return this.playback.resume();
+            if (this.playback.state === 'manual') return this.playback.continueManual();
+            return false;
+        }
+
+        previousFrame() {
+            if (!this.isReaderActive() || !this.playback.frames.length) return null;
+            return this.playback.previous();
+        }
+
+        nextFrame() {
+            if (!this.isReaderActive() || !this.playback.frames.length) return null;
+            if (this.playback.state === 'manual') {
+                this.playback.continueManual();
+                if (this.playback.state === 'playing') this.playback.pause();
+                return this.playback.currentFrame();
+            }
+            return this.playback.next();
         }
 
         showReaderSurface() {
@@ -136,11 +273,12 @@
             const focus = this.element('focusModeDisplay');
             const page = this.element('pageModeDisplay');
             const chart = this.element('chartDisplay');
-            const usePage = (this.element('displayMode')?.value || 'focus') === 'page';
+            const usePage = this.displayScope() === 'page';
             if (reader) reader.classList.remove('active');
             if (chart) chart.classList.remove('active');
             if (focus) focus.classList.toggle('active', !usePage);
             if (page) page.classList.toggle('active', usePage);
+            this.applyVisualSettings();
             this.renderFrame(frame, usePage ? this.element('pageText') : this.element('focusText'));
         }
 
@@ -193,6 +331,15 @@
             target.appendChild(text);
         }
 
+        stateLabel(snapshot) {
+            if (!snapshot.frame_count) return '无可播放内容';
+            if (snapshot.state === 'playing') return '播放中';
+            if (snapshot.state === 'paused') return '已暂停';
+            if (snapshot.state === 'manual') return '等待继续';
+            if (snapshot.state === 'completed') return '已完成';
+            return '未开始';
+        }
+
         renderSnapshot(snapshot) {
             const current = this.element('currentPos');
             const total = this.element('totalWords');
@@ -205,8 +352,8 @@
                 slider.value = snapshot.frame_count <= 1 ? '0' : String(Math.round((snapshot.index / denominator) * max));
             }
             this.persistResume(snapshot);
-            this.updateStartButton(snapshot);
-            if (snapshot.state === 'playing' || snapshot.state === 'paused' || snapshot.state === 'manual') {
+            this.updateControls(snapshot);
+            if (ACTIVE_STATES.has(snapshot.state)) {
                 this.showPlaybackSurface(snapshot.frame);
             } else {
                 this.showReaderSurface();
@@ -214,15 +361,30 @@
             }
         }
 
-        updateStartButton(snapshot = this.playback.snapshot()) {
+        updateControls(snapshot = this.playback.snapshot()) {
             const button = this.element('readingToggleBtn');
-            if (!button) return;
             const playable = this.isReaderActive() && snapshot.frame_count > 0;
-            button.disabled = !playable;
-            const active = ['playing', 'paused', 'manual'].includes(snapshot.state);
-            button.textContent = active ? '⏹' : '▶';
-            button.classList.toggle('active', active);
-            button.title = active ? '停止速度阅读' : '开始速度阅读';
+            const active = ACTIVE_STATES.has(snapshot.state);
+            if (button) {
+                button.disabled = !playable;
+                button.textContent = active ? '⏹' : '▶';
+                button.classList.toggle('active', active);
+                button.title = active ? '停止速度阅读' : '开始速度阅读';
+            }
+            const prev = this.element('speedReadingPrev');
+            const pause = this.element('speedReadingPause');
+            const next = this.element('speedReadingNext');
+            const stop = this.element('speedReadingStop');
+            const state = this.element('speedReadingState');
+            if (prev) prev.disabled = !playable || snapshot.index <= 0;
+            if (next) next.disabled = !playable || snapshot.index >= snapshot.frame_count - 1;
+            if (pause) {
+                pause.disabled = !active;
+                pause.textContent = snapshot.state === 'playing' ? '⏸' : (snapshot.state === 'manual' ? '▶' : '▶');
+                pause.title = snapshot.state === 'manual' ? '继续' : (snapshot.state === 'playing' ? '暂停' : '继续');
+            }
+            if (stop) stop.disabled = !active && snapshot.state !== 'completed';
+            if (state) state.textContent = `${this.stateLabel(snapshot)} · ${snapshot.frame_count ? snapshot.index + 1 : 0}/${snapshot.frame_count}`;
         }
 
         seekFromSlider() {
@@ -232,41 +394,75 @@
             this.playback.seek(Number(slider.value || 0) / max);
         }
 
-        onSettingChanged() {
+        onSettingChanged(options = {}) {
             if (!this.isReaderActive()) return;
-            this.refreshFrames({ preserveIdentity: true });
+            this.applyVisualSettings();
+            if (options.frames !== false) this.refreshFrames({ preserveIdentity: true });
         }
 
         onDisplayModeChanged(event) {
             if (!this.isReaderActive()) return;
             event?.stopImmediatePropagation?.();
+            this.updateSettingsVisibility();
             this.reader?.reflowAndRender?.();
-            this.refreshFrames({ preserveIdentity: true });
-            if (!['playing', 'paused', 'manual'].includes(this.playback.state)) this.showReaderSurface();
+            this.onSettingChanged();
+            if (!ACTIVE_STATES.has(this.playback.state)) this.showReaderSurface();
+        }
+
+        isEditableTarget(target) {
+            const tag = String(target?.tagName || '').toLowerCase();
+            return ['input', 'textarea', 'select', 'button'].includes(tag) || Boolean(target?.isContentEditable);
+        }
+
+        onKeyDown(event) {
+            if (!this.isReaderActive() || this.isEditableTarget(event.target)) return;
+            if (event.code === 'Space') {
+                event.preventDefault();
+                if (this.playback.state === 'idle' || this.playback.state === 'completed') {
+                    this.start().catch((error) => this.reader?.renderError?.(error));
+                } else this.togglePause();
+            } else if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                this.previousFrame();
+            } else if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                this.nextFrame();
+            } else if (event.key === 'Escape' && ACTIVE_STATES.has(this.playback.state)) {
+                event.preventDefault();
+                this.stop();
+            }
         }
 
         bind() {
             if (this.bound || !this.document) return;
             this.bound = true;
+            this.ensureStylesheet();
+            this.configureModeControls();
+            this.ensureToolbar();
+            this.applyVisualSettings();
+
             const start = this.element('readingToggleBtn');
             start?.addEventListener('click', (event) => {
                 if (!this.isReaderActive()) return;
                 event.preventDefault();
                 event.stopImmediatePropagation();
-                const active = ['playing', 'paused', 'manual'].includes(this.playback.state);
-                if (active) this.stop();
+                if (ACTIVE_STATES.has(this.playback.state)) this.stop();
                 else this.start().catch((error) => this.reader?.renderError?.(error));
             }, true);
 
             for (const id of ['focusModeDisplay', 'pageModeDisplay']) {
                 this.element(id)?.addEventListener('click', (event) => {
-                    if (!this.isReaderActive()) return;
-                    if (!['playing', 'paused'].includes(this.playback.state)) return;
+                    if (!this.isReaderActive() || !['playing', 'paused'].includes(this.playback.state)) return;
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     this.togglePause();
                 }, true);
             }
+
+            this.element('speedReadingPrev')?.addEventListener('click', () => this.previousFrame());
+            this.element('speedReadingPause')?.addEventListener('click', () => this.togglePause());
+            this.element('speedReadingNext')?.addEventListener('click', () => this.nextFrame());
+            this.element('speedReadingStop')?.addEventListener('click', () => this.stop());
 
             this.element('progressSlider')?.addEventListener('input', (event) => {
                 if (!this.isReaderActive()) return;
@@ -278,11 +474,29 @@
             displayMode?.addEventListener('input', (event) => this.onDisplayModeChanged(event), true);
             displayMode?.addEventListener('change', (event) => this.onDisplayModeChanged(event), true);
 
+            const trainingMode = this.element('trainingMode');
+            trainingMode?.addEventListener('input', (event) => {
+                event.stopImmediatePropagation();
+                this.onSettingChanged({ frames: false });
+                if (ACTIVE_STATES.has(this.playback.state)) this.showPlaybackSurface(this.playback.currentFrame());
+            }, true);
+            trainingMode?.addEventListener('change', (event) => {
+                event.stopImmediatePropagation();
+                this.onSettingChanged({ frames: false });
+            }, true);
+
             for (const id of ['speedInput', 'speedSlider', 'widthInput', 'widthSlider', 'linesInput', 'linesSlider', 'maxLinesInput', 'maxLinesSlider']) {
                 const el = this.element(id);
                 el?.addEventListener('input', () => this.onSettingChanged());
                 el?.addEventListener('change', () => this.onSettingChanged());
             }
+            for (const id of ['fontInput', 'fontSlider', 'fontWeight']) {
+                const el = this.element(id);
+                el?.addEventListener('input', () => this.onSettingChanged({ frames: false }));
+                el?.addEventListener('change', () => this.onSettingChanged({ frames: false }));
+            }
+            this.document.addEventListener('keydown', (event) => this.onKeyDown(event));
+            this.updateControls();
         }
 
         patchReaderOpenBook() {
