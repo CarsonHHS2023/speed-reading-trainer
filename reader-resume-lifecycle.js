@@ -15,6 +15,7 @@
                 if (!stillExists) {
                     root.ReaderUIV2?.getDefaultController?.().clearResume?.(bookId);
                     root.ReaderAnnotationsUIV2?.getDefaultController?.().clearDocument?.(bookId);
+                    root.ReaderHighlightsUIV2?.getDefaultController?.().clearDocument?.(bookId);
                 }
             };
         }
