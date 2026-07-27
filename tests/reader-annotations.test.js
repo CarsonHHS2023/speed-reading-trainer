@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Annotations = require('../reader-annotations.js');
+const AnnotationUI = require('../reader-annotations-ui.js');
 
 function memoryStorage() {
     const map = new Map();
@@ -84,7 +85,48 @@ test('malformed and old storage payloads fail closed', () => {
     assert.deepEqual(store.list('doc-1'), []);
 });
 
-test('annotation UI source navigates through Reader v2 loading and does not use legacy content identity', () => {
+test('annotation navigation loads a later Reader v2 node before navigating', async () => {
+    const calls = [];
+    const fakeReader = {
+        openResponse: documentView,
+        documentRef: 'doc-1',
+        async ensureNodeLoaded(nodeId) {
+            calls.push(['load', nodeId]);
+            return { node_id: nodeId, location: { ...location, node_id: nodeId } };
+        },
+        navigateTo(target) { calls.push(['navigate', target.node_id]); },
+        setStatus() {},
+    };
+    const controller = new AnnotationUI.ReaderAnnotationUIControllerV2({
+        readerController: fakeReader,
+        documentObject: { getElementById: () => null },
+        storage: memoryStorage(),
+    });
+    const record = Annotations.recordForLocation(documentView, { ...location, node_id: 'later-node' }, { kind: 'bookmark', now: 100 });
+    assert.equal(await controller.navigate(record), true);
+    assert.deepEqual(calls, [['load', 'later-node'], ['navigate', 'later-node']]);
+});
+
+test('stale candidate annotation never loads or guesses a target', async () => {
+    let loaded = false;
+    const fakeReader = {
+        openResponse: { ...documentView, candidate_id: 'cand-2' },
+        documentRef: 'doc-1',
+        async ensureNodeLoaded() { loaded = true; return null; },
+        navigateTo() { throw new Error('must not navigate'); },
+        setStatus() {},
+    };
+    const controller = new AnnotationUI.ReaderAnnotationUIControllerV2({
+        readerController: fakeReader,
+        documentObject: { getElementById: () => null },
+        storage: memoryStorage(),
+    });
+    const record = Annotations.recordForLocation(documentView, location, { kind: 'bookmark', now: 100 });
+    assert.equal(await controller.navigate(record), false);
+    assert.equal(loaded, false);
+});
+
+test('annotation UI source uses Reader v2 navigation only', () => {
     const source = fs.readFileSync(require.resolve('../reader-annotations-ui.js'), 'utf8');
     assert.match(source, /ensureNodeLoaded/);
     assert.match(source, /navigateTo/);
@@ -92,6 +134,12 @@ test('annotation UI source navigates through Reader v2 loading and does not use 
     for (const forbidden of ['/api/reader/v1', '/api/v1/books/', 'cachedContentBlob', 'state.content', 'tokenizeContent(', 'imageMarkerMap', 'page_id', 'presentation_id']) {
         assert.equal(source.includes(forbidden), false, forbidden);
     }
+});
+
+test('book deletion lifecycle clears both resume and annotation local state', () => {
+    const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
+    assert.match(source, /clearResume/);
+    assert.match(source, /clearDocument/);
 });
 
 test('annotation store source persists only Reader-safe identity plus user note text', () => {
