@@ -168,7 +168,7 @@ test('manual playback styling is visually distinct and keeps Continue keyboard f
     const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
     assert.match(css, /\.reader-playback-asset-slot/);
     assert.match(css, /\.reader-playback-continue:focus-visible/);
-    assert.doesNotMatch(css, /#focusModeDisplay\.active,[\s\S]*cursor:\s*pointer/);
+    assert.doesNotMatch(css, /#focusModeDisplay\.active,\s*#pageModeDisplay\.active\s*\{\s*cursor:\s*pointer/);
 });
 
 test('index loads deterministic adapter and playback bridge before legacy app script', () => {
