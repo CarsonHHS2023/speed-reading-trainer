@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, asset, and cutover tests
+    name: Reader v2 client, presentation, playback, asset, cutover, and find tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,7 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/playback/asset/cutover tests
+      - name: Reader v2 client/presentation/playback/asset/cutover/find tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -41,6 +41,7 @@ jobs:
           test -f reader-model.js
           test -f reader-presentation.js
           test -f reader-assets.js
+          test -f reader-find.js
           test -f reader-ui-v2.js
           test -f speed-reading-adapter.js
           test -f playback-controller.js
@@ -49,12 +50,21 @@ jobs:
           test ! -e reader-bookshelf-cutover.js
           grep -q 'readerV2Display' index.html
           grep -q 'reader-assets.js' index.html
+          grep -q 'reader-find.js' index.html
+          grep -q 'readerV2FindInput' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
           grep -q 'reader-speed-playback-ui.js' index.html
           ! grep -q 'reader-bookshelf-cutover.js' index.html
           ! grep -q '/api/reader/v1' reader-api.js
           ! grep -q '/api/v1/books/' reader-api.js
+          ! grep -q '/api/v1/books/' reader-find.js
+          ! grep -q '/api/reader/v1' reader-find.js
+          ! grep -q 'cachedContentBlob' reader-find.js
+          ! grep -q 'state.content' reader-find.js
+          ! grep -q 'tokenizeContent' reader-find.js
+          ! grep -q 'page_id' reader-find.js
+          ! grep -q 'presentation_id' reader-find.js
           ! grep -q '/api/v1/images/' reader-assets.js
           ! grep -q 'artifact_ref' reader-assets.js
           ! grep -q 'storage_ref' reader-assets.js

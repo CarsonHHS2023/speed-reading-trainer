@@ -26,6 +26,7 @@ class FakeElement {
   }
   appendChild(child) { this.children.push(child); return child; }
   removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; }
+  replaceChildren(...children) { this.children = children; }
   get firstChild() { return this.children[0] || null; }
   addEventListener() {}
   scrollIntoView() {}
@@ -40,6 +41,7 @@ class FakeDocument {
     const ids = [
       'readerV2Display', 'focusModeDisplay', 'pageModeDisplay', 'chartDisplay', 'readingToggleBtn',
       'readerV2Status', 'readerV2Navigation', 'readerV2Pages', 'readerV2LoadMore', 'readerV2Title', 'readerV2Meta',
+      'readerV2FindInput', 'readerV2FindButton', 'readerV2FindPrev', 'readerV2FindNext', 'readerV2FindCount',
       'widthInput', 'maxLinesInput', 'fontInput', 'widthSlider', 'maxLinesSlider', 'fontSlider',
     ];
     for (const id of ids) this.map.set(id, new FakeElement());
@@ -67,9 +69,8 @@ function identity(extra = {}) {
   };
 }
 
-test('Reader v2 controller opens, navigates, and continues by node order', async () => {
-  const calls = [];
-  const api = {
+function makeApi(calls = []) {
+  return {
     async open(documentRef) {
       calls.push(['open', documentRef]);
       return identity({
@@ -91,14 +92,18 @@ test('Reader v2 controller opens, navigates, and continues by node order', async
         });
       }
       return identity({
-        nodes: [{ node_id: 'n1', node_type: 'paragraph', order: 1, text: 'Body', content_state: 'ready', source_unit_ids: ['f1'], location: { node_id: 'n1', source_unit_id: 'f1' } }],
+        nodes: [{ node_id: 'n1', node_type: 'paragraph', order: 1, text: 'Body has Needle and needle.', content_state: 'ready', source_unit_ids: ['f1'], location: { node_id: 'n1', source_unit_id: 'f1', source_anchor: { kind: 'text_span', source_unit_id: 'f1', start: 10, end: 37 } } }],
         has_more: false,
         next_node_order: null,
       });
     },
   };
+}
+
+test('Reader v2 controller opens, navigates, and continues by node order', async () => {
+  const calls = [];
   const documentObject = new FakeDocument();
-  const controller = new ReaderV2Controller({ api, documentObject });
+  const controller = new ReaderV2Controller({ api: makeApi(calls), documentObject });
 
   await controller.openBook({ id: 'doc-1', name: 'Demo' });
   assert.equal(documentObject.body.dataset.readerV2Active, '1');
@@ -112,6 +117,41 @@ test('Reader v2 controller opens, navigates, and continues by node order', async
     ['content', 'doc-1', 0, 'candidate-1'],
     ['content', 'doc-1', 1, 'candidate-1'],
   ]);
+});
+
+test('Reader v2 find loads later semantic chunks and keeps stable candidate/node identity', async () => {
+  const calls = [];
+  const documentObject = new FakeDocument();
+  const controller = new ReaderV2Controller({ api: makeApi(calls), documentObject });
+  await controller.openBook({ id: 'doc-1', name: 'Demo' });
+
+  const results = await controller.runFind('needle');
+  assert.equal(controller.hasMore, false);
+  assert.equal(results.length, 2);
+  assert.deepEqual(results.map((item) => item.matched_text), ['Needle', 'needle']);
+  assert.ok(results.every((item) => item.identity.candidate_id === 'candidate-1'));
+  assert.ok(results.every((item) => item.identity.node_id === 'n1'));
+  assert.equal(documentObject.getElementById('readerV2FindCount').textContent, '1 / 2');
+
+  controller.navigateFind(1);
+  assert.equal(controller.findIndex, 1);
+  assert.equal(documentObject.getElementById('readerV2FindCount').textContent, '2 / 2');
+
+  controller.openResponse = { ...controller.openResponse, candidate_id: 'candidate-2' };
+  controller.navigateFind(1);
+  assert.equal(controller.findResults.length, 0);
+});
+
+test('Reader v2 active find result renders a mark without rewriting node text', async () => {
+  const documentObject = new FakeDocument();
+  const controller = new ReaderV2Controller({ api: makeApi([]), documentObject });
+  await controller.openBook({ id: 'doc-1', name: 'Demo' });
+  await controller.runFind('needle');
+  const node = controller.nodes.find((item) => item.node_id === 'n1');
+  const rendered = controller.renderNode(node);
+  const textContainer = rendered.children[0];
+  assert.equal(textContainer.children.some((child) => child.tagName === 'MARK' && child.textContent === 'Needle'), true);
+  assert.equal(node.text, 'Body has Needle and needle.');
 });
 
 test('Reader v2 UI exposes bounded selection errors', () => {
@@ -142,11 +182,13 @@ test('deleting the active book clears Reader v2 instead of legacy playback state
   assert.doesNotMatch(deletePath, /cachedContentBlob|state\.content|imageMarkerMap|tokenizeContent/);
 });
 
-test('main HTML mounts Reader v2 directly and no longer loads a bookshelf cutover shim', () => {
+test('main HTML mounts Reader v2 find before UI and has no cutover shim', () => {
   const html = fs.readFileSync('index.html', 'utf8');
-  for (const file of ['reader-api.js', 'reader-model.js', 'reader-presentation.js', 'reader-assets.js', 'reader-ui-v2.js', 'bookshelf.js']) {
+  for (const file of ['reader-api.js', 'reader-model.js', 'reader-presentation.js', 'reader-assets.js', 'reader-find.js', 'reader-ui-v2.js', 'bookshelf.js']) {
     assert.match(html, new RegExp(file.replace('.', '\\.')));
   }
+  assert.ok(html.indexOf('reader-find.js') < html.indexOf('reader-ui-v2.js'));
+  assert.match(html, /id="readerV2FindInput"/);
   assert.match(html, /id="readerV2Display"/);
   assert.doesNotMatch(html, /reader-bookshelf-cutover\.js|readerModeToggle|Reader\s*β/);
   assert.equal(fs.existsSync('reader-bookshelf-cutover.js'), false);
