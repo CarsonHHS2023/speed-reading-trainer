@@ -165,6 +165,27 @@
             return frame;
         }
 
+        moveBy(delta) {
+            this.cancelTimer();
+            if (!this.frames.length) return null;
+            const amount = Number.isFinite(Number(delta)) ? Math.trunc(Number(delta)) : 0;
+            const nextIndex = Math.max(0, Math.min(this.frames.length - 1, this.index + amount));
+            this.index = nextIndex;
+            this.remainingMs = null;
+            const frame = this.currentFrame();
+            this.state = frame?.kind === 'manual' ? STATES.MANUAL : STATES.PAUSED;
+            this.emit();
+            return frame;
+        }
+
+        previous() {
+            return this.moveBy(-1);
+        }
+
+        next() {
+            return this.moveBy(1);
+        }
+
         continueManual() {
             if (this.state !== STATES.MANUAL) return false;
             return this.advance();
