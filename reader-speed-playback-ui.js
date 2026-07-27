@@ -72,6 +72,31 @@
             return built.frames;
         }
 
+        persistResume(snapshot = this.playback.snapshot()) {
+            const frame = snapshot?.frame;
+            if (!frame?.identity?.node_id || !this.reader?.openResponse) return null;
+            if (!['playing', 'paused', 'manual', 'completed'].includes(snapshot.state)) return null;
+            return this.reader.persistLocation?.(frame.identity, {
+                frameId: frame.frame_id || null,
+                frameOrdinal: Number.isInteger(frame.frame_ordinal) ? frame.frame_ordinal : null,
+            }) || null;
+        }
+
+        restoreResumeFrame() {
+            const record = this.reader?.resumeRecord;
+            if (!record?.frame_id || !this.playback.frames.length) return false;
+            let index = this.playback.frames.findIndex((frame) => frame.frame_id === record.frame_id);
+            if (index < 0 && record.node_id) {
+                index = this.playback.frames.findIndex((frame) => (
+                    frame?.identity?.node_id === record.node_id
+                    && (record.frame_ordinal == null || frame.frame_ordinal === record.frame_ordinal)
+                ));
+            }
+            if (index < 0) return false;
+            this.playback.seek(index / this.playback.frames.length);
+            return true;
+        }
+
         async ensureAllContent() {
             while (this.reader?.hasMore) await this.reader.loadMore();
             return this.reader?.nodes || [];
@@ -179,6 +204,7 @@
                 const denominator = Math.max(1, snapshot.frame_count - 1);
                 slider.value = snapshot.frame_count <= 1 ? '0' : String(Math.round((snapshot.index / denominator) * max));
             }
+            this.persistResume(snapshot);
             this.updateStartButton(snapshot);
             if (snapshot.state === 'playing' || snapshot.state === 'paused' || snapshot.state === 'manual') {
                 this.showPlaybackSurface(snapshot.frame);
@@ -266,10 +292,12 @@
             if (typeof original !== 'function') return;
             const self = this;
             ReaderUI.openBook = async function openBookWithPlayback(book) {
+                self.persistResume();
                 self.playback.stop();
                 const result = await original(book);
                 self.reader = ReaderUI.getDefaultController();
                 self.refreshFrames({ preserveIdentity: false });
+                self.restoreResumeFrame();
                 return result;
             };
         }

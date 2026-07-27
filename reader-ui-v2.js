@@ -5,10 +5,11 @@
         root && root.ReaderPresentationV2,
         root && root.ReaderAssetRendererV2,
         root && root.ReaderFindV2,
+        root && root.ReaderResumeV2,
     );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderUIV2 = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation, Assets, Find) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation, Assets, Find, Resume) {
     'use strict';
 
     const NODE_LIMIT = 150;
@@ -21,9 +22,10 @@
             Presentation = Presentation || require('./reader-presentation.js');
             Assets = Assets || require('./reader-assets.js');
             Find = Find || require('./reader-find.js');
+            Resume = Resume || require('./reader-resume.js');
         }
-        if (!ReaderApi || !Model || !Presentation || !Assets || !Find) throw new Error('Reader v2 UI dependencies are required');
-        return { ReaderApi, Model, Presentation, Assets, Find };
+        if (!ReaderApi || !Model || !Presentation || !Assets || !Find || !Resume) throw new Error('Reader v2 UI dependencies are required');
+        return { ReaderApi, Model, Presentation, Assets, Find, Resume };
     }
 
     function safeMessage(error) {
@@ -55,6 +57,8 @@
             this.presentation = deps.Presentation;
             this.assets = deps.Assets;
             this.finder = deps.Find;
+            this.resume = deps.Resume;
+            this.resumeStore = options.resumeStore || new deps.Resume.ReaderResumeStoreV2({ storage: options.resumeStorage });
             this.assetResolver = options.assetResolver || new deps.Assets.ReaderAssetResolverV2({ api: this.api });
             this.reset();
         }
@@ -73,6 +77,8 @@
             this.findIndex = -1;
             this.findTruncated = false;
             this.findGeneration = (this.findGeneration || 0) + 1;
+            this.lastLocation = null;
+            this.resumeRecord = null;
             this.assetResolver?.reset?.();
             const input = this.element('readerV2FindInput');
             if (input) input.value = '';
@@ -134,6 +140,7 @@
                 this.renderHeader(book);
                 this.renderNavigation();
                 await this.loadMore({ replace: true });
+                await this.restoreResumeLocation();
                 return opened;
             } catch (error) {
                 this.renderError(error);
@@ -197,17 +204,87 @@
             if (!this.navigation.length) nav.appendChild(createElement(this.document, 'p', 'reader-v2-empty', '没有标题导航'));
         }
 
-        navigateTo(location) {
+        locationForNode(nodeId) {
+            const node = this.model.findNodeById(this.nodes, nodeId);
+            if (!node) return null;
+            return node.location || {
+                document_ref: this.documentRef,
+                candidate_id: this.candidateId,
+                contract_version: this.openResponse?.contract_version || '2',
+                candidate_schema_id: this.openResponse?.candidate_schema_id,
+                candidate_schema_version: this.openResponse?.candidate_schema_version,
+                node_id: node.node_id,
+                source_unit_id: node.source_unit_ids?.[0] || null,
+                source_anchor: node.source_anchors?.[0] || null,
+            };
+        }
+
+        persistLocation(location, extra = {}) {
+            if (!this.openResponse || !location?.node_id) return null;
+            this.lastLocation = location;
+            const record = this.resume.recordForLocation(this.openResponse, location, extra);
+            if (!record) return null;
+            this.resumeRecord = this.resumeStore.write(record) || record;
+            return this.resumeRecord;
+        }
+
+        persistCurrentLocation(extra = {}) {
+            const location = extra.location || this.lastLocation;
+            if (!location) return null;
+            return this.persistLocation(location, extra);
+        }
+
+        clearResume(documentRef = this.documentRef) {
+            if (documentRef) this.resumeStore.clear(documentRef);
+            if (String(documentRef || '') === String(this.documentRef || '')) this.resumeRecord = null;
+        }
+
+        async ensureNodeLoaded(nodeId) {
+            if (!nodeId) return null;
+            let node = this.model.findNodeById(this.nodes, nodeId);
+            while (!node && this.hasMore) {
+                await this.loadMore({ silent: true, deferRender: true });
+                node = this.model.findNodeById(this.nodes, nodeId);
+            }
+            if (node) this.reflowAndRender();
+            return node;
+        }
+
+        async restoreResumeLocation() {
+            if (!this.documentRef || !this.openResponse) return null;
+            const record = this.resumeStore.read(this.documentRef);
+            if (!record) return null;
+            if (!this.resume.sameCandidate(record, this.openResponse)) {
+                this.resumeStore.clear(this.documentRef);
+                return null;
+            }
+            const node = await this.ensureNodeLoaded(record.node_id);
+            if (!node) {
+                this.resumeStore.clear(this.documentRef);
+                return null;
+            }
+            this.resumeRecord = record;
+            const location = node.location || record;
+            this.lastLocation = location;
+            this.navigateTo(location, { persist: false });
+            this.setStatus('已恢复上次阅读位置。');
+            return record;
+        }
+
+        navigateTo(location, options = {}) {
             const nodeId = location?.node_id;
             if (!nodeId) return;
             const nodeEl = this.document.querySelector(`[data-reader-node-id="${escapeSelector(nodeId)}"]`);
             if (nodeEl) {
-                nodeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                nodeEl.scrollIntoView({ block: 'center', behavior: options.behavior || 'smooth' });
                 nodeEl.focus({ preventScroll: true });
+                const resolved = this.locationForNode(nodeId) || location;
+                this.lastLocation = resolved;
+                if (options.persist !== false) this.persistLocation(resolved);
                 return;
             }
             if (this.hasMore) {
-                this.loadMore().then(() => this.navigateTo(location)).catch((error) => this.renderError(error));
+                this.loadMore().then(() => this.navigateTo(location, options)).catch((error) => this.renderError(error));
             }
         }
 

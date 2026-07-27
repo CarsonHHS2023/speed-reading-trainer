@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   reader-v2-client:
-    name: Reader v2 client, presentation, playback, asset, cutover, and find tests
+    name: Reader v2 client, presentation, playback, asset, cutover, find, and resume tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -32,7 +32,7 @@ jobs:
       - name: JavaScript syntax checks
         run: npm run check
 
-      - name: Reader v2 client/presentation/playback/asset/cutover/find tests
+      - name: Reader v2 client/presentation/playback/asset/cutover/find/resume tests
         run: npm test
 
       - name: Reader v2 boundary check
@@ -42,6 +42,8 @@ jobs:
           test -f reader-presentation.js
           test -f reader-assets.js
           test -f reader-find.js
+          test -f reader-resume.js
+          test -f reader-resume-lifecycle.js
           test -f reader-ui-v2.js
           test -f speed-reading-adapter.js
           test -f playback-controller.js
@@ -51,6 +53,8 @@ jobs:
           grep -q 'readerV2Display' index.html
           grep -q 'reader-assets.js' index.html
           grep -q 'reader-find.js' index.html
+          grep -q 'reader-resume.js' index.html
+          grep -q 'reader-resume-lifecycle.js' index.html
           grep -q 'readerV2FindInput' index.html
           grep -q 'speed-reading-adapter.js' index.html
           grep -q 'playback-controller.js' index.html
@@ -65,6 +69,13 @@ jobs:
           ! grep -q 'tokenizeContent' reader-find.js
           ! grep -q 'page_id' reader-find.js
           ! grep -q 'presentation_id' reader-find.js
+          ! grep -q '/api/reader/v1' reader-resume.js
+          ! grep -q '/api/v1/books/' reader-resume.js
+          ! grep -q 'cachedContentBlob' reader-resume.js
+          ! grep -q 'state.content' reader-resume.js
+          ! grep -q 'tokenizeContent' reader-resume.js
+          ! grep -q 'page_id' reader-resume.js
+          ! grep -q 'presentation_id' reader-resume.js
           ! grep -q '/api/v1/images/' reader-assets.js
           ! grep -q 'artifact_ref' reader-assets.js
           ! grep -q 'storage_ref' reader-assets.js
