@@ -29,11 +29,18 @@
         return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
     }
 
-    function boundedText(value, maxLength) {
-        const text = String(value || '').trim();
-        if (!text) return '';
+    function truncateText(text, maxLength) {
         const limit = positiveInt(maxLength, DEFAULT_EXCERPT_LENGTH);
         return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
+    }
+
+    function boundedText(value, maxLength) {
+        const text = String(value || '').trim();
+        return text ? truncateText(text, maxLength) : '';
+    }
+
+    function boundedExactText(value, maxLength) {
+        return truncateText(String(value ?? ''), maxLength);
     }
 
     function cloneAnchor(anchor) {
@@ -103,7 +110,7 @@
                 text_start: record.text_start,
                 text_end: record.text_end,
                 highlight_style: record.style,
-                excerpt: boundedText(nodeText.slice(record.text_start, record.text_end), excerptLength),
+                excerpt: boundedExactText(nodeText.slice(record.text_start, record.text_end), excerptLength),
                 created_at: record.created_at,
             });
         }
@@ -155,6 +162,7 @@
         DEFAULT_EXCERPT_LENGTH,
         DEFAULT_MAX_ITEMS,
         VERSION,
+        boundedExactText,
         boundedText,
         buildStudyContext,
         targetNodeIds,
