@@ -1,0 +1,161 @@
+.speed-reading-v2-toolbar {
+    position: absolute;
+    z-index: 20;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100% - 24px);
+    padding: 6px 8px;
+    border: 1px solid rgba(120, 125, 145, .28);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .92);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
+    backdrop-filter: blur(8px);
+}
+
+body.dark-mode .speed-reading-v2-toolbar {
+    background: rgba(36, 36, 36, .94);
+    border-color: rgba(255, 255, 255, .16);
+}
+
+.speed-reading-v2-toolbar button {
+    min-width: 34px;
+    height: 30px;
+    border: 1px solid #cfd3dc;
+    border-radius: 6px;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+}
+
+.speed-reading-v2-toolbar button:disabled {
+    opacity: .38;
+    cursor: default;
+}
+
+body.dark-mode .speed-reading-v2-toolbar button {
+    border-color: #555;
+    background: #303030;
+    color: #eee;
+}
+
+.speed-reading-v2-state {
+    min-width: 104px;
+    font-size: .74rem;
+    color: #555;
+    white-space: nowrap;
+}
+
+body.dark-mode .speed-reading-v2-state { color: #ccc; }
+
+.speed-reading-v2-shortcuts {
+    font-size: .66rem;
+    color: #888;
+    white-space: nowrap;
+}
+
+body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
+
+.reading-panel {
+    --speed-reading-font-size: 28px;
+    --speed-reading-measure: 35ch;
+    --speed-reading-font-weight: 400;
+}
+
+#focusModeDisplay,
+#pageModeDisplay {
+    padding-top: 52px;
+}
+
+#focusModeDisplay.active,
+#pageModeDisplay.active {
+    cursor: pointer;
+}
+
+#focusText,
+#pageText {
+    box-sizing: border-box;
+    width: min(100%, var(--speed-reading-measure));
+    max-width: var(--speed-reading-measure);
+    margin-inline: auto;
+    font-size: var(--speed-reading-font-size) !important;
+    font-weight: var(--speed-reading-font-weight) !important;
+    line-height: 1.55;
+}
+
+#focusText .reader-playback-frame-text,
+#pageText .reader-playback-frame-text {
+    white-space: pre-wrap;
+    overflow-wrap: normal;
+    word-break: keep-all;
+}
+
+.reading-panel[data-speed-reading-mode="focus"] #focusModeDisplay.active,
+.reading-panel[data-speed-reading-mode="focus"] #pageModeDisplay.active {
+    align-items: center;
+    justify-content: center;
+}
+
+.reading-panel[data-speed-reading-mode="focus"] .reader-playback-frame-text {
+    text-align: center;
+}
+
+.reading-panel[data-speed-reading-mode="moving"] .reader-playback-frame-text {
+    text-align: left;
+    animation: speed-reading-moving-enter 180ms ease-out;
+}
+
+.reading-panel[data-speed-reading-mode="moving"] #focusText,
+.reading-panel[data-speed-reading-mode="moving"] #pageText {
+    align-self: flex-start;
+    margin-top: clamp(18px, 8vh, 72px);
+}
+
+.reader-playback-asset-slot {
+    padding: 16px;
+    border: 1px solid rgba(124, 142, 232, .42);
+    border-radius: 12px;
+    background: rgba(238, 241, 255, .55);
+    cursor: default;
+}
+
+body.dark-mode .reader-playback-asset-slot {
+    border-color: rgba(124, 142, 232, .48);
+    background: rgba(48, 57, 94, .46);
+}
+
+.reader-playback-continue {
+    display: block;
+    margin: 14px auto 0;
+    padding: 8px 18px;
+    border: 1px solid #7c8ee8;
+    border-radius: 7px;
+    background: #eef1ff;
+    color: #3347a8;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.reader-playback-continue:focus-visible {
+    outline: 3px solid rgba(124, 142, 232, .38);
+    outline-offset: 3px;
+}
+
+body.dark-mode .reader-playback-continue {
+    border-color: #6678d8;
+    background: #30395e;
+    color: #dce2ff;
+}
+
+@keyframes speed-reading-moving-enter {
+    from { opacity: .45; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+    .speed-reading-v2-shortcuts { display: none; }
+    .speed-reading-v2-toolbar { top: 6px; }
+}
