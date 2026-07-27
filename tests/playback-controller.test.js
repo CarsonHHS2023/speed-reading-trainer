@@ -113,6 +113,30 @@ test('stop resets and seek maps progress to frame index', () => {
     assert.equal(controller.index, 0);
 });
 
+test('previous and next cancel autoplay and land deterministically in paused/manual state', () => {
+    const scheduler = new FakeScheduler();
+    const controller = new PlaybackController({ scheduler });
+    controller.setFrames([timed('f1', 'n1', 100), manual('m1', 'fig'), timed('f2', 'n2', 100)]);
+    controller.play();
+    scheduler.tick(20);
+    controller.next();
+    assert.equal(controller.index, 1);
+    assert.equal(controller.state, STATES.MANUAL);
+    scheduler.tick(1000);
+    assert.equal(controller.index, 1);
+    controller.next();
+    assert.equal(controller.index, 2);
+    assert.equal(controller.state, STATES.PAUSED);
+    controller.previous();
+    assert.equal(controller.index, 1);
+    assert.equal(controller.state, STATES.MANUAL);
+    controller.previous();
+    assert.equal(controller.index, 0);
+    assert.equal(controller.state, STATES.PAUSED);
+    controller.previous();
+    assert.equal(controller.index, 0);
+});
+
 test('frame rebuild preserves exact frame or stable node identity', () => {
     const scheduler = new FakeScheduler();
     const controller = new PlaybackController({ scheduler });
