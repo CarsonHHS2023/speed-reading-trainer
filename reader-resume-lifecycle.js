@@ -23,7 +23,9 @@
     }
 
     function installEnhancements() {
-        return loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout')
+        return loadScript('speed-reading-structure-policy.js', 'SpeedReadingStructurePolicy')
+            .then((module) => module?.install?.(root))
+            .then(() => loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-study-tools-rail.js', 'ReaderStudyToolsRail'))
             .then((module) => module?.install?.())
