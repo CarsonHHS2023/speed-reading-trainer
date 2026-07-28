@@ -65,9 +65,10 @@
 
                         <div class="setting-grid-row" id="focusSettings">
                             <div class="setting-grid-cell">
-                                <label for="widthSlider">行宽：</label>
-                                <input type="range" id="widthSlider" min="5" max="50" value="35" />
-                                <input type="number" id="widthInput" min="5" max="50" value="35" />
+                                <label for="widthSlider">显示宽度：</label>
+                                <input type="range" id="widthSlider" min="30" max="100" value="100" />
+                                <input type="number" id="widthInput" min="30" max="100" value="100" />
+                                <span>%</span>
                             </div>
                             <div class="setting-grid-cell">
                                 <label for="linesSlider">行数：</label>
@@ -240,11 +241,8 @@
     <script src="playback-controller.js"></script>
     <script src="training-session-clock.js"></script>
     <script src="reader-speed-playback-ui.js"></script>
-    <script src="reader-annotations-ui.js"></script>
-    <script src="reader-highlights-ui.js"></script>
-    <script src="reader-study-context-ui.js"></script>
-    <script src="bookshelf.js"></script>
-    <script src="reader-resume-lifecycle.js"></script>
+    <script src="storage-v2.js"></script>
+    <script src="pdf-ocr-v2.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
