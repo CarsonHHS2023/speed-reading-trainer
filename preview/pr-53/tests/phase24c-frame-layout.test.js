@@ -55,10 +55,14 @@ test('frames preserve per-line title and body hierarchy', () => {
   assert.deepEqual(result.frames[0].lines.map((line) => line.node_type), ['title', 'paragraph']);
 });
 
-test('playback CSS uses em character measure and avoids clipped inline padding', () => {
+test('playback CSS uses responsive percentage width and avoids clipped inline padding', () => {
   const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
-  assert.match(css, /--speed-reading-measure:\s*35em/);
+  assert.match(css, /--speed-reading-width-percent:\s*100%/);
+  assert.match(css, /width:\s*var\(--speed-reading-width-percent\)/);
+  assert.match(css, /max-width:\s*100%/);
+  assert.doesNotMatch(css, /--speed-reading-measure/);
   assert.match(css, /padding-inline:\s*0\s*!important/);
+  assert.match(css, /text-indent:\s*0\s*!important/);
   assert.match(css, /\.reader-playback-line-title/);
   assert.match(css, /white-space:\s*nowrap/);
 });
