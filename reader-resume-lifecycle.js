@@ -27,6 +27,8 @@
             .then((module) => module?.install?.(root))
             .then(() => loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout'))
             .then((module) => module?.install?.(root))
+            .then(() => loadScript('reader-playback-polish.js', 'ReaderPlaybackPolish'))
+            .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-study-tools-rail.js', 'ReaderStudyToolsRail'))
             .then((module) => module?.install?.())
             .catch((error) => console.error('[Reader enhancements]', error));
