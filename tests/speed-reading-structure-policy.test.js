@@ -51,6 +51,20 @@ test('Paddle furniture is filtered by exact raw labels including metadata aliase
   assert.deepEqual(diagnostics.excluded_furniture.map((item) => item.node_id), ['page', 'head', 'foot']);
 });
 
+test('recovered heading semantics override a generic provider text label', () => {
+  const prepared = Policy.prepareStructuredNodes([
+    node('chapter', 'heading', '第一章 趋势线', 0, {
+      heading_level: 1,
+      metadata: { provider_block_label: 'text' },
+    }),
+  ]);
+
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].node_type, 'heading');
+  assert.equal(prepared[0].heading_level, 1);
+  assert.equal(prepared[0].raw_node_type, 'text');
+});
+
 test('extended Paddle content labels remain playable after an image', () => {
   const prepared = Policy.prepareStructuredNodes([
     node('before', 'text', '图片前正文'),

@@ -14,10 +14,15 @@
     ]);
     const REFLOW_CONTINUATION_TYPES = new Set(['paragraph', 'unknown']);
     const SENTENCE_END = /[。！？!?；;：:]\s*$/u;
+    const CLOSING_PUNCTUATION = new Set([
+        ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '>',
+        '，', '。', '；', '：', '！', '？', '％', '）', '】', '》', '〉', '」', '』', '〕', '］', '｝',
+        '、', '…', '—', '”', '’',
+    ]);
     const MIN_WIDTH_PERCENT = 30;
     const MAX_WIDTH_PERCENT = 100;
     const DEFAULT_WIDTH_PERCENT = 100;
-    const DEFAULT_SAFE_GUTTER_PX = 32;
+    const DEFAULT_SAFE_GUTTER_PX = 48;
     const FONT_SCALE_BY_TYPE = Object.freeze({ title: 1.5, heading: 1.22, caption: 0.82, reference: 0.82 });
 
     function clampWidthPercent(value) {
@@ -84,9 +89,13 @@
         return Boolean(char) && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(char);
     }
 
+    function isClosingPunctuationToken(token) {
+        return token?.kind === 'punctuation' && CLOSING_PUNCTUATION.has(token.text);
+    }
+
     function shouldContinueAcrossPage(previous, current) {
         if (!previous || !current) return false;
-        if (previous.identity?.source_unit_id === current.identity?.source_unit_id) return false;
+        if (previous.identity?.source_unit_id === current.identity?.source_unit_id) return true;
         if (previous.source_unit_kind !== 'physical_page' || current.source_unit_kind !== 'physical_page') return false;
         if (!REFLOW_CONTINUATION_TYPES.has(previous.node_type) || !REFLOW_CONTINUATION_TYPES.has(current.node_type)) return false;
         return !SENTENCE_END.test(previous.text || '');
@@ -95,7 +104,10 @@
     function shouldForceNodeBoundary(previous, current) {
         if (!previous) return false;
         if (HARD_STRUCTURE_TYPES.has(previous.node_type) || HARD_STRUCTURE_TYPES.has(current.node_type)) return true;
-        return !shouldContinueAcrossPage(previous, current);
+        if (REFLOW_CONTINUATION_TYPES.has(previous.node_type) && REFLOW_CONTINUATION_TYPES.has(current.node_type)) {
+            return !shouldContinueAcrossPage(previous, current);
+        }
+        return true;
     }
 
     function measuredTokensForElement(adapter, element, measureText) {
@@ -103,6 +115,7 @@
             ...token,
             measured_width: Math.max(0, Number(measureText(token.text, element.node_type)) || 0),
             node_type: element.node_type,
+            heading_level: element.heading_level || null,
             identity: element.identity,
             element,
         }));
@@ -114,14 +127,25 @@
         while (trimmed.length && trimmed[trimmed.length - 1].kind === 'space') trimmed.pop();
         const sourceSpans = uniqueSourceSpans(trimmed);
         const types = [...new Set(trimmed.map((token) => token.node_type).filter(Boolean))];
+        const levels = [...new Set(trimmed.map((token) => token.heading_level).filter((value) => Number.isInteger(value)))];
         return {
             text: trimmed.map((token) => token.text).join(''),
             node_type: types.length === 1 ? types[0] : 'mixed',
+            heading_level: levels.length === 1 ? levels[0] : null,
             identity: sourceSpans[0] || null,
             source_spans: sourceSpans,
             measured_width_px: trimmed.reduce((sum, token) => sum + token.measured_width, 0),
             reading_units: trimmed.reduce((sum, token) => sum + (Number(token.reading_units) || 0), 0),
         };
+    }
+
+    function moveTrailingTokenToNextLine(lineTokens) {
+        for (let index = lineTokens.length - 1; index >= 0; index -= 1) {
+            const token = lineTokens[index];
+            if (token.kind === 'space' || token.kind === 'punctuation') continue;
+            return lineTokens.splice(index, 1);
+        }
+        return [];
     }
 
     function buildMeasuredLines(adapter, elements, maxWidthPx, measureText) {
@@ -131,6 +155,9 @@
         let lineWidth = 0;
         let previousElement = null;
 
+        const recalculateWidth = () => {
+            lineWidth = lineTokens.reduce((sum, token) => sum + token.measured_width, 0);
+        };
         const flush = () => {
             const line = structuredLine(lineTokens);
             if (line.text.trim()) lines.push(line);
@@ -140,7 +167,8 @@
 
         for (const element of elements) {
             if (!element?.text) continue;
-            if (shouldForceNodeBoundary(previousElement, element)) flush();
+            const independentLine = element.node_type === 'list_item';
+            if (independentLine || shouldForceNodeBoundary(previousElement, element)) flush();
             else if (previousElement && lineTokens.length) {
                 const before = lastCharacter(previousElement.text);
                 const after = firstCharacter(element.text);
@@ -150,7 +178,8 @@
                     if (lineTokens.length) {
                         lineTokens.push({
                             kind: 'space', text: ' ', reading_units: 0, measured_width: spaceWidth,
-                            node_type: element.node_type, identity: element.identity, element,
+                            node_type: element.node_type, heading_level: element.heading_level || null,
+                            identity: element.identity, element,
                         });
                         lineWidth += spaceWidth;
                     }
@@ -163,10 +192,22 @@
                     continue;
                 }
                 if (token.kind === 'space' && !lineTokens.length) continue;
-                if (lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width) flush();
+                const wouldOverflow = lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width;
+                if (wouldOverflow) {
+                    if (isClosingPunctuationToken(token)) {
+                        const carried = moveTrailingTokenToNextLine(lineTokens);
+                        recalculateWidth();
+                        flush();
+                        lineTokens.push(...carried);
+                        recalculateWidth();
+                    } else {
+                        flush();
+                    }
+                }
                 lineTokens.push(token);
                 lineWidth += token.measured_width;
             }
+            if (independentLine) flush();
             previousElement = element;
         }
         flush();
@@ -194,6 +235,7 @@
             frame_id: frameId(anchor, ordinal),
             kind: 'timed_text',
             node_type: lines.length === 1 ? lines[0].node_type : 'mixed',
+            heading_level: lines.length === 1 ? lines[0].heading_level : null,
             text,
             lines,
             reading_units: readingUnits,
@@ -238,7 +280,9 @@
             if (options.displayScope === 'block') {
                 for (const element of run) {
                     const elementLines = buildMeasuredLines(adapter, [element], options.maxWidthPx, measureText);
-                    if (elementLines.length) frames.push(timedFrame(adapter, element, 0, elementLines, speedPerMinute));
+                    for (let index = 0; index < elementLines.length; index += maxLines) {
+                        frames.push(timedFrame(adapter, element, index / maxLines, elementLines.slice(index, index + maxLines), speedPerMinute));
+                    }
                 }
             } else {
                 for (let index = 0; index < lines.length; index += maxLines) {
@@ -276,15 +320,17 @@
         if (!Controller || !adapter || Controller.prototype.__responsiveLayoutInstalled) return false;
         const originalAdapterOptions = Controller.prototype.adapterOptions;
         const originalApplyVisualSettings = Controller.prototype.applyVisualSettings;
+        const originalRenderFrame = Controller.prototype.renderFrame;
 
         Controller.prototype.playbackWidthPercent = function playbackWidthPercent() {
             return clampWidthPercent(this.element('widthInput')?.value || DEFAULT_WIDTH_PERCENT);
         };
 
         Controller.prototype.playbackAvailableWidth = function playbackAvailableWidth() {
+            const target = this.displayScope() === 'page' ? this.element('pageText') : this.element('focusText');
             const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const panel = this.document?.querySelector?.('.reading-panel');
-            return Number(surface?.clientWidth || panel?.clientWidth || 1);
+            return Number(target?.clientWidth || surface?.clientWidth || panel?.clientWidth || 1);
         };
 
         Controller.prototype.adapterOptions = function responsiveAdapterOptions() {
@@ -293,7 +339,7 @@
             return {
                 ...base,
                 widthPercent: percent,
-                maxWidthPx: targetWidthPx(this.playbackAvailableWidth(), percent),
+                maxWidthPx: targetWidthPx(this.playbackAvailableWidth(), 100, DEFAULT_SAFE_GUTTER_PX),
             };
         };
 
@@ -304,6 +350,20 @@
             const percent = this.playbackWidthPercent();
             panel.style.setProperty('--speed-reading-width-percent', `${percent}%`);
             panel.style.removeProperty('--speed-reading-measure');
+        };
+
+        Controller.prototype.renderFrame = function renderFrameWithHeadingLevels(frame, target) {
+            const result = originalRenderFrame.call(this, frame, target);
+            if (target && Array.isArray(frame?.lines)) {
+                const rows = target.querySelectorAll?.('.reader-playback-line') || [];
+                frame.lines.forEach((line, index) => {
+                    const row = rows[index];
+                    if (!row || !Number.isInteger(line.heading_level)) return;
+                    row.dataset.headingLevel = String(line.heading_level);
+                    row.classList.add(`reader-playback-line-heading-level-${line.heading_level}`);
+                });
+            }
+            return result;
         };
 
         Controller.prototype.refreshFrames = function responsiveRefreshFrames(options = {}) {
@@ -323,8 +383,10 @@
                 fontStyle: computed?.fontStyle,
                 fontWeight: computed?.fontWeight,
             });
+            const actualTargetWidth = Number(target?.clientWidth || settings.maxWidthPx || 1);
             const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
                 ...settings,
+                maxWidthPx: Math.max(1, Math.min(settings.maxWidthPx, actualTargetWidth - 12)),
                 measureText,
             });
             this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
@@ -349,7 +411,7 @@
                 };
                 pending = view?.requestAnimationFrame ? view.requestAnimationFrame(run) : root.setTimeout(run, 0);
             };
-            for (const id of ['fontInput', 'fontSlider', 'fontWeight']) {
+            for (const id of ['fontInput', 'fontSlider', 'fontWeight', 'linesInput', 'linesSlider', 'widthInput', 'widthSlider']) {
                 const element = controller.element(id);
                 element?.addEventListener('input', scheduleReflow);
                 element?.addEventListener('change', scheduleReflow);
@@ -364,6 +426,7 @@
     }
 
     return {
+        CLOSING_PUNCTUATION,
         DEFAULT_WIDTH_PERCENT,
         MAX_WIDTH_PERCENT,
         MIN_WIDTH_PERCENT,
@@ -372,6 +435,8 @@
         clampWidthPercent,
         createCanvasMeasurer,
         install,
+        isClosingPunctuationToken,
+        shouldForceNodeBoundary,
         targetWidthPx,
     };
 });
