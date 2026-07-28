@@ -17,7 +17,7 @@
     const CLOSING_PUNCTUATION = new Set([
         ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '>',
         '，', '。', '；', '：', '！', '？', '％', '）', '】', '》', '〉', '」', '』', '〕', '］', '｝',
-        '、', '…', '—', '”', '’', '」', '』',
+        '、', '…', '—', '”', '’',
     ]);
 
     function requireModel() {
@@ -30,8 +30,19 @@
         return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(char);
     }
 
-    function codePointLength(text) {
-        return [...String(text || '')].length;
+    function isAsciiWordChar(char) {
+        return /[A-Za-z0-9]/u.test(char);
+    }
+
+    function displayWidth(text) {
+        let width = 0;
+        for (const char of String(text || '')) {
+            if (isCjk(char)) width += 1;
+            else if (isAsciiWordChar(char)) width += 0.55;
+            else if (/\s/u.test(char)) width += 0.5;
+            else width += 1;
+        }
+        return width;
     }
 
     function lexicalToken(kind, text) {
@@ -39,27 +50,31 @@
             kind,
             text,
             reading_units: LEXICAL_READING_UNITS,
-            display_width: codePointLength(text),
+            display_width: displayWidth(text),
         };
     }
 
+    function normalizeSoftWraps(text) {
+        return String(text || '')
+            .replace(/\r\n?/gu, '\n')
+            .replace(/([^\n])\n([^\n])/gu, (match, before, after) => {
+                const separator = isCjk(before) && isCjk(after) ? '' : ' ';
+                return `${before}${separator}${after}`;
+            })
+            .replace(/[ \t\f\v]+/gu, ' ')
+            .trim();
+    }
+
     function tokenizeReadingText(text) {
-        const input = String(text || '');
+        const input = normalizeSoftWraps(text);
         const tokens = [];
         let i = 0;
         while (i < input.length) {
             const rest = input.slice(i);
 
-            const newline = rest.match(/^(?:\r\n|\r|\n)/u);
-            if (newline) {
-                tokens.push({ kind: 'newline', text: newline[0], reading_units: 0, display_width: 0 });
-                i += newline[0].length;
-                continue;
-            }
-
             const horizontalSpace = rest.match(/^[\t\f\v ]+/u);
             if (horizontalSpace) {
-                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 1 });
+                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 0.5 });
                 i += horizontalSpace[0].length;
                 continue;
             }
@@ -91,16 +106,15 @@
 
             const latin = rest.match(/^[A-Za-z]+(?:['’\-][A-Za-z]+)*(?:\.[A-Za-z]+\.?)*\.?/u);
             if (latin) {
-                const value = latin[0];
-                tokens.push(lexicalToken('latin_lexical', value));
-                i += value.length;
+                tokens.push(lexicalToken('latin_lexical', latin[0]));
+                i += latin[0].length;
                 continue;
             }
 
             const char = String.fromCodePoint(input.codePointAt(i));
             i += char.length;
             if (/\s/u.test(char)) {
-                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 1 });
+                tokens.push({ kind: 'space', text: ' ', reading_units: 0, display_width: 0.5 });
             } else if (isCjk(char)) {
                 tokens.push({ kind: 'cjk', text: char, reading_units: 1, display_width: 1 });
             } else {
@@ -148,7 +162,7 @@
         const units = sourceUnitMap(documentView);
         return model.orderedNodes(nodes).map((node) => {
             const manual = MANUAL_NODE_TYPES.has(node.node_type);
-            const text = typeof node.text === 'string' ? node.text : '';
+            const text = typeof node.text === 'string' ? normalizeSoftWraps(node.text) : '';
             const identity = identityForNode(documentView, node);
             const sourceUnit = identity.source_unit_id ? units.get(identity.source_unit_id) : null;
             return {
@@ -178,7 +192,6 @@
     }
 
     function appendToken(line, token, lineWidth) {
-        if (token.kind === 'newline') return { accepted: false, forcedBreak: true, retry: false };
         if (token.kind === 'space' && !line.tokens.length) return { accepted: true, ignored: true };
         const projected = line.display_width + token.display_width;
         if (line.tokens.length && token.display_width > 0 && projected > lineWidth) {
@@ -188,7 +201,7 @@
                 line.reading_units += token.reading_units;
                 return { accepted: true, overflowPunctuation: true };
             }
-            return { accepted: false, forcedBreak: false, retry: true };
+            return { accepted: false, retry: true };
         }
         line.tokens.push(token);
         line.display_width = projected;
@@ -209,7 +222,6 @@
             const result = appendToken(line, token, width);
             if (result.accepted) continue;
             flush();
-            if (result.forcedBreak) continue;
             const retry = appendToken(line, token, width);
             if (!retry.accepted) throw new Error('token must fit an empty line without splitting');
         }
@@ -229,15 +241,21 @@
         return `playback-frame:${element.identity.candidate_id}:${element.identity.node_id}:${String(ordinal).padStart(4, '0')}`;
     }
 
-    function makeTimedFrame(element, ordinal, text, options) {
-        const normalizedText = String(text || '');
-        if (!normalizedText.trim()) return null;
+    function makeTimedFrame(element, ordinal, lineEntries, options) {
+        const lines = lineEntries.map((entry) => ({
+            text: String(entry.text || ''),
+            node_type: entry.node_type || 'paragraph',
+            identity: entry.identity || element.identity,
+        })).filter((entry) => entry.text.trim());
+        if (!lines.length) return null;
+        const normalizedText = lines.map((entry) => entry.text).join('\n');
         const actualUnits = countReadingUnits(normalizedText);
         return {
             frame_id: frameId(element, ordinal),
             kind: 'timed_text',
-            node_type: element.node_type,
+            node_type: lines.length === 1 ? lines[0].node_type : 'mixed',
             text: normalizedText,
+            lines,
             reading_units: actualUnits,
             duration_ms: frameDurationMs(actualUnits, options.speedPerMinute),
             identity: element.identity,
@@ -260,25 +278,54 @@
         };
     }
 
+    function lineEntriesForElement(element, options) {
+        if (!element.text) return [];
+        return tokensToLines(tokenizeReadingText(element.text), options.lineWidth).map((line) => ({
+            text: lineText(line),
+            node_type: element.node_type,
+            identity: element.identity,
+            element,
+        }));
+    }
+
+    function buildGroupedTextFrames(elements, options) {
+        const maxLines = Math.max(1, Number(options.maxLines) || 3);
+        const frames = [];
+        let pending = [];
+        let ordinal = 0;
+
+        const flush = () => {
+            if (!pending.length) return;
+            const anchor = pending[0].element;
+            const frame = makeTimedFrame(anchor, ordinal, pending, options);
+            if (frame) frames.push(frame);
+            ordinal += 1;
+            pending = [];
+        };
+
+        for (const element of elements) {
+            if (element.kind === 'manual') {
+                flush();
+                frames.push(manualFrame(element));
+                continue;
+            }
+            for (const entry of lineEntriesForElement(element, options)) {
+                pending.push(entry);
+                if (pending.length >= maxLines) flush();
+            }
+        }
+        flush();
+        return frames;
+    }
+
     function framesForElement(element, options) {
         if (element.kind === 'manual') return [manualFrame(element)];
-        if (!element.text) return [];
-        const tokens = tokenizeReadingText(element.text);
-        const lines = tokensToLines(tokens, options.lineWidth);
-        if (!lines.length) return [];
-        const scope = options.displayScope;
-        if (scope === 'line') {
-            return lines.map((line, index) => makeTimedFrame(element, index, lineText(line), options)).filter(Boolean);
+        const entries = lineEntriesForElement(element, options);
+        if (!entries.length) return [];
+        if (options.displayScope === 'block') {
+            return [makeTimedFrame(element, 0, entries, options)].filter(Boolean);
         }
-        const maxLines = Math.max(1, Number(options.maxLines) || 20);
-        const frames = [];
-        const groupSize = Math.max(1, Math.min(maxLines, lines.length));
-        for (let i = 0; i < lines.length; i += groupSize) {
-            const group = lines.slice(i, i + groupSize);
-            const frame = makeTimedFrame(element, frames.length, group.map(lineText).join('\n'), options);
-            if (frame) frames.push(frame);
-        }
-        return frames;
+        return buildGroupedTextFrames([element], options);
     }
 
     function hasPhysicalPageSemantics(documentView) {
@@ -299,71 +346,14 @@
             if (bucket) bucket.push(element);
             else overflow.push(element);
         }
-
         const frames = [];
-        const emitGroup = (group) => {
-            let textGroup = [];
-            const flushText = () => {
-                if (!textGroup.length) return;
-                const anchor = textGroup[0];
-                const text = textGroup.map((element) => element.text).filter((value) => String(value || '').trim()).join('\n');
-                const ordinal = frames.filter((frame) => frame.identity.node_id === anchor.identity.node_id).length;
-                const frame = makeTimedFrame(anchor, ordinal, text, options);
-                if (frame) frames.push(frame);
-                textGroup = [];
-            };
-            for (const element of group) {
-                if (element.kind === 'manual') {
-                    flushText();
-                    frames.push(manualFrame(element));
-                } else if (String(element.text || '').trim()) {
-                    textGroup.push(element);
-                }
-            }
-            flushText();
-        };
-
-        for (const page of pages) emitGroup(byUnit.get(page.source_unit_id) || []);
-        emitGroup(overflow);
+        for (const page of pages) frames.push(...buildGroupedTextFrames(byUnit.get(page.source_unit_id) || [], options));
+        frames.push(...buildGroupedTextFrames(overflow, options));
         return frames;
     }
 
     function buildReflowPageFrames(elements, options) {
-        const maxLines = Math.max(1, Number(options.maxLines) || 20);
-        const frames = [];
-        let pageLines = [];
-        let anchorElement = null;
-        const ordinalByNode = new Map();
-
-        const flushPage = () => {
-            if (!pageLines.length || !anchorElement) return;
-            const nodeId = anchorElement.identity.node_id;
-            const ordinal = ordinalByNode.get(nodeId) || 0;
-            const frame = makeTimedFrame(anchorElement, ordinal, pageLines.map((entry) => entry.text).join('\n'), options);
-            if (frame) {
-                frames.push(frame);
-                ordinalByNode.set(nodeId, ordinal + 1);
-            }
-            pageLines = [];
-            anchorElement = null;
-        };
-
-        for (const element of elements) {
-            if (element.kind === 'manual') {
-                flushPage();
-                frames.push(manualFrame(element));
-                continue;
-            }
-            if (!String(element.text || '').trim()) continue;
-            const lines = tokensToLines(tokenizeReadingText(element.text), options.lineWidth);
-            for (const line of lines) {
-                if (pageLines.length >= maxLines) flushPage();
-                if (!anchorElement) anchorElement = element;
-                pageLines.push({ text: lineText(line), element });
-            }
-        }
-        flushPage();
-        return frames;
+        return buildGroupedTextFrames(elements, options);
     }
 
     function buildPageFrames(documentView, elements, options) {
@@ -377,13 +367,15 @@
         const normalizedOptions = {
             displayScope,
             lineWidth: Math.max(1, Number(options.lineWidth) || 35),
-            maxLines: Math.max(1, Number(options.maxLines) || 20),
+            maxLines: Math.max(1, Number(options.maxLines) || 3),
             speedPerMinute: Number(options.speedPerMinute) || 5000,
         };
         const elements = buildReadingElements(documentView, nodes);
-        const frames = displayScope === 'page'
-            ? buildPageFrames(documentView, elements, normalizedOptions)
-            : elements.flatMap((element) => framesForElement(element, normalizedOptions));
+        const frames = displayScope === 'block'
+            ? elements.flatMap((element) => framesForElement(element, normalizedOptions))
+            : (displayScope === 'page'
+                ? buildPageFrames(documentView, elements, normalizedOptions)
+                : buildGroupedTextFrames(elements, normalizedOptions));
         return { elements, frames, options: normalizedOptions };
     }
 
@@ -393,13 +385,16 @@
         MANUAL_NODE_TYPES,
         MIN_FRAME_DURATION_MS,
         ZERO_UNIT_FRAME_DURATION_MS,
+        buildGroupedTextFrames,
         buildPageFrames,
         buildPlaybackFrames,
         buildReadingElements,
         countReadingUnits,
+        displayWidth,
         durationMs,
         frameDurationMs,
         hasPhysicalPageSemantics,
+        normalizeSoftWraps,
         tokenizeReadingText,
         tokensToLines,
     };
