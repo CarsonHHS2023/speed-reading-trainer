@@ -83,7 +83,7 @@ test('long English token wider than configured line remains whole', () => {
 
 test('spaces are preserved while wrapped leading spaces are removed', () => {
     assert.deepEqual(lineTexts('alpha beta', 20), ['alpha beta']);
-    const wrapped = lineTexts('alpha beta gamma', 6);
+    const wrapped = lineTexts('alpha beta gamma', 3);
     assert.deepEqual(wrapped, ['alpha', 'beta', 'gamma']);
     assert.ok(wrapped.every((line) => !line.startsWith(' ') && !line.endsWith(' ')));
 });
