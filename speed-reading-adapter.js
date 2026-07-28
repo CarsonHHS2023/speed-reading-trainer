@@ -1,7 +1,12 @@
 (function (root, factory) {
     const api = factory(root && root.ReaderModelV2);
     if (typeof module === 'object' && module.exports) module.exports = api;
-    if (root) root.SpeedReadingAdapter = api;
+    if (root) {
+        root.SpeedReadingAdapter = api;
+        if (typeof root.setTimeout === 'function') {
+            root.setTimeout(() => api.installPlaybackRenderer?.(root), 0);
+        }
+    }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Model) {
     'use strict';
 
@@ -379,6 +384,30 @@
         return { elements, frames, options: normalizedOptions };
     }
 
+    function installPlaybackRenderer(root) {
+        const Controller = root?.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController;
+        if (!Controller || Controller.prototype.__phase24cRendererInstalled) return false;
+        const original = Controller.prototype.renderFrame;
+        Controller.prototype.renderFrame = function renderStructuredPlaybackFrame(frame, target) {
+            if (!target || frame?.kind === 'manual' || !Array.isArray(frame?.lines)) {
+                return original.call(this, frame, target);
+            }
+            while (target.firstChild) target.removeChild(target.firstChild);
+            target.dataset.playbackNodeType = frame.node_type || 'paragraph';
+            const container = this.document.createElement('div');
+            container.className = 'reader-playback-frame-text reader-playback-frame-structured';
+            for (const line of frame.lines) {
+                const row = this.document.createElement('div');
+                row.className = `reader-playback-line reader-playback-line-${String(line.node_type || 'paragraph').replace(/[^a-z0-9_-]/giu, '-')}`;
+                row.textContent = line.text || '';
+                container.appendChild(row);
+            }
+            target.appendChild(container);
+        };
+        Controller.prototype.__phase24cRendererInstalled = true;
+        return true;
+    }
+
     return {
         DISPLAY_SCOPES,
         LEXICAL_READING_UNITS,
@@ -394,6 +423,7 @@
         durationMs,
         frameDurationMs,
         hasPhysicalPageSemantics,
+        installPlaybackRenderer,
         normalizeSoftWraps,
         tokenizeReadingText,
         tokensToLines,
