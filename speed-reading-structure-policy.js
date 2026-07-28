@@ -63,10 +63,6 @@
         const semanticType = semanticTypeForNode(node);
         const semanticCanonical = canonicalType(semanticType);
 
-        // Exact provider furniture labels must override a later generic semantic type
-        // so page numbers and headers can be removed safely. For readable content,
-        // the recovered semantic node_type wins; otherwise a provider label of
-        // "text" would incorrectly downgrade a recovered heading to paragraph.
         if (FURNITURE_TYPES.has(providerType) || FURNITURE_TYPES.has(providerCanonical)) {
             return { rawType: providerType, type: providerCanonical, providerType, semanticType };
         }
@@ -83,6 +79,11 @@
 
     function rawTypeForNode(node) {
         return resolvedTypeForNode(node).rawType;
+    }
+
+    function normalizedHeadingLevel(node) {
+        const value = node?.heading_level;
+        return Number.isInteger(value) && value >= 1 && value <= 6 ? value : null;
     }
 
     function splitTocText(text) {
@@ -173,7 +174,16 @@
         if (typeof originalBuildReadingElements !== 'function' || typeof originalBuildPlaybackFrames !== 'function') return false;
 
         adapter.buildReadingElements = function buildPolicyReadingElements(documentView, nodes) {
-            return originalBuildReadingElements(documentView, prepareStructuredNodes(nodes));
+            const prepared = prepareStructuredNodes(nodes);
+            const preparedById = new Map(prepared.map((node) => [String(node.node_id), node]));
+            return originalBuildReadingElements(documentView, prepared).map((element) => {
+                const source = preparedById.get(String(element?.identity?.node_id));
+                return {
+                    ...element,
+                    heading_level: normalizedHeadingLevel(source),
+                    raw_node_type: source?.raw_node_type || null,
+                };
+            });
         };
 
         adapter.buildPlaybackFrames = function buildPolicyPlaybackFrames(documentView, nodes, options) {
@@ -185,6 +195,7 @@
         adapter.__structurePolicyInstalled = true;
         adapter.canonicalType = canonicalType;
         adapter.diagnoseNodes = diagnoseNodes;
+        adapter.normalizedHeadingLevel = normalizedHeadingLevel;
         adapter.prepareStructuredNodes = prepareStructuredNodes;
         adapter.providerTypeForNode = providerTypeForNode;
         adapter.rawTypeForNode = rawTypeForNode;
@@ -198,7 +209,7 @@
     if (rootObject?.SpeedReadingAdapter) install(rootObject);
     return {
         FURNITURE_TYPES, TOC_TYPES, TYPE_ALIASES, canonicalType, diagnoseNodes, install,
-        normalizeType, prepareStructuredNodes, providerTypeForNode, rawTypeForNode, resolvedTypeForNode,
-        semanticTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
+        normalizeType, normalizedHeadingLevel, prepareStructuredNodes, providerTypeForNode, rawTypeForNode,
+        resolvedTypeForNode, semanticTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
     };
 });
