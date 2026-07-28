@@ -1,9 +1,13 @@
 .reader-v2-display { background: #f3f4f7; align-items: stretch !important; }
 body.dark-mode .reader-v2-display { background: #181818; }
-body[data-reader-v2-active="1"] #readerV2Display { display: flex; }
-body[data-reader-v2-active="1"] #focusModeDisplay,
-body[data-reader-v2-active="1"] #pageModeDisplay,
-body[data-reader-v2-active="1"] #chartDisplay { display: none !important; }
+body[data-reader-v2-active="1"] #readerV2Display.active { display: flex; }
+body[data-reader-v2-active="1"] #readerV2Display:not(.active) { display: none; }
+body[data-reader-v2-active="1"] #focusModeDisplay:not(.active),
+body[data-reader-v2-active="1"] #pageModeDisplay:not(.active),
+body[data-reader-v2-active="1"] #chartDisplay:not(.active) { display: none !important; }
+body[data-reader-v2-active="1"] #focusModeDisplay.active,
+body[data-reader-v2-active="1"] #pageModeDisplay.active { display: flex !important; }
+body[data-reader-v2-active="1"] #chartDisplay.active { display: flex !important; }
 
 .reader-v2-shell { display: grid; grid-template-columns: minmax(190px, 25%) 1fr; width: 100%; height: 100%; min-height: 0; }
 .reader-v2-sidebar { min-width: 0; overflow-y: auto; padding: 14px 10px; border-right: 1px solid #d9dce4; background: #fafbfc; }
