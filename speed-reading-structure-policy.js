@@ -28,8 +28,6 @@
     }
 
     function rawTypeForNode(node) {
-        // Provider/source labels describe the original Paddle layout class and must
-        // take precedence over a later canonical node_type such as "paragraph".
         const candidates = [
             node?.metadata?.provider_block_label,
             node?.metadata?.block_label,
@@ -60,14 +58,13 @@
         if (explicit.length > 1) return explicit;
 
         const entries = [];
-        const leaderPattern = /(.+?(?:\.{2,}|…{2,}|·{2,})\s*[0-9０-９]{1,4})(?=\s|$)/gu;
+        const terminatorPattern = /(?:\.{2,}|…{2,}|·{2,})\s*[0-9０-９]{1,4}/gu;
         let match;
         let cursor = 0;
-        while ((match = leaderPattern.exec(normalized)) !== null) {
-            const prefix = normalized.slice(cursor, match.index).trim();
-            const entry = `${prefix ? `${prefix} ` : ''}${match[1]}`.trim();
+        while ((match = terminatorPattern.exec(normalized)) !== null) {
+            const entry = normalized.slice(cursor, terminatorPattern.lastIndex).trim();
             if (entry) entries.push(entry);
-            cursor = leaderPattern.lastIndex;
+            cursor = terminatorPattern.lastIndex;
         }
         const tail = normalized.slice(cursor).trim();
         if (tail) entries.push(tail);
