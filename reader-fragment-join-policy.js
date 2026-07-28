@@ -8,12 +8,16 @@
     const JOINABLE_TYPES = new Set(['paragraph', 'unknown']);
     const CJK_OR_CLOSING = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}，。；：！？、…—”’）】》〉」』〕］｝]$/u;
     const CJK_OR_OPENING = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}“‘（【《〈「『〔［｛]/u;
+    const PARAGRAPH_END = /[。！？!?；;：:]\s*$/u;
+
+    function cleanFragmentText(value) {
+        return String(value || '').replace(/^\s+/u, '').replace(/\s+$/u, '');
+    }
 
     function separatorFor(previousText, currentText) {
-        const before = String(previousText || '');
-        const after = String(currentText || '');
+        const before = cleanFragmentText(previousText);
+        const after = cleanFragmentText(currentText);
         if (!before || !after) return '';
-        if (/\s$/u.test(before) || /^\s/u.test(after)) return '';
         if (CJK_OR_CLOSING.test(before) && CJK_OR_OPENING.test(after)) return '';
         return ' ';
     }
@@ -25,24 +29,30 @@
         );
     }
 
+    function shouldJoin(previous, current) {
+        if (!previous || previous.kind !== 'text' || current?.kind !== 'text') return false;
+        if (!JOINABLE_TYPES.has(previous.node_type) || !JOINABLE_TYPES.has(current.node_type)) return false;
+        if (!sameSource(previous, current)) return false;
+        if (PARAGRAPH_END.test(cleanFragmentText(previous.text))) return false;
+        return true;
+    }
+
     function joinReadingElements(elements) {
         const output = [];
-        for (const element of elements || []) {
+        for (const originalElement of elements || []) {
+            const element = {
+                ...originalElement,
+                text: cleanFragmentText(originalElement?.text),
+            };
             const previous = output[output.length - 1];
-            const joinable = previous
-                && previous.kind === 'text'
-                && element?.kind === 'text'
-                && JOINABLE_TYPES.has(previous.node_type)
-                && JOINABLE_TYPES.has(element.node_type)
-                && sameSource(previous, element);
-            if (!joinable) {
+            if (!shouldJoin(previous, element)) {
                 output.push(element);
                 continue;
             }
             const separator = separatorFor(previous.text, element.text);
             output[output.length - 1] = {
                 ...previous,
-                text: `${previous.text || ''}${separator}${element.text || ''}`,
+                text: `${cleanFragmentText(previous.text)}${separator}${cleanFragmentText(element.text)}`,
                 reading_units: Number(previous.reading_units || 0) + Number(element.reading_units || 0),
                 source_spans: [
                     ...(Array.isArray(previous.source_spans) ? previous.source_spans : [previous.identity].filter(Boolean)),
@@ -66,5 +76,15 @@
         return true;
     }
 
-    return { CJK_OR_CLOSING, CJK_OR_OPENING, JOINABLE_TYPES, install, joinReadingElements, separatorFor };
+    return {
+        CJK_OR_CLOSING,
+        CJK_OR_OPENING,
+        JOINABLE_TYPES,
+        PARAGRAPH_END,
+        cleanFragmentText,
+        install,
+        joinReadingElements,
+        separatorFor,
+        shouldJoin,
+    };
 });
