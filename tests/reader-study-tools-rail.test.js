@@ -29,15 +29,21 @@ test('study tools rail restores valid state and rejects unknown tool ids', () =>
   assert.deepEqual(Rail.loadState(invalid), { expanded: true, activeToolId: 'notes' });
 });
 
-test('tool registry exposes notes, highlights, and study context', () => {
+test('tool registry exposes navigation, notes, highlights, and study context', () => {
   assert.deepEqual(Rail.TOOL_DEFINITIONS.map((tool) => tool.id), [
-    'notes', 'highlights', 'study-context',
+    'navigation', 'notes', 'highlights', 'study-context',
+  ]);
+  const navigation = Rail.TOOL_DEFINITIONS.find((tool) => tool.id === 'navigation');
+  assert.deepEqual(navigation.selectors, [
+    '.reader-v2-title', '.reader-v2-meta', '.reader-v2-find', '.reader-v2-navigation',
   ]);
 });
 
-test('rail CSS keeps a narrow visible strip, pushes wide layouts, and overlays on small screens', () => {
+test('rail CSS keeps a narrow visible strip, removes the legacy sidebar, pushes wide layouts, and overlays on small screens', () => {
   const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
   assert.match(css, /--study-tools-rail-width:\s*46px/);
+  assert.match(css, /data-study-tools-ready="1"[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(css, /data-study-tools-ready="1"[^}]*reader-v2-sidebar[^}]*display:\s*none/s);
   assert.match(css, /\.reader-study-tools-rail\s*\{[^}]*width:\s*var\(--study-tools-rail-width\)/s);
   assert.match(css, /data-study-tools-expanded="1"[^}]*width:\s*calc\(100%\s*-\s*var\(--study-tools-rail-width\)\s*-\s*var\(--study-tools-drawer-width\)\)/s);
   assert.match(css, /reader-study-tools-drawer/);
