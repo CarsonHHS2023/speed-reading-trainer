@@ -1,6 +1,19 @@
 (function (root) {
     'use strict';
 
+    const ASSET_VERSION = '2026-07-28-phase24c4';
+
+    function versionedAsset(src) {
+        const separator = String(src).includes('?') ? '&' : '?';
+        return `${src}${separator}v=${encodeURIComponent(ASSET_VERSION)}`;
+    }
+
+    function refreshStylesheet() {
+        if (typeof document === 'undefined') return;
+        const link = document.getElementById('speedReadingV2Styles');
+        if (link) link.href = versionedAsset('speed-reading-v2.css');
+    }
+
     function loadScript(src, globalName) {
         if (globalName && root[globalName]) return Promise.resolve(root[globalName]);
         if (typeof document === 'undefined') return Promise.resolve(null);
@@ -11,7 +24,7 @@
         });
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = src;
+            script.src = versionedAsset(src);
             script.dataset.readerEnhancement = src;
             script.addEventListener('load', () => {
                 script.dataset.loaded = '1';
@@ -23,6 +36,7 @@
     }
 
     function installEnhancements() {
+        refreshStylesheet();
         return loadScript('speed-reading-structure-policy.js', 'SpeedReadingStructurePolicy')
             .then((module) => module?.install?.(root))
             .then(() => loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout'))
@@ -58,6 +72,6 @@
 
     install();
 
-    if (typeof module === 'object' && module.exports) module.exports = { install, installEnhancements, loadScript };
-    if (root) root.ReaderResumeLifecycleV2 = { install, installEnhancements, loadScript };
+    if (typeof module === 'object' && module.exports) module.exports = { ASSET_VERSION, install, installEnhancements, loadScript, refreshStylesheet, versionedAsset };
+    if (root) root.ReaderResumeLifecycleV2 = { ASSET_VERSION, install, installEnhancements, loadScript, refreshStylesheet, versionedAsset };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
