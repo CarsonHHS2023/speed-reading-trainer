@@ -27,8 +27,16 @@
         return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
     }
 
-    function rawTypeForNode(node) {
-        const candidates = [
+    function firstNormalized(values) {
+        for (const value of values) {
+            const normalized = normalizeType(value);
+            if (normalized) return normalized;
+        }
+        return '';
+    }
+
+    function providerTypeForNode(node) {
+        return firstNormalized([
             node?.metadata?.provider_block_label,
             node?.metadata?.block_label,
             node?.metadata?.source_label,
@@ -37,18 +45,45 @@
             node?.paddle_label,
             node?.raw_node_type,
             node?.label,
-            node?.node_type,
-        ];
-        for (const value of candidates) {
-            const normalized = normalizeType(value);
-            if (normalized) return normalized;
-        }
-        return 'unknown';
+        ]);
+    }
+
+    function semanticTypeForNode(node) {
+        return normalizeType(node?.node_type);
     }
 
     function canonicalType(rawType) {
         const normalized = normalizeType(rawType);
         return TYPE_ALIASES[normalized] || normalized || 'unknown';
+    }
+
+    function resolvedTypeForNode(node) {
+        const providerType = providerTypeForNode(node);
+        const providerCanonical = canonicalType(providerType);
+        const semanticType = semanticTypeForNode(node);
+        const semanticCanonical = canonicalType(semanticType);
+
+        if (FURNITURE_TYPES.has(providerType) || FURNITURE_TYPES.has(providerCanonical)) {
+            return { rawType: providerType, type: providerCanonical, providerType, semanticType };
+        }
+        if (semanticType && semanticType !== 'unknown') {
+            return { rawType: providerType || semanticType, type: semanticCanonical, providerType, semanticType };
+        }
+        return {
+            rawType: providerType || semanticType || 'unknown',
+            type: providerCanonical || semanticCanonical || 'unknown',
+            providerType,
+            semanticType,
+        };
+    }
+
+    function rawTypeForNode(node) {
+        return resolvedTypeForNode(node).rawType;
+    }
+
+    function normalizedHeadingLevel(node) {
+        const value = node?.heading_level;
+        return Number.isInteger(value) && value >= 1 && value <= 6 ? value : null;
     }
 
     function splitTocText(text) {
@@ -87,13 +122,14 @@
     function prepareStructuredNodes(nodes) {
         const output = [];
         for (const node of nodes || []) {
-            const rawType = rawTypeForNode(node);
-            const type = canonicalType(rawType);
+            const resolved = resolvedTypeForNode(node);
+            const rawType = resolved.rawType;
+            const type = resolved.type;
             const text = typeof node?.text === 'string' ? node.text.replace(/\r\n?/gu, '\n').trim() : '';
             if (FURNITURE_TYPES.has(rawType) || FURNITURE_TYPES.has(type)) continue;
             if (appendPunctuationNode(output, node, text)) continue;
 
-            const tocLike = TOC_TYPES.has(rawType) || TOC_TYPES.has(type);
+            const tocLike = TOC_TYPES.has(resolved.providerType) || TOC_TYPES.has(resolved.semanticType) || TOC_TYPES.has(type);
             const entries = tocLike ? splitTocText(text) : [text];
             if (entries.length <= 1) {
                 output.push({ ...node, raw_node_type: rawType, node_type: tocLike ? 'list_item' : type, text });
@@ -119,8 +155,9 @@
         const typeCounts = {};
         const excluded = [];
         for (const node of nodes || []) {
-            const rawType = rawTypeForNode(node);
-            const type = canonicalType(rawType);
+            const resolved = resolvedTypeForNode(node);
+            const rawType = resolved.rawType;
+            const type = resolved.type;
             typeCounts[rawType] = (typeCounts[rawType] || 0) + 1;
             if (FURNITURE_TYPES.has(rawType) || FURNITURE_TYPES.has(type)) {
                 excluded.push({ node_id: node?.node_id || null, raw_node_type: rawType, node_type: type, text: node?.text || '' });
@@ -137,7 +174,16 @@
         if (typeof originalBuildReadingElements !== 'function' || typeof originalBuildPlaybackFrames !== 'function') return false;
 
         adapter.buildReadingElements = function buildPolicyReadingElements(documentView, nodes) {
-            return originalBuildReadingElements(documentView, prepareStructuredNodes(nodes));
+            const prepared = prepareStructuredNodes(nodes);
+            const preparedById = new Map(prepared.map((node) => [String(node.node_id), node]));
+            return originalBuildReadingElements(documentView, prepared).map((element) => {
+                const source = preparedById.get(String(element?.identity?.node_id));
+                return {
+                    ...element,
+                    heading_level: normalizedHeadingLevel(source),
+                    raw_node_type: source?.raw_node_type || null,
+                };
+            });
         };
 
         adapter.buildPlaybackFrames = function buildPolicyPlaybackFrames(documentView, nodes, options) {
@@ -149,8 +195,12 @@
         adapter.__structurePolicyInstalled = true;
         adapter.canonicalType = canonicalType;
         adapter.diagnoseNodes = diagnoseNodes;
+        adapter.normalizedHeadingLevel = normalizedHeadingLevel;
         adapter.prepareStructuredNodes = prepareStructuredNodes;
+        adapter.providerTypeForNode = providerTypeForNode;
         adapter.rawTypeForNode = rawTypeForNode;
+        adapter.resolvedTypeForNode = resolvedTypeForNode;
+        adapter.semanticTypeForNode = semanticTypeForNode;
         adapter.splitStructuredNodes = prepareStructuredNodes;
         adapter.splitTocText = splitTocText;
         return true;
@@ -159,6 +209,7 @@
     if (rootObject?.SpeedReadingAdapter) install(rootObject);
     return {
         FURNITURE_TYPES, TOC_TYPES, TYPE_ALIASES, canonicalType, diagnoseNodes, install,
-        normalizeType, prepareStructuredNodes, rawTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
+        normalizeType, normalizedHeadingLevel, prepareStructuredNodes, providerTypeForNode, rawTypeForNode,
+        resolvedTypeForNode, semanticTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
     };
 });
