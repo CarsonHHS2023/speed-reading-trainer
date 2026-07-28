@@ -1,8 +1,8 @@
 (function (root, factory) {
-    const api = factory(root && root.SpeedReadingAdapter);
+    const api = factory(root && root.SpeedReadingAdapter, root);
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.SpeedReadingStructurePolicy = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Adapter) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Adapter, rootObject) {
     'use strict';
 
     const FURNITURE_TYPES = new Set(['number', 'header', 'header_image', 'footer', 'footer_image', 'aside_text', 'footnote']);
@@ -54,8 +54,8 @@
         return { type_counts: typeCounts, excluded_furniture: excluded, suspicious_numeric_text: suspiciousNumericText };
     }
 
-    function install(rootObject = root) {
-        const adapter = rootObject?.SpeedReadingAdapter || Adapter;
+    function install(targetRoot = rootObject) {
+        const adapter = targetRoot?.SpeedReadingAdapter || Adapter;
         if (!adapter || adapter.__structurePolicyInstalled) return false;
         const originalBuildReadingElements = adapter.buildReadingElements;
         const originalBuildPlaybackFrames = adapter.buildPlaybackFrames;
@@ -82,6 +82,6 @@
         return true;
     }
 
-    if (root?.SpeedReadingAdapter) install(root);
+    if (rootObject?.SpeedReadingAdapter) install(rootObject);
     return { FURNITURE_TYPES, TOC_TYPES, diagnoseNodes, install, normalizeType, splitStructuredNodes };
 });
