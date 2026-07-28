@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Adapter = require('../speed-reading-adapter.js');
+const FragmentJoin = require('../reader-fragment-join-policy.js');
 const Layout = require('../speed-reading-responsive-layout.js');
 
 function measure(text, nodeType = 'paragraph') {
@@ -40,11 +41,13 @@ test('TOC list items remain separate measured lines', () => {
   ]);
 });
 
-test('same-source paragraph fragments continue without artificial short lines', () => {
-  const lines = Layout.buildMeasuredLines(Adapter, [
+test('same-source paragraph fragments join without an artificial CJK space', () => {
+  const joined = FragmentJoin.joinReadingElements([
     element('p1', 'paragraph', '本书是作者16年的股票、'),
     element('p2', 'paragraph', '期货和外汇交易过程中总结出来的'),
-  ], 1000, measure);
+  ]);
+  const lines = Layout.buildMeasuredLines(Adapter, joined, 1000, measure);
+  assert.equal(joined.length, 1);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].text, '本书是作者16年的股票、期货和外汇交易过程中总结出来的');
 });
@@ -52,7 +55,7 @@ test('same-source paragraph fragments continue without artificial short lines', 
 test('closing punctuation never begins a measured line', () => {
   const lines = Layout.buildMeasuredLines(Adapter, [
     element('p1', 'paragraph', '金融市场本无大师。'),
-  ], 85, measure);
+  ], 55, measure);
   assert.ok(lines.length >= 2);
   assert.ok(lines.every((line) => !/^[，。；：！？、]/u.test(line.text)));
   assert.equal(lines.map((line) => line.text).join(''), '金融市场本无大师。');
