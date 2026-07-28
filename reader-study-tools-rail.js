@@ -8,6 +8,7 @@
     const STORAGE_KEY = 'reader.studyToolsRail.v1';
     const DEFAULT_STATE = Object.freeze({ expanded: false, activeToolId: 'notes' });
     const TOOL_DEFINITIONS = Object.freeze([
+        { id: 'navigation', label: '文档导航', icon: '☰', selectors: ['.reader-v2-title', '.reader-v2-meta', '.reader-v2-find', '.reader-v2-navigation'] },
         { id: 'notes', label: '书签与笔记', icon: '📝', selectors: ['.reader-v2-annotations'] },
         { id: 'highlights', label: '高亮', icon: '🖍️', selectors: ['.reader-v2-highlights'] },
         { id: 'study-context', label: '学习上下文', icon: '🧠', selectors: ['.reader-v2-study-context'] },
@@ -21,11 +22,8 @@
     }
 
     function loadState(storage) {
-        try {
-            return normalizeState(JSON.parse(storage?.getItem?.(STORAGE_KEY) || 'null'));
-        } catch (_) {
-            return { ...DEFAULT_STATE };
-        }
+        try { return normalizeState(JSON.parse(storage?.getItem?.(STORAGE_KEY) || 'null')); }
+        catch (_) { return { ...DEFAULT_STATE }; }
     }
 
     function saveState(storage, state) {
@@ -57,11 +55,11 @@
             if (existing) return existing;
             const panel = this.document.querySelector('.reading-panel');
             const sidebar = this.document.querySelector('.reader-v2-sidebar');
+            const shell = this.document.querySelector('.reader-v2-shell');
             if (!panel || !sidebar) return null;
 
             const rail = this.createElement('aside', 'reader-study-tools-rail', {
-                id: 'readerStudyToolsRail',
-                'aria-label': '学习工具',
+                id: 'readerStudyToolsRail', 'aria-label': '学习工具',
             });
             const tabs = this.createElement('div', 'reader-study-tools-tabs', { role: 'tablist' });
             const drawer = this.createElement('div', 'reader-study-tools-drawer');
@@ -94,6 +92,8 @@
             collapse.addEventListener('click', () => this.setExpanded(false));
             rail.append(tabs, drawer);
             panel.appendChild(rail);
+            sidebar.hidden = true;
+            if (shell) shell.dataset.studyToolsReady = '1';
             this.render();
             return rail;
         }
@@ -104,13 +104,13 @@
                 if (!controller?.isReaderActive?.()) return;
                 controller.refreshFrames?.({ preserveIdentity: true });
                 const frame = controller.playback?.currentFrame?.();
-                if (frame) controller.showPlaybackSurface?.(frame);
+                if (frame && ['playing', 'paused', 'manual'].includes(controller.playback?.state)) {
+                    controller.showPlaybackSurface?.(frame);
+                }
             };
             if (typeof this.window?.requestAnimationFrame === 'function') {
                 this.window.requestAnimationFrame(() => this.window.requestAnimationFrame(run));
-            } else if (typeof this.window?.setTimeout === 'function') {
-                this.window.setTimeout(run, 200);
-            }
+            } else if (typeof this.window?.setTimeout === 'function') this.window.setTimeout(run, 200);
         }
 
         emitLayoutChange() {
