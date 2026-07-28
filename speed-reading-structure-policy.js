@@ -28,10 +28,18 @@
     }
 
     function rawTypeForNode(node) {
+        // Provider/source labels describe the original Paddle layout class and must
+        // take precedence over a later canonical node_type such as "paragraph".
         const candidates = [
-            node?.raw_node_type, node?.node_type, node?.block_label, node?.source_label,
-            node?.paddle_label, node?.label, node?.metadata?.provider_block_label,
-            node?.metadata?.block_label, node?.metadata?.source_label,
+            node?.metadata?.provider_block_label,
+            node?.metadata?.block_label,
+            node?.metadata?.source_label,
+            node?.block_label,
+            node?.source_label,
+            node?.paddle_label,
+            node?.raw_node_type,
+            node?.label,
+            node?.node_type,
         ];
         for (const value of candidates) {
             const normalized = normalizeType(value);
