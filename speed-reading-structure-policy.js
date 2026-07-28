@@ -27,8 +27,16 @@
         return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
     }
 
-    function rawTypeForNode(node) {
-        const candidates = [
+    function firstNormalized(values) {
+        for (const value of values) {
+            const normalized = normalizeType(value);
+            if (normalized) return normalized;
+        }
+        return '';
+    }
+
+    function providerTypeForNode(node) {
+        return firstNormalized([
             node?.metadata?.provider_block_label,
             node?.metadata?.block_label,
             node?.metadata?.source_label,
@@ -37,18 +45,44 @@
             node?.paddle_label,
             node?.raw_node_type,
             node?.label,
-            node?.node_type,
-        ];
-        for (const value of candidates) {
-            const normalized = normalizeType(value);
-            if (normalized) return normalized;
-        }
-        return 'unknown';
+        ]);
+    }
+
+    function semanticTypeForNode(node) {
+        return normalizeType(node?.node_type);
     }
 
     function canonicalType(rawType) {
         const normalized = normalizeType(rawType);
         return TYPE_ALIASES[normalized] || normalized || 'unknown';
+    }
+
+    function resolvedTypeForNode(node) {
+        const providerType = providerTypeForNode(node);
+        const providerCanonical = canonicalType(providerType);
+        const semanticType = semanticTypeForNode(node);
+        const semanticCanonical = canonicalType(semanticType);
+
+        // Exact provider furniture labels must override a later generic semantic type
+        // so page numbers and headers can be removed safely. For readable content,
+        // the recovered semantic node_type wins; otherwise a provider label of
+        // "text" would incorrectly downgrade a recovered heading to paragraph.
+        if (FURNITURE_TYPES.has(providerType) || FURNITURE_TYPES.has(providerCanonical)) {
+            return { rawType: providerType, type: providerCanonical, providerType, semanticType };
+        }
+        if (semanticType && semanticType !== 'unknown') {
+            return { rawType: providerType || semanticType, type: semanticCanonical, providerType, semanticType };
+        }
+        return {
+            rawType: providerType || semanticType || 'unknown',
+            type: providerCanonical || semanticCanonical || 'unknown',
+            providerType,
+            semanticType,
+        };
+    }
+
+    function rawTypeForNode(node) {
+        return resolvedTypeForNode(node).rawType;
     }
 
     function splitTocText(text) {
@@ -87,13 +121,14 @@
     function prepareStructuredNodes(nodes) {
         const output = [];
         for (const node of nodes || []) {
-            const rawType = rawTypeForNode(node);
-            const type = canonicalType(rawType);
+            const resolved = resolvedTypeForNode(node);
+            const rawType = resolved.rawType;
+            const type = resolved.type;
             const text = typeof node?.text === 'string' ? node.text.replace(/\r\n?/gu, '\n').trim() : '';
             if (FURNITURE_TYPES.has(rawType) || FURNITURE_TYPES.has(type)) continue;
             if (appendPunctuationNode(output, node, text)) continue;
 
-            const tocLike = TOC_TYPES.has(rawType) || TOC_TYPES.has(type);
+            const tocLike = TOC_TYPES.has(resolved.providerType) || TOC_TYPES.has(resolved.semanticType) || TOC_TYPES.has(type);
             const entries = tocLike ? splitTocText(text) : [text];
             if (entries.length <= 1) {
                 output.push({ ...node, raw_node_type: rawType, node_type: tocLike ? 'list_item' : type, text });
@@ -119,8 +154,9 @@
         const typeCounts = {};
         const excluded = [];
         for (const node of nodes || []) {
-            const rawType = rawTypeForNode(node);
-            const type = canonicalType(rawType);
+            const resolved = resolvedTypeForNode(node);
+            const rawType = resolved.rawType;
+            const type = resolved.type;
             typeCounts[rawType] = (typeCounts[rawType] || 0) + 1;
             if (FURNITURE_TYPES.has(rawType) || FURNITURE_TYPES.has(type)) {
                 excluded.push({ node_id: node?.node_id || null, raw_node_type: rawType, node_type: type, text: node?.text || '' });
@@ -150,7 +186,10 @@
         adapter.canonicalType = canonicalType;
         adapter.diagnoseNodes = diagnoseNodes;
         adapter.prepareStructuredNodes = prepareStructuredNodes;
+        adapter.providerTypeForNode = providerTypeForNode;
         adapter.rawTypeForNode = rawTypeForNode;
+        adapter.resolvedTypeForNode = resolvedTypeForNode;
+        adapter.semanticTypeForNode = semanticTypeForNode;
         adapter.splitStructuredNodes = prepareStructuredNodes;
         adapter.splitTocText = splitTocText;
         return true;
@@ -159,6 +198,7 @@
     if (rootObject?.SpeedReadingAdapter) install(rootObject);
     return {
         FURNITURE_TYPES, TOC_TYPES, TYPE_ALIASES, canonicalType, diagnoseNodes, install,
-        normalizeType, prepareStructuredNodes, rawTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
+        normalizeType, prepareStructuredNodes, providerTypeForNode, rawTypeForNode, resolvedTypeForNode,
+        semanticTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
     };
 });
