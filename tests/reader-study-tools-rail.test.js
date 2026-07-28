@@ -35,10 +35,11 @@ test('tool registry exposes notes, highlights, and study context', () => {
   ]);
 });
 
-test('rail CSS keeps a narrow visible strip while collapsed and overlays on small screens', () => {
+test('rail CSS keeps a narrow visible strip, pushes wide layouts, and overlays on small screens', () => {
   const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
-  assert.match(css, /--reader-study-tools-rail-width:\s*46px/);
-  assert.match(css, /reader-study-tools-rail\[data-expanded="0"\]/);
+  assert.match(css, /--study-tools-rail-width:\s*46px/);
+  assert.match(css, /\.reader-study-tools-rail\s*\{[^}]*width:\s*var\(--study-tools-rail-width\)/s);
+  assert.match(css, /data-study-tools-expanded="1"[^}]*width:\s*calc\(100%\s*-\s*var\(--study-tools-rail-width\)\s*-\s*var\(--study-tools-drawer-width\)\)/s);
   assert.match(css, /reader-study-tools-drawer/);
   assert.match(css, /@media\s*\(max-width:\s*900px\)/);
 });
