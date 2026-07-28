@@ -5,7 +5,9 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const CARRIED_CHARACTER_AND_PUNCTUATION = /^([^\s，。；：！？、…—”’）】》〉」』〕］｝])([，。；：！？、…—”’）】》〉」』〕］｝]+)/u;
+    // Single-cell closing punctuation hangs on the preceding line. Two-cell punctuation
+    // such as —— and …… is explicitly allowed to begin a line.
+    const CARRIED_CHARACTER_AND_PUNCTUATION = /^([^\s，。；：！？、”’）】》〉」』〕］｝])([，。；：！？、”’）】》〉」』〕］｝]+)/u;
 
     function repairHangingPunctuation(frames, adapter, speedPerMinute) {
         let previousLine = null;
@@ -17,12 +19,11 @@
 
             const kept = [];
             for (const sourceLine of frame.lines) {
-                const line = { ...sourceLine };
-                const text = String(line.text || '');
-                const match = previousLine ? text.match(CARRIED_CHARACTER_AND_PUNCTUATION) : null;
+                const line = { ...sourceLine, text: String(sourceLine?.text || '').replace(/^\s+/u, '') };
+                const match = previousLine ? line.text.match(CARRIED_CHARACTER_AND_PUNCTUATION) : null;
                 if (match) {
                     previousLine.text = `${String(previousLine.text || '').replace(/\s+$/u, '')}${match[1]}${match[2]}`;
-                    line.text = text.slice(match[0].length).replace(/^\s+/u, '');
+                    line.text = line.text.slice(match[0].length).replace(/^\s+/u, '');
                 }
                 if (line.text) {
                     kept.push(line);
