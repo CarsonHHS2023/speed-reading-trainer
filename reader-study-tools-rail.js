@@ -125,8 +125,13 @@
         render() {
             const rail = this.document?.getElementById('readerStudyToolsRail');
             if (!rail) return;
+            const readingPanel = rail.closest?.('.reading-panel') || this.document?.querySelector?.('.reading-panel');
             rail.dataset.expanded = this.state.expanded ? '1' : '0';
             rail.dataset.activeTool = this.state.activeToolId;
+            if (readingPanel) {
+                readingPanel.dataset.studyToolsExpanded = this.state.expanded ? '1' : '0';
+                readingPanel.dataset.studyToolsActive = this.state.activeToolId;
+            }
             rail.querySelectorAll('[data-tool-id]').forEach((button) => {
                 const selected = button.dataset.toolId === this.state.activeToolId;
                 button.classList.toggle('active', selected);
