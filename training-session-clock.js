@@ -66,3 +66,10 @@
 
     return { TrainingSessionClock, CLOCK_STATES };
 });
+
+if (typeof document !== 'undefined' && !document.getElementById('speedReadingResponsiveLayoutScript')) {
+    const script = document.createElement('script');
+    script.id = 'speedReadingResponsiveLayoutScript';
+    script.src = 'speed-reading-responsive-layout.js';
+    document.head.appendChild(script);
+}

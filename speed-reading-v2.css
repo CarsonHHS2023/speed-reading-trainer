@@ -61,14 +61,15 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
 
 .reading-panel {
     --speed-reading-font-size: 28px;
-    --speed-reading-measure: 35em;
+    --speed-reading-width-percent: 100%;
     --speed-reading-font-weight: 400;
 }
 
 #focusModeDisplay,
 #pageModeDisplay {
-    padding-top: 52px;
-    overflow: visible;
+    box-sizing: border-box;
+    padding: 52px 16px 16px;
+    overflow: hidden;
 }
 
 #focusModeDisplay.active .reader-playback-frame-text,
@@ -79,23 +80,30 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
 #focusText,
 #pageText {
     box-sizing: border-box;
-    width: min(calc(100% - 64px), var(--speed-reading-measure));
-    max-width: none;
+    width: var(--speed-reading-width-percent);
+    max-width: 100%;
     margin-inline: auto;
     padding-inline: 0 !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     font-size: var(--speed-reading-font-size) !important;
     font-weight: var(--speed-reading-font-weight) !important;
     line-height: 1.55;
+    text-indent: 0 !important;
+    transform: none;
 }
 
 #focusText .reader-playback-frame-text,
 #pageText .reader-playback-frame-text {
+    box-sizing: border-box;
     width: 100%;
+    margin-inline: 0;
+    padding-inline: 0;
     white-space: normal;
     overflow-wrap: normal;
     word-break: keep-all;
-    overflow: visible;
+    overflow: hidden;
+    text-indent: 0;
+    transform: none;
 }
 
 .reader-playback-frame-structured {
@@ -105,10 +113,15 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
 }
 
 .reader-playback-line {
+    box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
+    margin-inline: 0 !important;
+    padding-inline: 0 !important;
+    text-indent: 0 !important;
+    transform: none !important;
     white-space: nowrap;
-    overflow: visible;
+    overflow: hidden;
     font-size: 1em;
     line-height: 1.55;
     font-weight: var(--speed-reading-font-weight);
@@ -146,7 +159,7 @@ body.dark-mode .reader-playback-line-reference {
 }
 
 .reader-playback-line-quote {
-    padding-inline-start: .7em;
+    padding-inline-start: .7em !important;
     border-inline-start: 3px solid rgba(102, 126, 234, .5);
 }
 
@@ -219,6 +232,6 @@ body.dark-mode .reader-playback-continue {
 @media (max-width: 900px) {
     .speed-reading-v2-shortcuts { display: none; }
     .speed-reading-v2-toolbar { top: 6px; }
-    #focusText,
-    #pageText { width: min(calc(100% - 32px), var(--speed-reading-measure)); }
+    #focusModeDisplay,
+    #pageModeDisplay { padding-inline: 10px; }
 }
