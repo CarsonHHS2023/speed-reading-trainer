@@ -1,7 +1,7 @@
 (function (root) {
     'use strict';
 
-    const ASSET_VERSION = '2026-07-28-phase24c5c';
+    const ASSET_VERSION = '2026-07-28-phase24c5d';
 
     function versionedAsset(src) {
         const separator = String(src).includes('?') ? '&' : '?';
@@ -42,6 +42,8 @@
             .then(() => loadScript('reader-fragment-join-policy.js', 'ReaderFragmentJoinPolicy'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout'))
+            .then((module) => module?.install?.(root))
+            .then(() => loadScript('reader-punctuation-hanging-policy.js', 'ReaderPunctuationHangingPolicy'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-playback-polish.js', 'ReaderPlaybackPolish'))
             .then((module) => module?.install?.(root))
