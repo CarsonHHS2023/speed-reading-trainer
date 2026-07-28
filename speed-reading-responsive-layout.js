@@ -18,6 +18,7 @@
     const MAX_WIDTH_PERCENT = 100;
     const DEFAULT_WIDTH_PERCENT = 100;
     const DEFAULT_SAFE_GUTTER_PX = 32;
+    const FONT_SCALE_BY_TYPE = Object.freeze({ title: 1.5, heading: 1.22, caption: 0.82, reference: 0.82 });
 
     function clampWidthPercent(value) {
         const numeric = Number(value);
@@ -31,12 +32,26 @@
         return Math.max(1, (available - gutter) * clampWidthPercent(widthPercent) / 100);
     }
 
-    function createCanvasMeasurer(documentObject, font) {
+    function createCanvasMeasurer(documentObject, fontOptions) {
         const canvas = documentObject?.createElement?.('canvas');
         const context = canvas?.getContext?.('2d');
         if (!context) return null;
-        context.font = font;
-        return (text) => context.measureText(String(text || '')).width;
+        if (typeof fontOptions === 'string') {
+            context.font = fontOptions;
+            return (text) => context.measureText(String(text || '')).width;
+        }
+        const options = fontOptions || {};
+        const baseSize = Math.max(1, Number.parseFloat(options.fontSize) || 28);
+        const family = options.fontFamily || 'sans-serif';
+        const style = options.fontStyle || 'normal';
+        const baseWeight = options.fontWeight || '400';
+        return (text, nodeType = 'paragraph') => {
+            const scale = FONT_SCALE_BY_TYPE[nodeType] || 1;
+            const weight = ['title', 'heading'].includes(nodeType) ? '700' : baseWeight;
+            const familyForType = nodeType === 'code' ? 'ui-monospace, SFMono-Regular, Consolas, monospace' : family;
+            context.font = `${style} ${weight} ${baseSize * scale}px ${familyForType}`;
+            return context.measureText(String(text || '')).width;
+        };
     }
 
     function sourceKey(identity) {
@@ -86,7 +101,7 @@
     function measuredTokensForElement(adapter, element, measureText) {
         return adapter.tokenizeReadingText(element.text, { normalizeSoftWraps: true }).map((token) => ({
             ...token,
-            measured_width: Math.max(0, Number(measureText(token.text)) || 0),
+            measured_width: Math.max(0, Number(measureText(token.text, element.node_type)) || 0),
             node_type: element.node_type,
             identity: element.identity,
             element,
@@ -130,7 +145,7 @@
                 const before = lastCharacter(previousElement.text);
                 const after = firstCharacter(element.text);
                 if (!(isCjk(before) && isCjk(after))) {
-                    const spaceWidth = Math.max(0, Number(measureText(' ')) || 0);
+                    const spaceWidth = Math.max(0, Number(measureText(' ', element.node_type)) || 0);
                     if (lineWidth + spaceWidth > width) flush();
                     if (lineTokens.length) {
                         lineTokens.push({
@@ -255,7 +270,8 @@
     }
 
     function install(root) {
-        const Controller = root?.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController;
+        const PlaybackUI = root?.ReaderSpeedPlaybackUI;
+        const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         const adapter = root?.SpeedReadingAdapter || Adapter;
         if (!Controller || !adapter || Controller.prototype.__responsiveLayoutInstalled) return false;
         const originalAdapterOptions = Controller.prototype.adapterOptions;
@@ -301,8 +317,12 @@
             const target = this.displayScope() === 'page' ? this.element('pageText') : this.element('focusText');
             const view = this.document?.defaultView;
             const computed = target && view?.getComputedStyle ? view.getComputedStyle(target) : null;
-            const font = computed?.font || `${computed?.fontWeight || '400'} ${computed?.fontSize || '28px'} ${computed?.fontFamily || 'sans-serif'}`;
-            const measureText = createCanvasMeasurer(this.document, font);
+            const measureText = createCanvasMeasurer(this.document, {
+                fontFamily: computed?.fontFamily,
+                fontSize: computed?.fontSize,
+                fontStyle: computed?.fontStyle,
+                fontWeight: computed?.fontWeight,
+            });
             const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
                 ...settings,
                 measureText,
@@ -313,6 +333,33 @@
         };
 
         Controller.prototype.__responsiveLayoutInstalled = true;
+
+        const controller = PlaybackUI?.getDefaultController?.();
+        if (controller && !controller.__responsiveReflowBound) {
+            controller.__responsiveReflowBound = true;
+            let pending = null;
+            const scheduleReflow = () => {
+                const view = controller.document?.defaultView;
+                if (!controller.isReaderActive?.()) return;
+                if (pending !== null && view?.cancelAnimationFrame) view.cancelAnimationFrame(pending);
+                const run = () => {
+                    pending = null;
+                    controller.refreshFrames({ preserveIdentity: true });
+                    if (controller.playback?.currentFrame?.()) controller.showPlaybackSurface(controller.playback.currentFrame());
+                };
+                pending = view?.requestAnimationFrame ? view.requestAnimationFrame(run) : root.setTimeout(run, 0);
+            };
+            for (const id of ['fontInput', 'fontSlider', 'fontWeight']) {
+                const element = controller.element(id);
+                element?.addEventListener('input', scheduleReflow);
+                element?.addEventListener('change', scheduleReflow);
+            }
+            const panel = controller.document?.querySelector?.('.reading-panel');
+            if (panel && typeof root.ResizeObserver === 'function') {
+                controller.__responsiveResizeObserver = new root.ResizeObserver(scheduleReflow);
+                controller.__responsiveResizeObserver.observe(panel);
+            }
+        }
         return true;
     }
 
