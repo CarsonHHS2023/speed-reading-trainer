@@ -4,19 +4,18 @@ const fs = require('node:fs');
 
 const Lifecycle = require('../reader-resume-lifecycle.js');
 
-test('reader enhancements install structure, responsive layout, lineflow, playback polish, then tools rail', () => {
+test('reader enhancements install structure, responsive layout, playback polish, then tools rail', () => {
   const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
   const structure = source.indexOf('speed-reading-structure-policy.js');
   const responsive = source.indexOf('speed-reading-responsive-layout.js');
-  const lineflow = source.indexOf('reader-lineflow-polish.js');
   const polish = source.indexOf('reader-playback-polish.js');
   const rail = source.indexOf('reader-study-tools-rail.js');
 
   assert.ok(structure >= 0, 'structure policy loader is present');
   assert.ok(responsive > structure, 'responsive layout loads after structure policy');
-  assert.ok(lineflow > responsive, 'lineflow polish loads after responsive layout');
-  assert.ok(polish > lineflow, 'playback polish loads after lineflow polish');
+  assert.ok(polish > responsive, 'playback polish loads after responsive layout');
   assert.ok(rail > polish, 'study tools rail loads after playback polish');
+  assert.doesNotMatch(source, /reader-lineflow-polish\.js/u, 'a second lineflow pass must not override measured layout');
 });
 
 test('enhancement scripts and playback CSS use an explicit asset version', () => {
