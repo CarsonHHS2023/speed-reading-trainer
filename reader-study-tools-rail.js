@@ -98,11 +98,27 @@
             return rail;
         }
 
+        requestPlaybackReflow() {
+            const run = () => {
+                const controller = this.window?.ReaderSpeedPlaybackUI?.getDefaultController?.();
+                if (!controller?.isReaderActive?.()) return;
+                controller.refreshFrames?.({ preserveIdentity: true });
+                const frame = controller.playback?.currentFrame?.();
+                if (frame) controller.showPlaybackSurface?.(frame);
+            };
+            if (typeof this.window?.requestAnimationFrame === 'function') {
+                this.window.requestAnimationFrame(() => this.window.requestAnimationFrame(run));
+            } else if (typeof this.window?.setTimeout === 'function') {
+                this.window.setTimeout(run, 200);
+            }
+        }
+
         emitLayoutChange() {
             const event = typeof this.window?.CustomEvent === 'function'
                 ? new this.window.CustomEvent('reader-study-tools-layout-change', { detail: { ...this.state } })
                 : null;
             if (event) this.document.dispatchEvent(event);
+            this.requestPlaybackReflow();
         }
 
         setExpanded(expanded) {
