@@ -57,6 +57,19 @@ function stripDuration(frame) {
     return rest;
 }
 
+function advanceTimedFramesUntilManual(playback, time, limit = 1000) {
+    let advanced = 0;
+    while (playback.state === STATES.PLAYING) {
+        const frame = playback.currentFrame();
+        assert.equal(frame?.kind, 'timed_text');
+        time.advance(frame.duration_ms);
+        advanced += 1;
+        assert.ok(advanced < limit, 'playback did not reach a manual frame within the safety bound');
+    }
+    assert.equal(playback.state, STATES.MANUAL);
+    return advanced;
+}
+
 test('PDF acceptance: physical pages, timed/manual sequencing, Continue, and semantic resume stay coherent', () => {
     const built = Adapter.buildPlaybackFrames(pdfDocument, pdfNodes, {
         displayScope: 'page',
@@ -65,23 +78,33 @@ test('PDF acceptance: physical pages, timed/manual sequencing, Continue, and sem
         speedPerMinute: 60000,
     });
 
-    assert.deepEqual(built.frames.map((frame) => frame.kind), [
-        'timed_text', 'manual', 'timed_text', 'manual', 'timed_text',
+    const manualFrames = built.frames.filter((frame) => frame.kind === 'manual');
+    assert.deepEqual(manualFrames.map((frame) => frame.identity.node_id), [
+        'pdf-figure-1', 'pdf-formula-1',
     ]);
-    assert.equal(built.frames[0].identity.source_unit_id, 'pdf-page-1');
-    assert.equal(built.frames[1].identity.source_unit_id, 'pdf-page-1');
-    assert.equal(built.frames[2].identity.source_unit_id, 'pdf-page-2');
-    assert.equal(built.frames[0].text.includes('第二页'), false);
-    assert.equal(built.frames[2].text.includes('第一章'), false);
-    assert.ok(built.frames.filter((frame) => frame.kind === 'manual').every((frame) => frame.duration_ms === null && frame.auto_advance === false));
+    assert.ok(manualFrames.every((frame) => frame.duration_ms === null && frame.auto_advance === false));
+
+    const figureIndex = built.frames.findIndex((frame) => frame.identity.node_id === 'pdf-figure-1');
+    const formulaIndex = built.frames.findIndex((frame) => frame.identity.node_id === 'pdf-formula-1');
+    assert.ok(figureIndex > 0);
+    assert.ok(formulaIndex > figureIndex + 1);
+    assert.ok(formulaIndex < built.frames.length - 1);
+
+    const beforeFigure = built.frames.slice(0, figureIndex);
+    const betweenManualFrames = built.frames.slice(figureIndex + 1, formulaIndex);
+    const afterFormula = built.frames.slice(formulaIndex + 1);
+    assert.ok(beforeFigure.every((frame) => frame.kind === 'timed_text' && frame.identity.source_unit_id === 'pdf-page-1'));
+    assert.ok(betweenManualFrames.every((frame) => frame.kind === 'timed_text' && frame.identity.source_unit_id === 'pdf-page-2'));
+    assert.ok(afterFormula.every((frame) => frame.kind === 'timed_text' && frame.identity.source_unit_id === 'pdf-page-2'));
+    assert.equal(beforeFigure.some((frame) => frame.text.includes('第二页')), false);
+    assert.equal(betweenManualFrames.some((frame) => frame.text.includes('第一章')), false);
 
     const time = schedulerHarness();
     const playback = new PlaybackController({ scheduler: time.scheduler });
     playback.setFrames(built.frames, { preserveIdentity: false });
     assert.equal(playback.play(), true);
     assert.equal(playback.state, STATES.PLAYING);
-    time.advance(built.frames[0].duration_ms);
-    assert.equal(playback.state, STATES.MANUAL);
+    assert.equal(advanceTimedFramesUntilManual(playback, time), figureIndex);
     assert.equal(playback.currentFrame().identity.node_id, 'pdf-figure-1');
     assert.equal(time.pending(), 0);
 
@@ -89,7 +112,7 @@ test('PDF acceptance: physical pages, timed/manual sequencing, Continue, and sem
     assert.equal(playback.state, STATES.PLAYING);
     assert.equal(playback.currentFrame().identity.source_unit_id, 'pdf-page-2');
 
-    playback.seek(3 / built.frames.length);
+    playback.seek(formulaIndex / built.frames.length);
     assert.equal(playback.state, STATES.MANUAL);
     assert.equal(playback.currentFrame().identity.node_id, 'pdf-formula-1');
     assert.equal(time.pending(), 0);
@@ -159,8 +182,8 @@ test('acceptance timing: comprehension/manual time counts, explicit training pau
     assert.equal(clock.elapsedMs(), 2000);
     playback.resume();
 
-    time.advance(built.frames[0].duration_ms);
-    assert.equal(playback.state, STATES.MANUAL);
+    advanceTimedFramesUntilManual(playback, time);
+    assert.equal(playback.currentFrame().identity.node_id, 'pdf-figure-1');
     now += 900; // figure inspection: still training
     assert.equal(clock.elapsedMs(), 2900);
 
