@@ -1,0 +1,66 @@
+.reader-v2-page-semantic_full_page {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+}
+
+.reader-v2-semantic-page-shell {
+    position: relative;
+    width: 100%;
+    aspect-ratio: var(--reader-page-aspect, 0.7071);
+    min-height: 560px;
+    background: #fff;
+}
+
+.reader-v2-semantic-page-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+.reader-v2-semantic-page-element {
+    position: absolute;
+    box-sizing: border-box;
+    left: var(--reader-element-left);
+    top: var(--reader-element-top);
+    width: var(--reader-element-width);
+    min-height: var(--reader-element-height);
+    overflow: visible;
+}
+
+.reader-v2-semantic-page-element > .reader-v2-node {
+    margin: 0;
+    line-height: 1.45;
+}
+
+.reader-v2-semantic-page-fallback {
+    position: relative;
+    z-index: 2;
+    margin: 0 clamp(28px, 7vw, 76px) clamp(36px, 8vw, 92px);
+    padding-top: clamp(36px, 8vw, 92px);
+}
+
+.reader-v2-semantic-page-fallback[hidden] {
+    display: none;
+}
+
+.reader-v2-page-semantic_full_page .reader-v2-page-label {
+    position: absolute;
+    z-index: 5;
+    top: 10px;
+    right: 12px;
+    margin: 0;
+}
+
+body.dark-mode .reader-v2-semantic-page-shell {
+    background: #242424;
+}
+
+@media (max-width: 700px) {
+    .reader-v2-semantic-page-shell {
+        min-height: 420px;
+    }
+
+    .reader-v2-semantic-page-fallback {
+        margin-inline: 22px;
+    }
+}
