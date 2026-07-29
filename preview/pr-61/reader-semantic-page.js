@@ -30,6 +30,12 @@
         return VISUAL_NODE_TYPES.has(String(element?.node?.node_type || '').toLowerCase());
     }
 
+    function isCoverSourceRendering(page, element) {
+        return page?.presentation_mode === 'source_rendering'
+            && page?.page_kind === 'cover'
+            && element?.kind === 'cover_source_rendering';
+    }
+
     function spatialStyle(normalizedBbox, options = {}) {
         const bbox = normalizeBbox(normalizedBbox);
         if (!bbox) return null;
@@ -183,6 +189,8 @@
         const section = createElement(documentObject, 'section', 'reader-v2-page reader-v2-page-semantic_full_page');
         section.dataset.presentationId = page.presentation_id;
         section.dataset.sourceUnitId = page.source_unit_id || '';
+        const coverPage = page?.page_kind === 'cover' && page?.presentation_mode === 'source_rendering';
+        if (coverPage) addClass(section, 'reader-v2-page--cover-source-rendering');
 
         const resolvedLabel = pageNumberLabel || `第 ${Number(pageNumber ?? page.source_order) + 1} 页`;
         const label = createElement(documentObject, 'div', 'reader-v2-page-label', resolvedLabel);
@@ -190,6 +198,7 @@
 
         const shell = createElement(documentObject, 'div', 'reader-v2-semantic-page-shell');
         shell.style.aspectRatio = String(pageAspectRatio(page.source_unit));
+        if (coverPage) addClass(shell, 'reader-v2-semantic-page-shell--cover');
         section.appendChild(shell);
 
         const canvas = createElement(documentObject, 'div', 'reader-v2-semantic-page-canvas');
@@ -199,11 +208,13 @@
         const { positioned, fallback } = partitionElements(page.elements || []);
         for (const element of positioned) {
             const visual = isVisualElement(element);
+            const coverElement = isCoverSourceRendering(page, element);
             const slot = createElement(
                 documentObject,
                 'div',
                 `reader-v2-semantic-page-element reader-v2-semantic-page-element--${visual ? 'visual' : 'text'}`,
             );
+            if (coverElement) addClass(slot, 'reader-v2-semantic-page-element--cover-source-rendering');
             slot.dataset.readerElementId = element.element_id || '';
             slot.dataset.readerNodeId = element.node_id || '';
             applyStyle(slot, spatialStyle(element.normalized_bbox, { constrainHeight: true }));
@@ -237,6 +248,7 @@
         elementOverflows,
         expandTextSlotHeight,
         expandTextSlotWidth,
+        isCoverSourceRendering,
         isVisualElement,
         nodeForElement,
         normalizeBbox,
