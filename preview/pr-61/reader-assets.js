@@ -45,9 +45,9 @@
                     throw error;
                 }
                 if (
-                    metadata &&
-                    metadata.delivery_state === 'available' &&
-                    IMAGE_MEDIA_TYPES.has(metadata.rendition_media_type)
+                    metadata
+                    && metadata.delivery_state === 'available'
+                    && IMAGE_MEDIA_TYPES.has(metadata.rendition_media_type)
                 ) {
                     return {
                         metadata,
@@ -60,18 +60,25 @@
     }
 
     function defaultLabel(nodeType) {
-        return nodeType === 'figure' ? '图像' : nodeType === 'table' ? '表格' : nodeType === 'formula' ? '公式' : '资源';
+        return nodeType === 'figure' ? '图像暂不可用' : nodeType === 'table' ? '表格暂不可用' : nodeType === 'formula' ? '公式暂不可用' : '资源暂不可用';
+    }
+
+    function cleanDisplayText(value) {
+        const text = typeof value === 'string' ? value.trim() : '';
+        if (!text) return '';
+        if (/\b(?:label|bbox|content)\s*:/i.test(text)) return '';
+        return text;
     }
 
     function clear(target) {
         while (target && target.firstChild) target.removeChild(target.firstChild);
     }
 
-    function renderPlaceholder(documentObject, target, nodeType, fallbackText) {
+    function renderPlaceholder(documentObject, target, nodeType) {
         clear(target);
         const placeholder = documentObject.createElement('div');
         placeholder.className = 'reader-v2-placeholder';
-        placeholder.textContent = fallbackText || defaultLabel(nodeType);
+        placeholder.textContent = defaultLabel(nodeType);
         target.appendChild(placeholder);
     }
 
@@ -90,7 +97,7 @@
 
         const resolved = await resolver.resolveFirstAvailable(documentRef, candidateId, assetRefs || []);
         if (!resolved) {
-            renderPlaceholder(documentObject, target, nodeType, fallbackText);
+            renderPlaceholder(documentObject, target, nodeType);
             return null;
         }
 
@@ -100,10 +107,14 @@
         const image = documentObject.createElement('img');
         image.className = 'reader-v2-asset-image';
         image.src = resolved.contentUrl;
-        image.alt = resolved.metadata.alt_text || resolved.metadata.caption || fallbackText || defaultLabel(nodeType);
-        image.onerror = () => renderPlaceholder(documentObject, target, nodeType, fallbackText);
+        const safeFallback = cleanDisplayText(fallbackText);
+        image.alt = cleanDisplayText(resolved.metadata.alt_text)
+            || cleanDisplayText(resolved.metadata.caption)
+            || safeFallback
+            || defaultLabel(nodeType);
+        image.onerror = () => renderPlaceholder(documentObject, target, nodeType);
         figure.appendChild(image);
-        const captionText = resolved.metadata.caption || fallbackText;
+        const captionText = cleanDisplayText(resolved.metadata.caption);
         if (captionText) {
             const caption = documentObject.createElement('figcaption');
             caption.className = 'reader-v2-asset-caption';
@@ -117,6 +128,7 @@
     return {
         IMAGE_MEDIA_TYPES,
         ReaderAssetResolverV2,
+        cleanDisplayText,
         defaultLabel,
         renderAssetInto,
         renderPlaceholder,
