@@ -24,18 +24,18 @@ test('normalizes valid spatial anchors and rejects invalid boxes', () => {
   assert.equal(SemanticPage.normalizeBbox([0.1, 0.2, 0.8]), null);
 });
 
-test('converts normalized boxes into percentage positioning', () => {
+test('converts normalized boxes into bounded percentage positioning', () => {
   assert.deepEqual(SemanticPage.spatialStyle([0.1, 0.2, 0.8, 0.9]), {
     left: '10%',
     top: '20%',
     width: '70%',
-    minHeight: '70%',
+    height: '70%',
   });
 });
 
-test('uses Reader v2 nested page dimensions and A-series fallback otherwise', () => {
+test('uses Reader API nested page dimensions and A-series fallback otherwise', () => {
   assert.equal(SemanticPage.pageAspectRatio({ dimensions: { width: 1200, height: 1600, unit: 'pixel' } }), 0.75);
-  assert.equal(SemanticPage.pageAspectRatio({ width: 1000, height: 2000 }), 0.5);
+  assert.equal(SemanticPage.pageAspectRatio({ width: 1200, height: 1600 }), 0.75);
   assert.equal(SemanticPage.pageAspectRatio({}), SemanticPage.DEFAULT_PAGE_ASPECT_RATIO);
 });
 
@@ -48,7 +48,7 @@ test('keeps missing-anchor elements in same-page fallback flow', () => {
   assert.deepEqual(partitioned.fallback.map((item) => item.element_id), ['b']);
 });
 
-test('renders positioned elements and fallback nodes without changing node identity', () => {
+test('renders a page-height shell, positioned elements, and fallback nodes without changing identity', () => {
   const documentObject = fakeDocument();
   const page = {
     presentation_id: 'semantic-page:p1',
@@ -73,11 +73,15 @@ test('renders positioned elements and fallback nodes without changing node ident
   });
 
   assert.equal(rendered.dataset.sourceUnitId, 'p1');
-  const canvas = rendered.children[1];
-  assert.equal(canvas.style.aspectRatio, String(1000 / 1400));
+  const shell = rendered.children[1];
+  assert.equal(shell.className, 'reader-v2-semantic-page-shell');
+  assert.equal(shell.style.aspectRatio, String(1000 / 1400));
+  const canvas = shell.children[0];
+  assert.equal(canvas.className, 'reader-v2-semantic-page-canvas');
   assert.equal(canvas.children.length, 1);
   assert.equal(canvas.children[0].dataset.readerNodeId, 'n1');
   assert.equal(canvas.children[0].style.left, '10%');
+  assert.equal(canvas.children[0].style.height, '10%');
   const fallback = rendered.children[2];
   assert.equal(fallback.dataset.fallbackCount, '1');
   assert.equal(fallback.children[0].dataset.readerNodeId, 'n2');
