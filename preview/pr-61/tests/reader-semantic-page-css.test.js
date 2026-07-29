@@ -39,3 +39,22 @@ test('text slots remain clipped until width-first adaptation releases height', (
     /\.reader-v2-semantic-page-element--visual > \.reader-v2-node\s*\{[^}]*height:\s*100%;/s,
   );
 });
+
+test('cover source rendering fills the page without distortion or viewport height caps', () => {
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*width:\s*100%\s*!important;[^}]*height:\s*100%\s*!important;/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*max-height:\s*none\s*!important;/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*object-fit:\s*contain;/s,
+  );
+  assert.doesNotMatch(
+    css,
+    /\.reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*object-fit:\s*fill;/s,
+  );
+});
