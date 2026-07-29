@@ -48,6 +48,27 @@ test('keeps missing-anchor elements in same-page fallback flow', () => {
   assert.deepEqual(partitioned.fallback.map((item) => item.element_id), ['b']);
 });
 
+test('removes provider debug fields while preserving surrounding body text', () => {
+  const text = '一低点，中间不穿越任何价位的一条直线。\nlabel: text\nbbox: [152, 237, 882, 325]\ncontent:';
+  assert.equal(
+    SemanticPage.stripProviderDebugFields(text),
+    '一低点，中间不穿越任何价位的一条直线。',
+  );
+  assert.equal(SemanticPage.stripProviderDebugFields('Table 1'), 'Table 1');
+});
+
+test('creates a temporary semantic display node only when debug text is removed', () => {
+  const canonical = {
+    node_id: 'n-debug',
+    text: '正文。\nlabel: text\nbbox: [1, 2, 3, 4]\ncontent:',
+  };
+  const displayNode = SemanticPage.nodeForElement({ node_id: 'n-debug', node: canonical });
+  assert.equal(displayNode.node_id, 'n-debug:semantic-display');
+  assert.equal(displayNode.text, '正文。');
+  assert.equal(displayNode.presentation_canonical_node_id, 'n-debug');
+  assert.match(canonical.text, /label:/);
+});
+
 test('creates a temporary fragment render node while preserving canonical identity', () => {
   const canonical = { node_id: 'n1', text: 'Complete canonical paragraph' };
   const fragmentNode = SemanticPage.nodeForElement({
