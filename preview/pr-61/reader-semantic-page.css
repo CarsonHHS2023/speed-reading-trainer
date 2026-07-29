@@ -30,6 +30,38 @@
     line-height: 1.45;
 }
 
+.reader-v2-semantic-page-element .reader-v2-node-header,
+.reader-v2-semantic-page-element .reader-v2-node-footer,
+.reader-v2-semantic-page-element .reader-v2-node-footnote {
+    color: color-mix(in srgb, currentColor 72%, transparent);
+    font-size: clamp(0.62rem, 1.15vw, 0.82rem);
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-header .reader-v2-node-text,
+.reader-v2-semantic-page-element .reader-v2-node-footer .reader-v2-node-text,
+.reader-v2-semantic-page-element .reader-v2-node-footnote .reader-v2-node-text {
+    margin: 0;
+    font: inherit;
+    text-align: inherit;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-header {
+    text-align: center;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-footer {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    text-align: center;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-footnote {
+    font-size: clamp(0.58rem, 1vw, 0.76rem);
+}
+
 .reader-v2-semantic-page-element .reader-v2-asset-slot,
 .reader-v2-semantic-page-element .reader-v2-asset,
 .reader-v2-semantic-page-element .reader-v2-asset-image {
