@@ -74,11 +74,11 @@
         while (target && target.firstChild) target.removeChild(target.firstChild);
     }
 
-    function renderPlaceholder(documentObject, target, nodeType) {
+    function renderPlaceholder(documentObject, target, nodeType, fallbackText) {
         clear(target);
         const placeholder = documentObject.createElement('div');
         placeholder.className = 'reader-v2-placeholder';
-        placeholder.textContent = defaultLabel(nodeType);
+        placeholder.textContent = cleanDisplayText(fallbackText) || defaultLabel(nodeType);
         target.appendChild(placeholder);
     }
 
@@ -97,7 +97,7 @@
 
         const resolved = await resolver.resolveFirstAvailable(documentRef, candidateId, assetRefs || []);
         if (!resolved) {
-            renderPlaceholder(documentObject, target, nodeType);
+            renderPlaceholder(documentObject, target, nodeType, fallbackText);
             return null;
         }
 
@@ -112,7 +112,7 @@
             || cleanDisplayText(resolved.metadata.caption)
             || safeFallback
             || defaultLabel(nodeType);
-        image.onerror = () => renderPlaceholder(documentObject, target, nodeType);
+        image.onerror = () => renderPlaceholder(documentObject, target, nodeType, fallbackText);
         figure.appendChild(image);
         const captionText = cleanDisplayText(resolved.metadata.caption);
         if (captionText) {
