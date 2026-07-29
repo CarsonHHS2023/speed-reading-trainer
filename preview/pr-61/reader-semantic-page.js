@@ -35,8 +35,9 @@
     }
 
     function pageAspectRatio(sourceUnit) {
-        const width = Number(sourceUnit?.width || sourceUnit?.page_width);
-        const height = Number(sourceUnit?.height || sourceUnit?.page_height);
+        const dimensions = sourceUnit?.dimensions || sourceUnit || {};
+        const width = Number(dimensions.width ?? sourceUnit?.page_width);
+        const height = Number(dimensions.height ?? sourceUnit?.page_height);
         if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
             return width / height;
         }
