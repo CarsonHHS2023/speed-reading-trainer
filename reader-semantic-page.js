@@ -30,14 +30,14 @@
             left: `${x1 * 100}%`,
             top: `${y1 * 100}%`,
             width: `${(x2 - x1) * 100}%`,
-            minHeight: `${(y2 - y1) * 100}%`,
+            height: `${(y2 - y1) * 100}%`,
         };
     }
 
     function pageAspectRatio(sourceUnit) {
-        const dimensions = sourceUnit?.dimensions || sourceUnit || {};
-        const width = Number(dimensions.width ?? sourceUnit?.page_width);
-        const height = Number(dimensions.height ?? sourceUnit?.page_height);
+        const dimensions = sourceUnit?.dimensions || {};
+        const width = Number(dimensions.width ?? sourceUnit?.width ?? sourceUnit?.page_width);
+        const height = Number(dimensions.height ?? sourceUnit?.height ?? sourceUnit?.page_height);
         if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
             return width / height;
         }
@@ -72,6 +72,7 @@
             page,
             renderNode,
             pageNumber,
+            pageNumberLabel,
         } = options;
         if (!documentObject || !page || typeof renderNode !== 'function') return null;
 
@@ -79,12 +80,16 @@
         section.dataset.presentationId = page.presentation_id;
         section.dataset.sourceUnitId = page.source_unit_id || '';
 
-        const label = createElement(documentObject, 'div', 'reader-v2-page-label', `第 ${Number(pageNumber ?? page.source_order) + 1} 页`);
+        const resolvedLabel = pageNumberLabel || `第 ${Number(pageNumber ?? page.source_order) + 1} 页`;
+        const label = createElement(documentObject, 'div', 'reader-v2-page-label', resolvedLabel);
         section.appendChild(label);
 
+        const shell = createElement(documentObject, 'div', 'reader-v2-semantic-page-shell');
+        shell.style.aspectRatio = String(pageAspectRatio(page.source_unit));
+        section.appendChild(shell);
+
         const canvas = createElement(documentObject, 'div', 'reader-v2-semantic-page-canvas');
-        canvas.style.aspectRatio = String(pageAspectRatio(page.source_unit));
-        section.appendChild(canvas);
+        shell.appendChild(canvas);
 
         const { positioned, fallback } = partitionElements(page.elements || []);
         for (const element of positioned) {
