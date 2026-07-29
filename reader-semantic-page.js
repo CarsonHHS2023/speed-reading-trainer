@@ -7,6 +7,7 @@
 
     const DEFAULT_PAGE_ASPECT_RATIO = 1 / Math.sqrt(2);
     const PROVIDER_DEBUG_FIELD = /^\s*(?:label|bbox|content)\s*:\s*.*$/i;
+    const VISUAL_NODE_TYPES = new Set(['figure', 'table', 'formula']);
 
     function clamp01(value) {
         const number = Number(value);
@@ -23,16 +24,21 @@
         return [x1, y1, x2, y2];
     }
 
-    function spatialStyle(normalizedBbox) {
+    function isVisualElement(element) {
+        return VISUAL_NODE_TYPES.has(String(element?.node?.node_type || '').toLowerCase());
+    }
+
+    function spatialStyle(normalizedBbox, options = {}) {
         const bbox = normalizeBbox(normalizedBbox);
         if (!bbox) return null;
         const [x1, y1, x2, y2] = bbox;
-        return {
+        const style = {
             left: `${x1 * 100}%`,
             top: `${y1 * 100}%`,
             width: `${(x2 - x1) * 100}%`,
-            height: `${(y2 - y1) * 100}%`,
         };
+        if (options.constrainHeight !== false) style.height = `${(y2 - y1) * 100}%`;
+        return style;
     }
 
     function pageAspectRatio(sourceUnit) {
@@ -131,10 +137,15 @@
 
         const { positioned, fallback } = partitionElements(page.elements || []);
         for (const element of positioned) {
-            const slot = createElement(documentObject, 'div', 'reader-v2-semantic-page-element');
+            const visual = isVisualElement(element);
+            const slot = createElement(
+                documentObject,
+                'div',
+                `reader-v2-semantic-page-element reader-v2-semantic-page-element--${visual ? 'visual' : 'text'}`,
+            );
             slot.dataset.readerElementId = element.element_id || '';
             slot.dataset.readerNodeId = element.node_id || '';
-            applyStyle(slot, spatialStyle(element.normalized_bbox));
+            applyStyle(slot, spatialStyle(element.normalized_bbox, { constrainHeight: visual }));
             const rendered = renderElementNode(element, renderNode);
             if (rendered) slot.appendChild(rendered);
             canvas.appendChild(slot);
@@ -155,6 +166,8 @@
 
     return {
         DEFAULT_PAGE_ASPECT_RATIO,
+        VISUAL_NODE_TYPES,
+        isVisualElement,
         nodeForElement,
         normalizeBbox,
         pageAspectRatio,
