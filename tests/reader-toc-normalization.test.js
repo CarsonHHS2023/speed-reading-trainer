@@ -124,7 +124,7 @@ test('renders a continuation toc page without requiring a heading node', () => {
   assert.equal(flow.children[0].dataset.readerNodeId, 'toc-item-0');
   assert.notEqual(flow.style.top, '');
   assert.notEqual(flow.style.bottom, '');
-  assert.ok(Number.parseFloat(flow.children[1].style.marginLeft) > 0);
+  assert.ok(Number.parseFloat(flow.children[1].style.paddingLeft) > 0);
 });
 
 test('toc CSS distributes rows through a source-informed content region', () => {
