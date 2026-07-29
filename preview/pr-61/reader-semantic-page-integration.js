@@ -10,6 +10,8 @@
     'use strict';
 
     const SEMANTIC_FULL_PAGE_MODE = 'semantic_full_page';
+    const TOC_ITEM_RULE = 'mineru_popo_toc_item';
+    const TOC_LIST_RULE = 'mineru_popo_toc_list';
 
     function resolveDeps() {
         if (typeof require === 'function') {
@@ -69,6 +71,81 @@
         };
     }
 
+    function tocParts(page) {
+        const nodes = page?.nodes || [];
+        const heading = nodes.find((node) => (
+            String(node?.node_type || '').toLowerCase() === 'heading'
+            && String(node?.text || '').trim() === '目录'
+        )) || null;
+        const items = nodes.filter((node) => node?.metadata?.recovery_rule === TOC_ITEM_RULE);
+        const listNodeIds = new Set(
+            nodes
+                .filter((node) => node?.metadata?.recovery_rule === TOC_LIST_RULE)
+                .map((node) => node.node_id),
+        );
+        return { heading, items, listNodeIds };
+    }
+
+    function isNormalizedTocPage(page) {
+        if (page?.page_kind === 'cover') return false;
+        const { heading, items } = tocParts(page);
+        return Boolean(heading && items.length >= 3);
+    }
+
+    function addClass(element, className) {
+        if (!element) return;
+        if (element.classList?.add) {
+            element.classList.add(className);
+            return;
+        }
+        const classes = new Set(String(element.className || '').split(/\s+/).filter(Boolean));
+        classes.add(className);
+        element.className = [...classes].join(' ');
+    }
+
+    function renderNormalizedTocPage(controller, page) {
+        const documentObject = controller.document;
+        const { heading, items, listNodeIds } = tocParts(page);
+        const section = documentObject.createElement('section');
+        section.className = 'reader-v2-page reader-v2-page-semantic_full_page reader-v2-page--normalized-toc';
+        section.dataset.presentationId = page.presentation_id;
+        section.dataset.sourceUnitId = page.source_unit_id || '';
+
+        const label = documentObject.createElement('div');
+        label.className = 'reader-v2-page-label';
+        label.textContent = `第 ${Number(page.source_order) + 1} 页`;
+        section.appendChild(label);
+
+        const shell = documentObject.createElement('div');
+        shell.className = 'reader-v2-semantic-page-shell reader-v2-semantic-page-shell--toc';
+        shell.style.aspectRatio = String(SemanticPage.pageAspectRatio(page.source_unit));
+        section.appendChild(shell);
+
+        const flow = documentObject.createElement('div');
+        flow.className = 'reader-v2-semantic-page-toc';
+        shell.appendChild(flow);
+
+        const renderedHeading = controller.renderNode(heading);
+        addClass(renderedHeading, 'reader-v2-semantic-page-toc-heading');
+        flow.appendChild(renderedHeading);
+
+        const itemIds = new Set(items.map((node) => node.node_id));
+        for (const item of items) {
+            const rendered = controller.renderNode(item);
+            addClass(rendered, 'reader-v2-semantic-page-toc-item');
+            rendered.dataset.readerNodeId = item.node_id;
+            flow.appendChild(rendered);
+        }
+
+        for (const node of page.nodes || []) {
+            if (node === heading || itemIds.has(node.node_id) || listNodeIds.has(node.node_id)) continue;
+            const rendered = controller.renderNode(node);
+            addClass(rendered, 'reader-v2-semantic-page-toc-extra');
+            flow.appendChild(rendered);
+        }
+        return section;
+    }
+
     function installSemanticPageIntegration() {
         const deps = resolveDeps();
         const prototype = deps.ReaderUI.ReaderV2Controller.prototype;
@@ -92,6 +169,11 @@
                     section.dataset.presentationId = page.presentation_id;
                     for (const node of page.nodes || []) section.appendChild(this.renderNode(node));
                     container.appendChild(section);
+                    continue;
+                }
+
+                if (isNormalizedTocPage(page)) {
+                    container.appendChild(renderNormalizedTocPage(this, page));
                     continue;
                 }
 
@@ -126,6 +208,9 @@
         SEMANTIC_FULL_PAGE_MODE,
         coverPageForSemanticPage,
         installSemanticPageIntegration,
+        isNormalizedTocPage,
         isSemanticFullPage,
+        renderNormalizedTocPage,
+        tocParts,
     };
 });
