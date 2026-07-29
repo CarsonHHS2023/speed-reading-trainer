@@ -16,3 +16,14 @@ test('semantic full-page CSS styles page furniture as auxiliary content', () => 
 test('footer furniture aligns to the bottom of its spatial region', () => {
   assert.match(css, /\.reader-v2-semantic-page-element \.reader-v2-node-footer\s*\{[^}]*align-items:\s*flex-end;/s);
 });
+
+test('text may extend beyond undersized OCR boxes while visual assets remain clipped', () => {
+  assert.match(
+    css,
+    /:has\(> \.reader-v2-node:not\(\.reader-v2-node-figure\):not\(\.reader-v2-node-table\):not\(\.reader-v2-node-formula\)\)\s*\{[^}]*overflow:\s*visible;/s,
+  );
+  for (const nodeType of ['figure', 'table', 'formula']) {
+    assert.match(css, new RegExp(`:has\\(> \\.reader-v2-node-${nodeType}\\)`));
+  }
+  assert.match(css, /overflow:\s*hidden;/);
+});
