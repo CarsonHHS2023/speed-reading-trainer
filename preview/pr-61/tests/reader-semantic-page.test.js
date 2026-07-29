@@ -24,12 +24,17 @@ test('normalizes valid spatial anchors and rejects invalid boxes', () => {
   assert.equal(SemanticPage.normalizeBbox([0.1, 0.2, 0.8]), null);
 });
 
-test('converts normalized boxes into bounded percentage positioning', () => {
+test('converts normalized boxes into constrained visual positioning or height-free text positioning', () => {
   assert.deepEqual(SemanticPage.spatialStyle([0.1, 0.2, 0.8, 0.9]), {
     left: '10%',
     top: '20%',
     width: '70%',
     height: '70%',
+  });
+  assert.deepEqual(SemanticPage.spatialStyle([0.1, 0.2, 0.8, 0.9], { constrainHeight: false }), {
+    left: '10%',
+    top: '20%',
+    width: '70%',
   });
 });
 
@@ -84,7 +89,7 @@ test('creates a temporary fragment render node while preserving canonical identi
   assert.equal(canonical.text, 'Complete canonical paragraph');
 });
 
-test('renders a page-height shell, positioned elements, and fallback nodes without changing identity', () => {
+test('renders height-free text slots and bbox-constrained visual slots without changing identity', () => {
   const documentObject = fakeDocument();
   const page = {
     presentation_id: 'semantic-page:p1',
@@ -96,11 +101,17 @@ test('renders a page-height shell, positioned elements, and fallback nodes witho
         element_id: 'e1',
         node_id: 'n1',
         normalized_bbox: [0.1, 0.1, 0.8, 0.2],
-        node: { node_id: 'n1', text: 'Complete canonical paragraph' },
+        node: { node_id: 'n1', node_type: 'paragraph', text: 'Complete canonical paragraph' },
         display_text: 'Page fragment',
         fragment_index: 0,
       },
-      { element_id: 'e2', node_id: 'n2', normalized_bbox: null, node: { node_id: 'n2', text: 'Fallback' } },
+      {
+        element_id: 'e2',
+        node_id: 'n2',
+        normalized_bbox: [0.2, 0.3, 0.7, 0.6],
+        node: { node_id: 'n2', node_type: 'figure', text: 'Figure' },
+      },
+      { element_id: 'e3', node_id: 'n3', normalized_bbox: null, node: { node_id: 'n3', text: 'Fallback' } },
     ],
   };
 
@@ -121,15 +132,23 @@ test('renders a page-height shell, positioned elements, and fallback nodes witho
   assert.equal(shell.style.aspectRatio, String(1000 / 1400));
   const canvas = shell.children[0];
   assert.equal(canvas.className, 'reader-v2-semantic-page-canvas');
-  assert.equal(canvas.children.length, 1);
-  assert.equal(canvas.children[0].dataset.readerNodeId, 'n1');
-  assert.equal(canvas.children[0].style.left, '10%');
-  assert.equal(canvas.children[0].style.height, '10%');
-  const fragmentArticle = canvas.children[0].children[0];
+  assert.equal(canvas.children.length, 2);
+
+  const textSlot = canvas.children[0];
+  assert.match(textSlot.className, /reader-v2-semantic-page-element--text/);
+  assert.equal(textSlot.dataset.readerNodeId, 'n1');
+  assert.equal(textSlot.style.left, '10%');
+  assert.equal(textSlot.style.height, undefined);
+  const fragmentArticle = textSlot.children[0];
   assert.equal(fragmentArticle.dataset.readerNodeId, 'n1');
   assert.equal(fragmentArticle.dataset.readerFragmentIndex, '0');
   assert.equal(fragmentArticle.textContent, 'Page fragment');
+
+  const visualSlot = canvas.children[1];
+  assert.match(visualSlot.className, /reader-v2-semantic-page-element--visual/);
+  assert.equal(visualSlot.style.height, '30%');
+
   const fallback = rendered.children[2];
   assert.equal(fallback.dataset.fallbackCount, '1');
-  assert.equal(fallback.children[0].dataset.readerNodeId, 'n2');
+  assert.equal(fallback.children[0].dataset.readerNodeId, 'n3');
 });
