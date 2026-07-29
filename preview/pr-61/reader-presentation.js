@@ -186,3 +186,72 @@
         semanticElementForNode,
     };
 });
+
+(function bootstrapSemanticFullPage(root) {
+    'use strict';
+
+    if (!root || typeof document === 'undefined') return;
+    if (root.__readerSemanticFullPageBootstrapStarted) return;
+    root.__readerSemanticFullPageBootstrapStarted = true;
+
+    function ensureStylesheet(href) {
+        const selector = `link[data-reader-semantic-page-css="${href}"]`;
+        if (document.querySelector(selector)) return;
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        link.dataset.readerSemanticPageCss = href;
+        document.head.appendChild(link);
+    }
+
+    function loadScriptOnce(src, ready) {
+        if (ready()) return Promise.resolve();
+        const existing = document.querySelector(`script[data-reader-semantic-page-src="${src}"]`);
+        if (existing) {
+            return new Promise((resolve, reject) => {
+                existing.addEventListener('load', resolve, { once: true });
+                existing.addEventListener('error', reject, { once: true });
+            });
+        }
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = false;
+            script.dataset.readerSemanticPageSrc = src;
+            script.addEventListener('load', resolve, { once: true });
+            script.addEventListener('error', reject, { once: true });
+            document.head.appendChild(script);
+        });
+    }
+
+    function waitForReady(check, timeoutMs = 10000) {
+        const started = Date.now();
+        return new Promise((resolve, reject) => {
+            function poll() {
+                if (check()) {
+                    resolve();
+                    return;
+                }
+                if (Date.now() - started >= timeoutMs) {
+                    reject(new Error('Reader semantic page bootstrap timed out'));
+                    return;
+                }
+                root.setTimeout(poll, 20);
+            }
+            poll();
+        });
+    }
+
+    ensureStylesheet('reader-semantic-page.css');
+    loadScriptOnce('reader-semantic-page.js', () => Boolean(root.ReaderSemanticPageV2))
+        .then(() => waitForReady(() => Boolean(root.ReaderUIV2?.ReaderV2Controller)))
+        .then(() => loadScriptOnce(
+            'reader-semantic-page-integration.js',
+            () => Boolean(root.ReaderSemanticPageIntegrationV2),
+        ))
+        .then(() => root.ReaderSemanticPageIntegrationV2.installSemanticPageIntegration())
+        .catch((error) => {
+            // Keep legacy Reader rendering available if the optional semantic page assets fail.
+            if (root.console?.warn) root.console.warn('Semantic full-page Reader bootstrap failed', error);
+        });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
