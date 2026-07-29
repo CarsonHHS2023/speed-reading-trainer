@@ -9,6 +9,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderUI, SemanticPage, Presentation) {
     'use strict';
 
+    const SEMANTIC_FULL_PAGE_MODE = 'semantic_full_page';
+
     function resolveDeps() {
         if (typeof require === 'function') {
             ReaderUI = ReaderUI || require('./reader-ui-v2.js');
@@ -21,11 +23,15 @@
         return { ReaderUI, SemanticPage, Presentation };
     }
 
+    function semanticFullPageMode() {
+        return Presentation?.PRESENTATION_MODE_SEMANTIC_FULL_PAGE || SEMANTIC_FULL_PAGE_MODE;
+    }
+
     function isSemanticFullPage(page, presentationState) {
-        const mode = presentationState?.mode;
-        return mode === Presentation.PRESENTATION_MODE_SEMANTIC_FULL_PAGE
-            || page?.kind === Presentation.PRESENTATION_MODE_SEMANTIC_FULL_PAGE
-            || page?.kind === 'semantic_full_page';
+        const expectedMode = semanticFullPageMode();
+        return presentationState?.mode === expectedMode
+            || page?.kind === expectedMode
+            || page?.kind === SEMANTIC_FULL_PAGE_MODE;
     }
 
     function installSemanticPageIntegration() {
@@ -81,6 +87,7 @@
     }
 
     return {
+        SEMANTIC_FULL_PAGE_MODE,
         installSemanticPageIntegration,
         isSemanticFullPage,
     };
