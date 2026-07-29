@@ -93,6 +93,46 @@
         return { heading, items, listNodeIds };
     }
 
+    function nodeNormalizedBbox(node) {
+        const direct = node?.location?.source_anchor?.normalized_bbox;
+        const candidates = [direct, ...(node?.source_anchors || []).map((anchor) => anchor?.normalized_bbox)];
+        for (const bbox of candidates) {
+            if (!Array.isArray(bbox) || bbox.length !== 4) continue;
+            const values = bbox.map(Number);
+            if (values.every(Number.isFinite) && values[2] > values[0] && values[3] > values[1]) {
+                return values.map((value) => Math.max(0, Math.min(1, value)));
+            }
+        }
+        return null;
+    }
+
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function tocLayout(page) {
+        const { heading, items } = tocParts(page);
+        const measured = [heading, ...items].filter(Boolean).map((node) => ({ node, bbox: nodeNormalizedBbox(node) }));
+        const boxes = measured.map((entry) => entry.bbox).filter(Boolean);
+        const itemBoxes = items.map(nodeNormalizedBbox).filter(Boolean);
+        if (!boxes.length) {
+            return { top: 0.07, bottom: 0.93, indentByNodeId: new Map() };
+        }
+
+        const sourceTop = Math.min(...boxes.map((bbox) => bbox[1]));
+        const sourceBottom = Math.max(...boxes.map((bbox) => bbox[3]));
+        const top = clamp(sourceTop - 0.015, 0.045, heading ? 0.13 : 0.08);
+        const bottom = clamp(Math.max(sourceBottom + 0.02, 0.86), 0.86, 0.965);
+        const minimumLeft = itemBoxes.length ? Math.min(...itemBoxes.map((bbox) => bbox[0])) : 0;
+        const indentByNodeId = new Map();
+        for (const item of items) {
+            const bbox = nodeNormalizedBbox(item);
+            const sourceIndent = bbox ? Math.max(0, bbox[0] - minimumLeft) : 0;
+            indentByNodeId.set(item.node_id, clamp(sourceIndent * 100, 0, 12));
+        }
+        return { top, bottom, indentByNodeId };
+    }
+
     function isNormalizedTocPage(page, previousPageWasToc = false) {
         if (page?.page_kind === 'cover') return false;
         const { heading, items } = tocParts(page);
@@ -116,6 +156,7 @@
     function renderNormalizedTocPage(controller, page) {
         const documentObject = controller.document;
         const { heading, items, listNodeIds } = tocParts(page);
+        const layout = tocLayout(page);
         const section = documentObject.createElement('section');
         section.className = 'reader-v2-page reader-v2-page-semantic_full_page reader-v2-page--normalized-toc';
         section.dataset.presentationId = page.presentation_id;
@@ -133,6 +174,8 @@
 
         const flow = documentObject.createElement('div');
         flow.className = 'reader-v2-semantic-page-toc';
+        flow.style.top = `${layout.top * 100}%`;
+        flow.style.bottom = `${(1 - layout.bottom) * 100}%`;
         if (!heading) addClass(flow, 'reader-v2-semantic-page-toc--continuation');
         shell.appendChild(flow);
 
@@ -147,6 +190,7 @@
             const rendered = controller.renderNode(item);
             addClass(rendered, 'reader-v2-semantic-page-toc-item');
             rendered.dataset.readerNodeId = item.node_id;
+            rendered.style.marginLeft = `${layout.indentByNodeId.get(item.node_id) || 0}%`;
             flow.appendChild(rendered);
         }
 
@@ -229,7 +273,9 @@
         installSemanticPageIntegration,
         isNormalizedTocPage,
         isSemanticFullPage,
+        nodeNormalizedBbox,
         renderNormalizedTocPage,
+        tocLayout,
         tocParts,
     };
 });
