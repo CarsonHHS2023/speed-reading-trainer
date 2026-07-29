@@ -22,9 +22,19 @@
         return node?.location?.source_unit_id || node?.source_unit_ids?.[0] || null;
     }
 
-    function normalizedBBoxForNode(node) {
-        const anchor = node?.location?.source_anchor || node?.source_anchors?.[0] || null;
-        const bbox = anchor?.normalized_bbox;
+    function spatialAnchorForNode(node, sourceUnitId = primarySourceUnitId(node)) {
+        const anchors = [];
+        if (node?.location?.source_anchor) anchors.push(node.location.source_anchor);
+        for (const anchor of node?.source_anchors || []) anchors.push(anchor);
+        return anchors.find((anchor) => (
+            anchor?.kind === 'spatial'
+            && anchor?.source_unit_id === sourceUnitId
+            && Array.isArray(anchor?.normalized_bbox)
+        )) || null;
+    }
+
+    function normalizedBBoxForNode(node, sourceUnitId = primarySourceUnitId(node)) {
+        const bbox = spatialAnchorForNode(node, sourceUnitId)?.normalized_bbox;
         if (!Array.isArray(bbox) || bbox.length !== 4) return null;
         const values = bbox.map(Number);
         if (values.some((value) => !Number.isFinite(value))) return null;
@@ -38,14 +48,14 @@
         ];
     }
 
-    function semanticElementForNode(node) {
+    function semanticElementForNode(node, sourceUnitId = primarySourceUnitId(node)) {
         return {
             element_id: `node:${node.node_id}`,
             kind: 'semantic_node',
             node_id: node.node_id,
             node,
-            normalized_bbox: normalizedBBoxForNode(node),
-            source_unit_id: primarySourceUnitId(node),
+            normalized_bbox: normalizedBBoxForNode(node, sourceUnitId),
+            source_unit_id: sourceUnitId,
         };
     }
 
@@ -67,7 +77,7 @@
             const page = unitId ? pageById.get(unitId) : null;
             if (page) {
                 page.nodes.push(node);
-                page.elements.push(semanticElementForNode(node));
+                page.elements.push(semanticElementForNode(node, unitId));
             } else {
                 unplaced.push(node);
             }
@@ -81,7 +91,7 @@
                 source_unit_id: null,
                 source_order: Number.MAX_SAFE_INTEGER,
                 nodes: unplaced,
-                elements: unplaced.map(semanticElementForNode),
+                elements: unplaced.map((node) => semanticElementForNode(node, null)),
             });
         }
         return result;
@@ -184,6 +194,7 @@
         presentationForDocument,
         primarySourceUnitId,
         semanticElementForNode,
+        spatialAnchorForNode,
     };
 });
 
