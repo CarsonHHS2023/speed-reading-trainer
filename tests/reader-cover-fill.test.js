@@ -60,9 +60,12 @@ test('marks source-rendered cover page and element for full-shell layout', () =>
   assert.equal(slot.style.height, '100%');
 });
 
-test('cover CSS removes ordinary node width constraints and fills the image', () => {
+test('cover CSS removes viewport caps and preserves source-page proportions', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'reader-semantic-page.css'), 'utf8');
   assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering[^}]*max-width:\s*none/s);
-  assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*fill;/s);
+  assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*width:\s*100%\s*!important;[^}]*height:\s*100%\s*!important;/s);
+  assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*max-height:\s*none\s*!important;/s);
+  assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*object-fit:\s*contain;/s);
+  assert.doesNotMatch(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-image\s*\{[^}]*object-fit:\s*fill;/s);
   assert.match(css, /reader-v2-semantic-page-element--cover-source-rendering \.reader-v2-asset-caption\s*\{[^}]*display:\s*none;/s);
 });
