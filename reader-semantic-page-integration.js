@@ -34,6 +34,41 @@
             || page?.kind === SEMANTIC_FULL_PAGE_MODE;
     }
 
+    function coverPageForSemanticPage(page) {
+        const carrier = (page?.nodes || []).find((node) => (
+            node?.metadata?.page_kind === 'cover'
+            && node?.metadata?.presentation_mode === 'source_rendering'
+            && String(node?.metadata?.source_rendering_asset_id || '').trim()
+        ));
+        if (!carrier) return page;
+
+        const assetId = String(carrier.metadata.source_rendering_asset_id).trim();
+        const displayNode = {
+            ...carrier,
+            node_type: 'figure',
+            text: null,
+            asset_refs: [assetId],
+            presentation_canonical_node_id: carrier.node_id,
+            presentation_role: 'cover_source_rendering',
+        };
+        return {
+            ...page,
+            page_kind: 'cover',
+            presentation_mode: 'source_rendering',
+            cover_asset_id: assetId,
+            elements: [{
+                element_id: `cover:${page.source_unit_id || carrier.node_id}`,
+                kind: 'cover_source_rendering',
+                node_id: carrier.node_id,
+                node: displayNode,
+                display_text: null,
+                fragment_index: null,
+                normalized_bbox: [0, 0, 1, 1],
+                source_unit_id: page.source_unit_id || carrier.source_unit_ids?.[0] || null,
+            }],
+        };
+    }
+
     function installSemanticPageIntegration() {
         const deps = resolveDeps();
         const prototype = deps.ReaderUI.ReaderV2Controller.prototype;
@@ -60,9 +95,10 @@
                     continue;
                 }
 
+                const renderPage = coverPageForSemanticPage(page);
                 const section = deps.SemanticPage.renderSemanticPage({
                     documentObject: this.document,
-                    page,
+                    page: renderPage,
                     renderNode: (node) => this.renderNode(node),
                     pageNumberLabel: `第 ${Number(page.source_order) + 1} 页`,
                 });
@@ -88,6 +124,7 @@
 
     return {
         SEMANTIC_FULL_PAGE_MODE,
+        coverPageForSemanticPage,
         installSemanticPageIntegration,
         isSemanticFullPage,
     };
