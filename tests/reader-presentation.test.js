@@ -47,6 +47,22 @@ test('semantic full-page presentation preserves physical source-unit page bounda
   assert.equal(pages[0].elements[0].node, nodes[1]);
 });
 
+test('semantic page selects the matching spatial anchor when location uses another anchor kind', () => {
+  const units = [{ source_unit_id: 'p1', source_order: 0, kind: 'physical_page' }];
+  const sourceNode = {
+    ...node('n1', 0, 'p1', 'Recovered paragraph'),
+    source_anchors: [
+      { kind: 'text_span', source_unit_id: 'p1', start: 0, end: 19 },
+      { kind: 'spatial', source_unit_id: 'p2', normalized_bbox: [0.3, 0.3, 0.8, 0.4] },
+      { kind: 'spatial', source_unit_id: 'p1', normalized_bbox: [0.1, 0.2, 0.9, 0.4] },
+    ],
+  };
+
+  const pages = Presentation.deriveSemanticFullPages(units, [sourceNode]);
+  assert.deepEqual(pages[0].elements[0].normalized_bbox, [0.1, 0.2, 0.9, 0.4]);
+  assert.equal(Presentation.spatialAnchorForNode(sourceNode, 'p1').source_unit_id, 'p1');
+});
+
 test('semantic page elements tolerate missing spatial anchors without dropping nodes', () => {
   const units = [{ source_unit_id: 'p1', source_order: 0, kind: 'physical_page' }];
   const nodes = [node('n1', 0, 'p1', 'Recovered paragraph')];
