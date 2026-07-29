@@ -6,6 +6,7 @@
     'use strict';
 
     const DEFAULT_PAGE_ASPECT_RATIO = 1 / Math.sqrt(2);
+    const PROVIDER_DEBUG_FIELD = /^\s*(?:label|bbox|content)\s*:\s*.*$/i;
 
     function clamp01(value) {
         const number = Number(value);
@@ -66,14 +67,30 @@
         for (const [name, value] of Object.entries(style || {})) element.style[name] = value;
     }
 
+    function stripProviderDebugFields(value) {
+        if (typeof value !== 'string' || !value) return value;
+        const lines = value.split(/\r\n|\r|\n/);
+        const filtered = lines.filter((line) => !PROVIDER_DEBUG_FIELD.test(line));
+        return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
     function nodeForElement(element) {
-        if (element?.display_text === null || element?.display_text === undefined) return element?.node;
+        const canonical = element?.node;
+        if (!canonical) return canonical;
+        const sourceText = element?.display_text === null || element?.display_text === undefined
+            ? canonical.text
+            : element.display_text;
+        const displayText = stripProviderDebugFields(sourceText);
+        const isFragment = element?.display_text !== null && element?.display_text !== undefined;
+        if (!isFragment && displayText === canonical.text) return canonical;
         return {
-            ...element.node,
-            node_id: `${element.node_id}:page-fragment:${element.fragment_index ?? 0}`,
-            text: element.display_text,
+            ...canonical,
+            node_id: isFragment
+                ? `${element.node_id}:page-fragment:${element.fragment_index ?? 0}`
+                : `${element.node_id}:semantic-display`,
+            text: displayText,
             presentation_canonical_node_id: element.node_id,
-            presentation_fragment_index: element.fragment_index ?? 0,
+            presentation_fragment_index: isFragment ? (element.fragment_index ?? 0) : null,
         };
     }
 
@@ -145,5 +162,6 @@
         renderElementNode,
         renderSemanticPage,
         spatialStyle,
+        stripProviderDebugFields,
     };
 });
