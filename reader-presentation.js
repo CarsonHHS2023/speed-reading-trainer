@@ -9,6 +9,8 @@
     const DEFAULT_REFLOW_MAX_LINES = 20;
     const DEFAULT_FONT_SIZE = 28;
     const DEFAULT_VIEWPORT_WIDTH = 700;
+    const PRESENTATION_MODE_SEMANTIC_FULL_PAGE = 'semantic_full_page';
+    const PRESENTATION_MODE_REFLOW = 'reflow';
 
     function requireModel() {
         if (!Model && typeof require === 'function') Model = require('./reader-model.js');
@@ -20,36 +22,78 @@
         return node?.location?.source_unit_id || node?.source_unit_ids?.[0] || null;
     }
 
-    function derivePhysicalPages(sourceUnits, nodes) {
+    function normalizedBBoxForNode(node) {
+        const anchor = node?.location?.source_anchor || node?.source_anchors?.[0] || null;
+        const bbox = anchor?.normalized_bbox;
+        if (!Array.isArray(bbox) || bbox.length !== 4) return null;
+        const values = bbox.map(Number);
+        if (values.some((value) => !Number.isFinite(value))) return null;
+        const [x1, y1, x2, y2] = values;
+        if (x2 <= x1 || y2 <= y1) return null;
+        return [
+            Math.max(0, Math.min(1, x1)),
+            Math.max(0, Math.min(1, y1)),
+            Math.max(0, Math.min(1, x2)),
+            Math.max(0, Math.min(1, y2)),
+        ];
+    }
+
+    function semanticElementForNode(node) {
+        return {
+            element_id: `node:${node.node_id}`,
+            kind: 'semantic_node',
+            node_id: node.node_id,
+            node,
+            normalized_bbox: normalizedBBoxForNode(node),
+            source_unit_id: primarySourceUnitId(node),
+        };
+    }
+
+    function deriveSemanticFullPages(sourceUnits, nodes) {
         const model = requireModel();
         const pages = model.physicalPageSourceUnits(sourceUnits);
         const pageById = new Map(pages.map((unit) => [unit.source_unit_id, {
-            presentation_id: `physical:${unit.source_unit_id}`,
-            kind: 'physical_page',
+            presentation_id: `semantic-page:${unit.source_unit_id}`,
+            kind: 'semantic_full_page',
             source_unit: unit,
             source_unit_id: unit.source_unit_id,
             source_order: Number(unit.source_order),
+            elements: [],
             nodes: [],
         }]));
         const unplaced = [];
         for (const node of model.orderedNodes(nodes)) {
             const unitId = primarySourceUnitId(node);
             const page = unitId ? pageById.get(unitId) : null;
-            if (page) page.nodes.push(node);
-            else unplaced.push(node);
+            if (page) {
+                page.nodes.push(node);
+                page.elements.push(semanticElementForNode(node));
+            } else {
+                unplaced.push(node);
+            }
         }
         const result = pages.map((unit) => pageById.get(unit.source_unit_id));
         if (unplaced.length) {
             result.push({
-                presentation_id: 'physical:unplaced',
+                presentation_id: 'semantic-page:unplaced',
                 kind: 'semantic_overflow',
                 source_unit: null,
                 source_unit_id: null,
                 source_order: Number.MAX_SAFE_INTEGER,
                 nodes: unplaced,
+                elements: unplaced.map(semanticElementForNode),
             });
         }
         return result;
+    }
+
+    // Compatibility alias retained for callers/tests that still use the old name.
+    function derivePhysicalPages(sourceUnits, nodes) {
+        return deriveSemanticFullPages(sourceUnits, nodes).map((page) => ({
+            ...page,
+            presentation_id: page.presentation_id.replace('semantic-page:', 'physical:'),
+            kind: page.kind === 'semantic_full_page' ? 'physical_page' : page.kind,
+        }));
     }
 
     function effectiveReflowMetrics(options = {}) {
@@ -109,12 +153,14 @@
         const model = requireModel();
         const sourceUnits = model.orderedSourceUnits(documentView?.source_units || []);
         const physical = model.physicalPageSourceUnits(sourceUnits);
-        const reflowable = sourceUnits.filter(model.isReflowableSourceUnit);
-        if (physical.length && !reflowable.length) {
-            return { mode: 'physical', pages: derivePhysicalPages(sourceUnits, nodes) };
+        if (physical.length) {
+            return {
+                mode: PRESENTATION_MODE_SEMANTIC_FULL_PAGE,
+                pages: deriveSemanticFullPages(sourceUnits, nodes),
+            };
         }
         return {
-            mode: 'reflow',
+            mode: PRESENTATION_MODE_REFLOW,
             pages: deriveReflowPages(nodes, options),
         };
     }
@@ -126,12 +172,17 @@
     return {
         DEFAULT_REFLOW_LINE_WIDTH,
         DEFAULT_REFLOW_MAX_LINES,
+        PRESENTATION_MODE_REFLOW,
+        PRESENTATION_MODE_SEMANTIC_FULL_PAGE,
         derivePhysicalPages,
         deriveReflowPages,
+        deriveSemanticFullPages,
         effectiveReflowMetrics,
         estimateNodeLines,
         findPresentationPageForNode,
+        normalizedBBoxForNode,
         presentationForDocument,
         primarySourceUnitId,
+        semanticElementForNode,
     };
 });
