@@ -17,13 +17,21 @@ test('footer furniture aligns to the bottom of its spatial region', () => {
   assert.match(css, /\.reader-v2-semantic-page-element \.reader-v2-node-footer\s*\{[^}]*align-items:\s*flex-end;/s);
 });
 
-test('text may extend beyond undersized OCR boxes while visual assets remain clipped', () => {
+test('text slots expand beyond undersized OCR boxes while visual slots remain clipped', () => {
   assert.match(
     css,
-    /:has\(> \.reader-v2-node:not\(\.reader-v2-node-figure\):not\(\.reader-v2-node-table\):not\(\.reader-v2-node-formula\)\)\s*\{[^}]*overflow:\s*visible;/s,
+    /\.reader-v2-semantic-page-element--text\s*\{[^}]*height:\s*auto\s*!important;[^}]*overflow:\s*visible;/s,
   );
-  for (const nodeType of ['figure', 'table', 'formula']) {
-    assert.match(css, new RegExp(`:has\\(> \\.reader-v2-node-${nodeType}\\)`));
-  }
-  assert.match(css, /overflow:\s*hidden;/);
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--text[^}]*\.reader-v2-node-text\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--visual\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--visual > \.reader-v2-node\s*\{[^}]*height:\s*100%;/s,
+  );
 });
