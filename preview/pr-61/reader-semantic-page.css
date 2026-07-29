@@ -20,16 +20,36 @@
 .reader-v2-semantic-page-element {
     position: absolute;
     box-sizing: border-box;
-    left: var(--reader-element-left);
-    top: var(--reader-element-top);
-    width: var(--reader-element-width);
-    min-height: var(--reader-element-height);
-    overflow: visible;
+    overflow: hidden;
 }
 
 .reader-v2-semantic-page-element > .reader-v2-node {
+    width: 100%;
+    height: 100%;
     margin: 0;
     line-height: 1.45;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset-slot,
+.reader-v2-semantic-page-element .reader-v2-asset,
+.reader-v2-semantic-page-element .reader-v2-asset-image {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset {
+    display: flex;
+    flex-direction: column;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset-image {
+    min-height: 0;
+    object-fit: contain;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset-caption {
+    flex: 0 0 auto;
 }
 
 .reader-v2-semantic-page-fallback {
