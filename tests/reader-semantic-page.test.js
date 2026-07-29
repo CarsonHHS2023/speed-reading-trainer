@@ -24,17 +24,12 @@ test('normalizes valid spatial anchors and rejects invalid boxes', () => {
   assert.equal(SemanticPage.normalizeBbox([0.1, 0.2, 0.8]), null);
 });
 
-test('converts normalized boxes into constrained visual positioning or height-free text positioning', () => {
+test('converts normalized boxes into constrained positioning', () => {
   assert.deepEqual(SemanticPage.spatialStyle([0.1, 0.2, 0.8, 0.9]), {
     left: '10%',
     top: '20%',
     width: '70%',
     height: '70%',
-  });
-  assert.deepEqual(SemanticPage.spatialStyle([0.1, 0.2, 0.8, 0.9], { constrainHeight: false }), {
-    left: '10%',
-    top: '20%',
-    width: '70%',
   });
 });
 
@@ -89,7 +84,54 @@ test('creates a temporary fragment render node while preserving canonical identi
   assert.equal(canonical.text, 'Complete canonical paragraph');
 });
 
-test('renders height-free text slots and bbox-constrained visual slots without changing identity', () => {
+test('overflow adaptation expands width before releasing height', () => {
+  const slot = {
+    className: 'reader-v2-semantic-page-element--text',
+    style: { width: '30%', height: '8%' },
+    scrollWidth: 300,
+    clientWidth: 300,
+    scrollHeight: 80,
+    clientHeight: 40,
+  };
+  let scheduled;
+  SemanticPage.adaptOverflowingTextSlot(slot, [0.1, 0.2, 0.4, 0.28], {
+    rightEdge: 0.9,
+    schedule(callback) { scheduled = callback; },
+  });
+  assert.equal(slot.style.width, '80%');
+  assert.equal(slot.style.height, '8%');
+  assert.match(slot.className, /width-expanded/);
+
+  slot.scrollHeight = 60;
+  slot.clientHeight = 40;
+  scheduled();
+  assert.equal(slot.style.height, 'auto');
+  assert.equal(slot.style.overflow, 'visible');
+  assert.match(slot.className, /height-expanded/);
+});
+
+test('overflow adaptation stops after width expansion when content fits', () => {
+  const slot = {
+    className: 'reader-v2-semantic-page-element--text',
+    style: { width: '30%', height: '8%' },
+    scrollWidth: 300,
+    clientWidth: 300,
+    scrollHeight: 80,
+    clientHeight: 40,
+  };
+  let scheduled;
+  SemanticPage.adaptOverflowingTextSlot(slot, [0.1, 0.2, 0.4, 0.28], {
+    rightEdge: 0.9,
+    schedule(callback) { scheduled = callback; },
+  });
+  slot.scrollHeight = 38;
+  slot.clientHeight = 40;
+  scheduled();
+  assert.equal(slot.style.height, '8%');
+  assert.doesNotMatch(slot.className, /height-expanded/);
+});
+
+test('renders bbox-constrained text and visual slots without changing identity', () => {
   const documentObject = fakeDocument();
   const page = {
     presentation_id: 'semantic-page:p1',
@@ -138,7 +180,7 @@ test('renders height-free text slots and bbox-constrained visual slots without c
   assert.match(textSlot.className, /reader-v2-semantic-page-element--text/);
   assert.equal(textSlot.dataset.readerNodeId, 'n1');
   assert.equal(textSlot.style.left, '10%');
-  assert.equal(textSlot.style.height, undefined);
+  assert.equal(textSlot.style.height, '10%');
   const fragmentArticle = textSlot.children[0];
   assert.equal(fragmentArticle.dataset.readerNodeId, 'n1');
   assert.equal(fragmentArticle.dataset.readerFragmentIndex, '0');
