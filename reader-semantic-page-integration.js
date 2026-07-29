@@ -85,12 +85,9 @@
             && String(node?.text || '').trim() === '目录'
         )) || null;
         const items = nodes.filter((node) => node?.metadata?.recovery_rule === TOC_ITEM_RULE);
-        const listNodeIds = new Set(
-            nodes
-                .filter((node) => node?.metadata?.recovery_rule === TOC_LIST_RULE)
-                .map((node) => node.node_id),
-        );
-        return { heading, items, listNodeIds };
+        const lists = nodes.filter((node) => node?.metadata?.recovery_rule === TOC_LIST_RULE);
+        const listNodeIds = new Set(lists.map((node) => node.node_id));
+        return { heading, items, lists, listNodeIds };
     }
 
     function nodeNormalizedBbox(node) {
@@ -184,6 +181,102 @@
         rendered.style.boxSizing = 'border-box';
     }
 
+    function jsonSafeValue(value) {
+        const seen = new WeakSet();
+        return JSON.stringify(value, (key, current) => {
+            if (typeof current === 'bigint') return String(current);
+            if (current && typeof current === 'object') {
+                if (seen.has(current)) return '[Circular]';
+                seen.add(current);
+            }
+            return current;
+        }, 2);
+    }
+
+    function tocDebugPayload(page, layout = tocLayout(page)) {
+        const { heading, items, lists, listNodeIds } = tocParts(page);
+        const itemIds = new Set(items.map((node) => node.node_id));
+        const extras = (page?.nodes || []).filter((node) => (
+            node !== heading && !itemIds.has(node.node_id) && !listNodeIds.has(node.node_id)
+        ));
+        return {
+            diagnostic_version: 'reader_toc_structure_debug_v1',
+            page: {
+                presentation_id: page?.presentation_id ?? null,
+                kind: page?.kind ?? null,
+                page_kind: page?.page_kind ?? null,
+                presentation_mode: page?.presentation_mode ?? null,
+                source_unit_id: page?.source_unit_id ?? null,
+                source_order: page?.source_order ?? null,
+                source_unit: page?.source_unit ?? null,
+                element_count: Array.isArray(page?.elements) ? page.elements.length : 0,
+                node_count: Array.isArray(page?.nodes) ? page.nodes.length : 0,
+            },
+            derived_layout: {
+                top: layout.top,
+                bottom: layout.bottom,
+                indent_by_node_id: Object.fromEntries(layout.indentByNodeId || []),
+            },
+            heading: heading ? {
+                raw_node: heading,
+                frontend_bbox: nodeNormalizedBbox(heading),
+            } : null,
+            structural_lists: lists.map((node) => ({
+                raw_node: node,
+                frontend_bbox: nodeNormalizedBbox(node),
+            })),
+            toc_items: items.map((node, index) => ({
+                index,
+                raw_node: node,
+                frontend_bbox: nodeNormalizedBbox(node),
+                normalized_text_for_current_fallback: normalizedTocItemText(node),
+                current_text_fallback_indent_percent: tocTextIndentPercent(node),
+                final_frontend_indent_percent: layout.indentByNodeId.get(node.node_id) || 0,
+            })),
+            extra_nodes_on_toc_page: extras.map((node) => ({
+                raw_node: node,
+                frontend_bbox: nodeNormalizedBbox(node),
+            })),
+        };
+    }
+
+    function renderTocDebugPanel(documentObject, page, layout) {
+        const details = documentObject.createElement('details');
+        details.className = 'reader-v2-toc-structure-debug';
+        details.open = true;
+        details.style.boxSizing = 'border-box';
+        details.style.width = '100%';
+        details.style.margin = '12px 0 0';
+        details.style.padding = '10px 12px';
+        details.style.border = '1px solid #9ca3af';
+        details.style.borderRadius = '8px';
+        details.style.background = '#f8fafc';
+        details.style.color = '#111827';
+
+        const summary = documentObject.createElement('summary');
+        summary.textContent = 'TOC 完整结构数据（临时调试）';
+        summary.style.cursor = 'pointer';
+        summary.style.fontWeight = '700';
+        details.appendChild(summary);
+
+        const pre = documentObject.createElement('pre');
+        pre.className = 'reader-v2-toc-structure-debug-json';
+        pre.dataset.readerTocDebug = 'true';
+        pre.textContent = jsonSafeValue(tocDebugPayload(page, layout));
+        pre.style.maxHeight = '70vh';
+        pre.style.overflow = 'auto';
+        pre.style.margin = '10px 0 0';
+        pre.style.padding = '10px';
+        pre.style.borderRadius = '6px';
+        pre.style.background = '#111827';
+        pre.style.color = '#e5e7eb';
+        pre.style.font = '12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.style.wordBreak = 'break-word';
+        details.appendChild(pre);
+        return details;
+    }
+
     function renderNormalizedTocPage(controller, page) {
         const documentObject = controller.document;
         const { heading, items, listNodeIds } = tocParts(page);
@@ -231,6 +324,7 @@
             addClass(rendered, 'reader-v2-semantic-page-toc-extra');
             flow.appendChild(rendered);
         }
+        section.appendChild(renderTocDebugPanel(documentObject, page, layout));
         return section;
     }
 
@@ -305,9 +399,12 @@
         installSemanticPageIntegration,
         isNormalizedTocPage,
         isSemanticFullPage,
+        jsonSafeValue,
         nodeNormalizedBbox,
         normalizedTocItemText,
         renderNormalizedTocPage,
+        renderTocDebugPanel,
+        tocDebugPayload,
         tocLayout,
         tocParts,
         tocTextIndentPercent,
