@@ -20,29 +20,35 @@
 .reader-v2-semantic-page-element {
     position: absolute;
     box-sizing: border-box;
-    overflow: hidden;
 }
 
-/* OCR text boxes are often too short after wrapping. Treat their bbox as an
-   anchor/width hint and allow text to extend vertically. Visual assets remain
-   clipped to their own spatial regions. */
-.reader-v2-semantic-page-element:has(> .reader-v2-node:not(.reader-v2-node-figure):not(.reader-v2-node-table):not(.reader-v2-node-formula)) {
+.reader-v2-semantic-page-element--text {
+    height: auto !important;
     overflow: visible;
     z-index: 2;
 }
 
-.reader-v2-semantic-page-element:has(> .reader-v2-node-figure),
-.reader-v2-semantic-page-element:has(> .reader-v2-node-table),
-.reader-v2-semantic-page-element:has(> .reader-v2-node-formula) {
+.reader-v2-semantic-page-element--visual {
     overflow: hidden;
     z-index: 1;
 }
 
 .reader-v2-semantic-page-element > .reader-v2-node {
     width: 100%;
-    height: 100%;
     margin: 0;
     line-height: 1.45;
+}
+
+.reader-v2-semantic-page-element--text > .reader-v2-node,
+.reader-v2-semantic-page-element--text .reader-v2-node-text {
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    overflow: visible;
+}
+
+.reader-v2-semantic-page-element--visual > .reader-v2-node {
+    height: 100%;
 }
 
 .reader-v2-semantic-page-element .reader-v2-node-header,
