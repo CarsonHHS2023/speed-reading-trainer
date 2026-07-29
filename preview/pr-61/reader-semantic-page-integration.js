@@ -12,6 +12,7 @@
     const SEMANTIC_FULL_PAGE_MODE = 'semantic_full_page';
     const TOC_ITEM_RULE = 'mineru_popo_toc_item';
     const TOC_LIST_RULE = 'mineru_popo_toc_list';
+    const TOC_START_ITEM_THRESHOLD = 3;
 
     function resolveDeps() {
         if (typeof require === 'function') {
@@ -23,6 +24,12 @@
             throw new Error('Reader v2 semantic page integration dependencies are required');
         }
         return { ReaderUI, SemanticPage, Presentation };
+    }
+
+    function semanticPageDependency() {
+        if (!SemanticPage && typeof require === 'function') SemanticPage = require('./reader-semantic-page.js');
+        if (!SemanticPage?.pageAspectRatio) throw new Error('ReaderSemanticPageV2 is required');
+        return SemanticPage;
     }
 
     function semanticFullPageMode() {
@@ -86,10 +93,13 @@
         return { heading, items, listNodeIds };
     }
 
-    function isNormalizedTocPage(page) {
+    function isNormalizedTocPage(page, previousPageWasToc = false) {
         if (page?.page_kind === 'cover') return false;
         const { heading, items } = tocParts(page);
-        return Boolean(heading && items.length >= 3);
+        if (!items.length) return false;
+        if (heading) return true;
+        if (previousPageWasToc) return true;
+        return items.length >= TOC_START_ITEM_THRESHOLD;
     }
 
     function addClass(element, className) {
@@ -118,16 +128,19 @@
 
         const shell = documentObject.createElement('div');
         shell.className = 'reader-v2-semantic-page-shell reader-v2-semantic-page-shell--toc';
-        shell.style.aspectRatio = String(SemanticPage.pageAspectRatio(page.source_unit));
+        shell.style.aspectRatio = String(semanticPageDependency().pageAspectRatio(page.source_unit));
         section.appendChild(shell);
 
         const flow = documentObject.createElement('div');
         flow.className = 'reader-v2-semantic-page-toc';
+        if (!heading) addClass(flow, 'reader-v2-semantic-page-toc--continuation');
         shell.appendChild(flow);
 
-        const renderedHeading = controller.renderNode(heading);
-        addClass(renderedHeading, 'reader-v2-semantic-page-toc-heading');
-        flow.appendChild(renderedHeading);
+        if (heading) {
+            const renderedHeading = controller.renderNode(heading);
+            addClass(renderedHeading, 'reader-v2-semantic-page-toc-heading');
+            flow.appendChild(renderedHeading);
+        }
 
         const itemIds = new Set(items.map((node) => node.node_id));
         for (const item of items) {
@@ -162,8 +175,10 @@
             if (!container) return;
             this.clear(container);
 
+            let previousPageWasToc = false;
             for (const page of pages) {
                 if (!isSemanticFullPage(page, this.presentationState)) {
+                    previousPageWasToc = false;
                     const section = this.document.createElement('section');
                     section.className = `reader-v2-page reader-v2-page-${page.kind}`;
                     section.dataset.presentationId = page.presentation_id;
@@ -172,10 +187,13 @@
                     continue;
                 }
 
-                if (isNormalizedTocPage(page)) {
+                const tocPage = isNormalizedTocPage(page, previousPageWasToc);
+                if (tocPage) {
                     container.appendChild(renderNormalizedTocPage(this, page));
+                    previousPageWasToc = true;
                     continue;
                 }
+                previousPageWasToc = false;
 
                 const renderPage = coverPageForSemanticPage(page);
                 const section = deps.SemanticPage.renderSemanticPage({
@@ -206,6 +224,7 @@
 
     return {
         SEMANTIC_FULL_PAGE_MODE,
+        TOC_START_ITEM_THRESHOLD,
         coverPageForSemanticPage,
         installSemanticPageIntegration,
         isNormalizedTocPage,
