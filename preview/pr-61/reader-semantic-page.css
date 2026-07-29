@@ -23,6 +23,21 @@
     overflow: hidden;
 }
 
+/* OCR text boxes are often too short after wrapping. Treat their bbox as an
+   anchor/width hint and allow text to extend vertically. Visual assets remain
+   clipped to their own spatial regions. */
+.reader-v2-semantic-page-element:has(> .reader-v2-node:not(.reader-v2-node-figure):not(.reader-v2-node-table):not(.reader-v2-node-formula)) {
+    overflow: visible;
+    z-index: 2;
+}
+
+.reader-v2-semantic-page-element:has(> .reader-v2-node-figure),
+.reader-v2-semantic-page-element:has(> .reader-v2-node-table),
+.reader-v2-semantic-page-element:has(> .reader-v2-node-formula) {
+    overflow: hidden;
+    z-index: 1;
+}
+
 .reader-v2-semantic-page-element > .reader-v2-node {
     width: 100%;
     height: 100%;
