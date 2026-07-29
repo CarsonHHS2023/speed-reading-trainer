@@ -74,9 +74,22 @@ test('separates optional toc heading, item nodes, and structural list carrier', 
 test('derives toc vertical span and secondary indentation from source anchors', () => {
   const layout = Integration.tocLayout(tocPage());
   assert.ok(layout.top >= 0.045 && layout.top <= 0.13);
-  assert.ok(layout.bottom >= 0.86 && layout.bottom <= 0.965);
+  assert.ok(layout.bottom >= 0.86 && layout.bottom <= 0.89);
   assert.equal(layout.indentByNodeId.get('toc-item-0'), 0);
   assert.ok(layout.indentByNodeId.get('toc-item-1') > 0);
+});
+
+test('falls back to toc text hierarchy when recovered item anchors share one left edge', () => {
+  const page = tocPage({ itemCount: 2 });
+  const items = page.nodes.filter((node) => node.metadata?.recovery_rule === 'mineru_popo_toc_item');
+  items[0].text = '第一章 趋势线……1';
+  items[1].text = '一、趋势交易法流程……1';
+  items[0].location.source_anchor = anchor(0.09, 0.18, 0.82, 0.21);
+  items[1].location.source_anchor = anchor(0.09, 0.24, 0.82, 0.27);
+  const layout = Integration.tocLayout(page);
+  assert.equal(layout.indentByNodeId.get(items[0].node_id), 0);
+  assert.equal(layout.indentByNodeId.get(items[1].node_id), 5);
+  assert.equal(Integration.tocTextIndentPercent({ text: '（一）细目' }), 8);
 });
 
 test('renders a continuation toc page without requiring a heading node', () => {
