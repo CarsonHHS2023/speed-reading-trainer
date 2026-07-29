@@ -110,25 +110,39 @@
         return Math.max(minimum, Math.min(maximum, value));
     }
 
+    function tocTextIndentPercent(item) {
+        const text = String(item?.text || '').trim();
+        if (/^第[一二三四五六七八九十百千万0-9]+[章节篇部卷]/.test(text)) return 0;
+        if (/^[一二三四五六七八九十]+[、.．)]/.test(text)) return 5;
+        if (/^[（(][一二三四五六七八九十0-9]+[）)]/.test(text)) return 8;
+        return 0;
+    }
+
     function tocLayout(page) {
         const { heading, items } = tocParts(page);
         const measured = [heading, ...items].filter(Boolean).map((node) => ({ node, bbox: nodeNormalizedBbox(node) }));
         const boxes = measured.map((entry) => entry.bbox).filter(Boolean);
         const itemBoxes = items.map(nodeNormalizedBbox).filter(Boolean);
         if (!boxes.length) {
-            return { top: 0.07, bottom: 0.93, indentByNodeId: new Map() };
+            return {
+                top: 0.07,
+                bottom: 0.89,
+                indentByNodeId: new Map(items.map((item) => [item.node_id, tocTextIndentPercent(item)])),
+            };
         }
 
         const sourceTop = Math.min(...boxes.map((bbox) => bbox[1]));
         const sourceBottom = Math.max(...boxes.map((bbox) => bbox[3]));
         const top = clamp(sourceTop - 0.015, 0.045, heading ? 0.13 : 0.08);
-        const bottom = clamp(Math.max(sourceBottom + 0.02, 0.86), 0.86, 0.965);
+        const bottom = clamp(Math.max(sourceBottom + 0.015, 0.86), 0.86, 0.89);
         const minimumLeft = itemBoxes.length ? Math.min(...itemBoxes.map((bbox) => bbox[0])) : 0;
         const indentByNodeId = new Map();
         for (const item of items) {
             const bbox = nodeNormalizedBbox(item);
-            const sourceIndent = bbox ? Math.max(0, bbox[0] - minimumLeft) : 0;
-            indentByNodeId.set(item.node_id, clamp(sourceIndent * 100, 0, 12));
+            const sourceIndent = bbox ? Math.max(0, bbox[0] - minimumLeft) * 100 : 0;
+            const coordinateIndent = sourceIndent >= 1.5 ? clamp(sourceIndent, 0, 12) : 0;
+            const semanticIndent = tocTextIndentPercent(item);
+            indentByNodeId.set(item.node_id, Math.max(coordinateIndent, semanticIndent));
         }
         return { top, bottom, indentByNodeId };
     }
@@ -288,5 +302,6 @@
         renderNormalizedTocPage,
         tocLayout,
         tocParts,
+        tocTextIndentPercent,
     };
 });
