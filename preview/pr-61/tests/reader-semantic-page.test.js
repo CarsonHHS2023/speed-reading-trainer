@@ -48,6 +48,21 @@ test('keeps missing-anchor elements in same-page fallback flow', () => {
   assert.deepEqual(partitioned.fallback.map((item) => item.element_id), ['b']);
 });
 
+test('creates a temporary fragment render node while preserving canonical identity', () => {
+  const canonical = { node_id: 'n1', text: 'Complete canonical paragraph' };
+  const fragmentNode = SemanticPage.nodeForElement({
+    node_id: 'n1',
+    node: canonical,
+    display_text: 'Page one fragment',
+    fragment_index: 0,
+  });
+  assert.equal(fragmentNode.node_id, 'n1:page-fragment:0');
+  assert.equal(fragmentNode.text, 'Page one fragment');
+  assert.equal(fragmentNode.presentation_canonical_node_id, 'n1');
+  assert.equal(canonical.node_id, 'n1');
+  assert.equal(canonical.text, 'Complete canonical paragraph');
+});
+
 test('renders a page-height shell, positioned elements, and fallback nodes without changing identity', () => {
   const documentObject = fakeDocument();
   const page = {
@@ -56,7 +71,14 @@ test('renders a page-height shell, positioned elements, and fallback nodes witho
     source_order: 0,
     source_unit: { dimensions: { width: 1000, height: 1400, unit: 'pixel' } },
     elements: [
-      { element_id: 'e1', node_id: 'n1', normalized_bbox: [0.1, 0.1, 0.8, 0.2], node: { node_id: 'n1', text: 'Heading' } },
+      {
+        element_id: 'e1',
+        node_id: 'n1',
+        normalized_bbox: [0.1, 0.1, 0.8, 0.2],
+        node: { node_id: 'n1', text: 'Complete canonical paragraph' },
+        display_text: 'Page fragment',
+        fragment_index: 0,
+      },
       { element_id: 'e2', node_id: 'n2', normalized_bbox: null, node: { node_id: 'n2', text: 'Fallback' } },
     ],
   };
@@ -82,6 +104,10 @@ test('renders a page-height shell, positioned elements, and fallback nodes witho
   assert.equal(canvas.children[0].dataset.readerNodeId, 'n1');
   assert.equal(canvas.children[0].style.left, '10%');
   assert.equal(canvas.children[0].style.height, '10%');
+  const fragmentArticle = canvas.children[0].children[0];
+  assert.equal(fragmentArticle.dataset.readerNodeId, 'n1');
+  assert.equal(fragmentArticle.dataset.readerFragmentIndex, '0');
+  assert.equal(fragmentArticle.textContent, 'Page fragment');
   const fallback = rendered.children[2];
   assert.equal(fallback.dataset.fallbackCount, '1');
   assert.equal(fallback.children[0].dataset.readerNodeId, 'n2');
