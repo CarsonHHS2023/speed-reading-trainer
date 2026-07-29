@@ -156,16 +156,18 @@
 
 .reader-v2-semantic-page-toc {
     position: absolute;
-    inset: 8% 8.5% 7%;
+    right: 8.5%;
+    left: 8.5%;
     display: flex;
     flex-direction: column;
+    justify-content: space-between;
     min-width: 0;
     overflow: hidden;
 }
 
 .reader-v2-semantic-page-toc-heading {
     flex: 0 0 auto;
-    margin: 0 0 clamp(18px, 3.2vw, 34px) !important;
+    margin: 0 0 clamp(10px, 1.6vw, 20px) !important;
     text-align: center;
 }
 
@@ -180,10 +182,14 @@
 
 .reader-v2-semantic-page-toc-item {
     flex: 0 0 auto;
-    margin: 0 !important;
-    padding: clamp(2px, 0.28vw, 5px) 0;
-    font-size: clamp(0.78rem, 1.35vw, 1rem);
-    line-height: 1.42;
+    box-sizing: border-box;
+    max-width: 100%;
+    margin-top: 0 !important;
+    margin-right: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 0;
+    font-size: clamp(0.82rem, 1.42vw, 1.04rem);
+    line-height: 1.35;
 }
 
 .reader-v2-semantic-page-toc-item .reader-v2-node-text {
@@ -232,7 +238,8 @@ body.dark-mode .reader-v2-semantic-page-shell {
     }
 
     .reader-v2-semantic-page-toc {
-        inset: 7% 7% 6%;
+        right: 7%;
+        left: 7%;
     }
 
     .reader-v2-semantic-page-fallback {
