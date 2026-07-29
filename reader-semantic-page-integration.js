@@ -110,8 +110,14 @@
         return Math.max(minimum, Math.min(maximum, value));
     }
 
+    function normalizedTocItemText(item) {
+        return String(item?.text || '')
+            .replace(/^\s*(?:[-*+•·●▪◦]|\d+[.)、])\s*/, '')
+            .trim();
+    }
+
     function tocTextIndentPercent(item) {
-        const text = String(item?.text || '').trim();
+        const text = normalizedTocItemText(item);
         if (/^第[一二三四五六七八九十百千万0-9]+[章节篇部卷]/.test(text)) return 0;
         if (/^[一二三四五六七八九十]+[、.．)]/.test(text)) return 5;
         if (/^[（(][一二三四五六七八九十0-9]+[）)]/.test(text)) return 8;
@@ -126,15 +132,14 @@
         if (!boxes.length) {
             return {
                 top: 0.07,
-                bottom: 0.89,
+                bottom: 0.87,
                 indentByNodeId: new Map(items.map((item) => [item.node_id, tocTextIndentPercent(item)])),
             };
         }
 
         const sourceTop = Math.min(...boxes.map((bbox) => bbox[1]));
-        const sourceBottom = Math.max(...boxes.map((bbox) => bbox[3]));
         const top = clamp(sourceTop - 0.015, 0.045, heading ? 0.13 : 0.08);
-        const bottom = clamp(Math.max(sourceBottom + 0.015, 0.86), 0.86, 0.89);
+        const bottom = 0.87;
         const minimumLeft = itemBoxes.length ? Math.min(...itemBoxes.map((bbox) => bbox[0])) : 0;
         const indentByNodeId = new Map();
         for (const item of items) {
@@ -167,14 +172,16 @@
         element.className = [...classes].join(' ');
     }
 
-    function applyImportantMarginLeft(rendered, indentPercent) {
+    function applyImportantPaddingLeft(rendered, indentPercent) {
         const value = `${indentPercent}%`;
         rendered.dataset.readerTocIndent = String(indentPercent);
         if (typeof rendered.style?.setProperty === 'function') {
-            rendered.style.setProperty('margin-left', value, 'important');
+            rendered.style.setProperty('padding-left', value, 'important');
+            rendered.style.setProperty('box-sizing', 'border-box', 'important');
             return;
         }
-        rendered.style.marginLeft = value;
+        rendered.style.paddingLeft = value;
+        rendered.style.boxSizing = 'border-box';
     }
 
     function renderNormalizedTocPage(controller, page) {
@@ -214,7 +221,7 @@
             const rendered = controller.renderNode(item);
             addClass(rendered, 'reader-v2-semantic-page-toc-item');
             rendered.dataset.readerNodeId = item.node_id;
-            applyImportantMarginLeft(rendered, layout.indentByNodeId.get(item.node_id) || 0);
+            applyImportantPaddingLeft(rendered, layout.indentByNodeId.get(item.node_id) || 0);
             flow.appendChild(rendered);
         }
 
@@ -293,12 +300,13 @@
     return {
         SEMANTIC_FULL_PAGE_MODE,
         TOC_START_ITEM_THRESHOLD,
-        applyImportantMarginLeft,
+        applyImportantPaddingLeft,
         coverPageForSemanticPage,
         installSemanticPageIntegration,
         isNormalizedTocPage,
         isSemanticFullPage,
         nodeNormalizedBbox,
+        normalizedTocItemText,
         renderNormalizedTocPage,
         tocLayout,
         tocParts,
