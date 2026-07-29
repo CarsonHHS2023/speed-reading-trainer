@@ -153,6 +153,16 @@
         element.className = [...classes].join(' ');
     }
 
+    function applyImportantMarginLeft(rendered, indentPercent) {
+        const value = `${indentPercent}%`;
+        rendered.dataset.readerTocIndent = String(indentPercent);
+        if (typeof rendered.style?.setProperty === 'function') {
+            rendered.style.setProperty('margin-left', value, 'important');
+            return;
+        }
+        rendered.style.marginLeft = value;
+    }
+
     function renderNormalizedTocPage(controller, page) {
         const documentObject = controller.document;
         const { heading, items, listNodeIds } = tocParts(page);
@@ -190,7 +200,7 @@
             const rendered = controller.renderNode(item);
             addClass(rendered, 'reader-v2-semantic-page-toc-item');
             rendered.dataset.readerNodeId = item.node_id;
-            rendered.style.marginLeft = `${layout.indentByNodeId.get(item.node_id) || 0}%`;
+            applyImportantMarginLeft(rendered, layout.indentByNodeId.get(item.node_id) || 0);
             flow.appendChild(rendered);
         }
 
@@ -269,6 +279,7 @@
     return {
         SEMANTIC_FULL_PAGE_MODE,
         TOC_START_ITEM_THRESHOLD,
+        applyImportantMarginLeft,
         coverPageForSemanticPage,
         installSemanticPageIntegration,
         isNormalizedTocPage,
