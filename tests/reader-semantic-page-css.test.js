@@ -17,14 +17,18 @@ test('footer furniture aligns to the bottom of its spatial region', () => {
   assert.match(css, /\.reader-v2-semantic-page-element \.reader-v2-node-footer\s*\{[^}]*align-items:\s*flex-end;/s);
 });
 
-test('text slots expand beyond undersized OCR boxes while visual slots remain clipped', () => {
+test('text slots remain clipped until width-first adaptation releases height', () => {
   assert.match(
     css,
-    /\.reader-v2-semantic-page-element--text\s*\{[^}]*height:\s*auto\s*!important;[^}]*overflow:\s*visible;/s,
+    /\.reader-v2-semantic-page-element--text\s*\{[^}]*overflow:\s*hidden;/s,
   );
   assert.match(
     css,
-    /\.reader-v2-semantic-page-element--text[^}]*\.reader-v2-node-text\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s,
+    /\.reader-v2-semantic-page-element--text\.reader-v2-semantic-page-element--width-expanded\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-semantic-page-element--text\.reader-v2-semantic-page-element--height-expanded\s*\{[^}]*height:\s*auto\s*!important;[^}]*overflow:\s*visible;/s,
   );
   assert.match(
     css,
