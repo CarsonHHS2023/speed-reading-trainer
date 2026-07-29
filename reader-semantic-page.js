@@ -6,6 +6,8 @@
     'use strict';
 
     const DEFAULT_PAGE_ASPECT_RATIO = 1 / Math.sqrt(2);
+    const DEFAULT_TEXT_RIGHT_EDGE = 0.94;
+    const OVERFLOW_TOLERANCE_PX = 1;
     const PROVIDER_DEBUG_FIELD = /^\s*(?:label|bbox|content)\s*:\s*.*$/i;
     const VISUAL_NODE_TYPES = new Set(['figure', 'table', 'formula']);
 
@@ -73,6 +75,16 @@
         for (const [name, value] of Object.entries(style || {})) element.style[name] = value;
     }
 
+    function addClass(element, className) {
+        if (element?.classList?.add) {
+            element.classList.add(className);
+            return;
+        }
+        const classes = new Set(String(element?.className || '').split(/\s+/).filter(Boolean));
+        classes.add(className);
+        if (element) element.className = [...classes].join(' ');
+    }
+
     function stripProviderDebugFields(value) {
         if (typeof value !== 'string' || !value) return value;
         const lines = value.split(/\r\n|\r|\n/);
@@ -110,6 +122,53 @@
         return rendered;
     }
 
+    function elementOverflows(slot) {
+        const scrollWidth = Number(slot?.scrollWidth);
+        const clientWidth = Number(slot?.clientWidth);
+        const scrollHeight = Number(slot?.scrollHeight);
+        const clientHeight = Number(slot?.clientHeight);
+        if (![scrollWidth, clientWidth, scrollHeight, clientHeight].every(Number.isFinite)) return false;
+        return scrollWidth > clientWidth + OVERFLOW_TOLERANCE_PX
+            || scrollHeight > clientHeight + OVERFLOW_TOLERANCE_PX;
+    }
+
+    function expandTextSlotWidth(slot, normalizedBbox, options = {}) {
+        const bbox = normalizeBbox(normalizedBbox);
+        if (!slot || !bbox || !elementOverflows(slot)) return false;
+        const [x1, , x2] = bbox;
+        const rightEdge = Math.max(x2, Math.min(1, Number(options.rightEdge ?? DEFAULT_TEXT_RIGHT_EDGE)));
+        if (rightEdge <= x2) return false;
+        slot.style.width = `${(rightEdge - x1) * 100}%`;
+        addClass(slot, 'reader-v2-semantic-page-element--width-expanded');
+        return true;
+    }
+
+    function expandTextSlotHeight(slot) {
+        if (!slot || !elementOverflows(slot)) return false;
+        slot.style.height = 'auto';
+        slot.style.overflow = 'visible';
+        addClass(slot, 'reader-v2-semantic-page-element--height-expanded');
+        return true;
+    }
+
+    function adaptOverflowingTextSlot(slot, normalizedBbox, options = {}) {
+        if (!slot || !normalizeBbox(normalizedBbox) || !elementOverflows(slot)) return false;
+        const schedule = typeof options.schedule === 'function'
+            ? options.schedule
+            : (callback) => callback();
+        const widthExpanded = expandTextSlotWidth(slot, normalizedBbox, options);
+        schedule(() => expandTextSlotHeight(slot));
+        return widthExpanded || true;
+    }
+
+    function layoutScheduler(documentObject, override) {
+        if (typeof override === 'function') return override;
+        const view = documentObject?.defaultView;
+        if (typeof view?.requestAnimationFrame === 'function') return view.requestAnimationFrame.bind(view);
+        if (typeof globalThis?.requestAnimationFrame === 'function') return globalThis.requestAnimationFrame.bind(globalThis);
+        return null;
+    }
+
     function renderSemanticPage(options = {}) {
         const {
             documentObject,
@@ -117,6 +176,7 @@
             renderNode,
             pageNumber,
             pageNumberLabel,
+            scheduleLayout,
         } = options;
         if (!documentObject || !page || typeof renderNode !== 'function') return null;
 
@@ -134,6 +194,7 @@
 
         const canvas = createElement(documentObject, 'div', 'reader-v2-semantic-page-canvas');
         shell.appendChild(canvas);
+        const schedule = layoutScheduler(documentObject, scheduleLayout);
 
         const { positioned, fallback } = partitionElements(page.elements || []);
         for (const element of positioned) {
@@ -145,10 +206,13 @@
             );
             slot.dataset.readerElementId = element.element_id || '';
             slot.dataset.readerNodeId = element.node_id || '';
-            applyStyle(slot, spatialStyle(element.normalized_bbox, { constrainHeight: visual }));
+            applyStyle(slot, spatialStyle(element.normalized_bbox, { constrainHeight: true }));
             const rendered = renderElementNode(element, renderNode);
             if (rendered) slot.appendChild(rendered);
             canvas.appendChild(slot);
+            if (!visual && schedule) {
+                schedule(() => adaptOverflowingTextSlot(slot, element.normalized_bbox, { schedule }));
+            }
         }
 
         if (fallback.length) {
@@ -166,7 +230,13 @@
 
     return {
         DEFAULT_PAGE_ASPECT_RATIO,
+        DEFAULT_TEXT_RIGHT_EDGE,
+        OVERFLOW_TOLERANCE_PX,
         VISUAL_NODE_TYPES,
+        adaptOverflowingTextSlot,
+        elementOverflows,
+        expandTextSlotHeight,
+        expandTextSlotWidth,
         isVisualElement,
         nodeForElement,
         normalizeBbox,
