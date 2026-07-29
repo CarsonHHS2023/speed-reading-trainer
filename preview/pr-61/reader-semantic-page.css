@@ -23,9 +23,17 @@
 }
 
 .reader-v2-semantic-page-element--text {
+    overflow: hidden;
+    z-index: 2;
+}
+
+.reader-v2-semantic-page-element--text.reader-v2-semantic-page-element--width-expanded {
+    overflow: hidden;
+}
+
+.reader-v2-semantic-page-element--text.reader-v2-semantic-page-element--height-expanded {
     height: auto !important;
     overflow: visible;
-    z-index: 2;
 }
 
 .reader-v2-semantic-page-element--visual {
@@ -41,9 +49,13 @@
 
 .reader-v2-semantic-page-element--text > .reader-v2-node,
 .reader-v2-semantic-page-element--text .reader-v2-node-text {
-    height: auto;
     min-height: 0;
     margin: 0;
+}
+
+.reader-v2-semantic-page-element--height-expanded > .reader-v2-node,
+.reader-v2-semantic-page-element--height-expanded .reader-v2-node-text {
+    height: auto;
     overflow: visible;
 }
 
