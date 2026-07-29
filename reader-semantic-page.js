@@ -66,6 +66,27 @@
         for (const [name, value] of Object.entries(style || {})) element.style[name] = value;
     }
 
+    function nodeForElement(element) {
+        if (element?.display_text === null || element?.display_text === undefined) return element?.node;
+        return {
+            ...element.node,
+            node_id: `${element.node_id}:page-fragment:${element.fragment_index ?? 0}`,
+            text: element.display_text,
+            presentation_canonical_node_id: element.node_id,
+            presentation_fragment_index: element.fragment_index ?? 0,
+        };
+    }
+
+    function renderElementNode(element, renderNode) {
+        const rendered = renderNode(nodeForElement(element));
+        if (!rendered) return rendered;
+        rendered.dataset.readerNodeId = element.node_id || '';
+        if (element.fragment_index !== null && element.fragment_index !== undefined) {
+            rendered.dataset.readerFragmentIndex = String(element.fragment_index);
+        }
+        return rendered;
+    }
+
     function renderSemanticPage(options = {}) {
         const {
             documentObject,
@@ -97,14 +118,18 @@
             slot.dataset.readerElementId = element.element_id || '';
             slot.dataset.readerNodeId = element.node_id || '';
             applyStyle(slot, spatialStyle(element.normalized_bbox));
-            slot.appendChild(renderNode(element.node));
+            const rendered = renderElementNode(element, renderNode);
+            if (rendered) slot.appendChild(rendered);
             canvas.appendChild(slot);
         }
 
         if (fallback.length) {
             const flow = createElement(documentObject, 'div', 'reader-v2-semantic-page-fallback');
             flow.dataset.fallbackCount = String(fallback.length);
-            for (const element of fallback) flow.appendChild(renderNode(element.node));
+            for (const element of fallback) {
+                const rendered = renderElementNode(element, renderNode);
+                if (rendered) flow.appendChild(rendered);
+            }
             section.appendChild(flow);
         }
 
@@ -113,9 +138,11 @@
 
     return {
         DEFAULT_PAGE_ASPECT_RATIO,
+        nodeForElement,
         normalizeBbox,
         pageAspectRatio,
         partitionElements,
+        renderElementNode,
         renderSemanticPage,
         spatialStyle,
     };
