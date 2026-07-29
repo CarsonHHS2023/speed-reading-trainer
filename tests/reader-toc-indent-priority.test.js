@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 const Integration = require('../reader-semantic-page-integration.js');
 
-test('applies toc indentation as an important inline margin', () => {
+test('applies toc indentation as important inline padding', () => {
   const declarations = [];
   const rendered = {
     dataset: {},
@@ -14,17 +14,21 @@ test('applies toc indentation as an important inline margin', () => {
     },
   };
 
-  Integration.applyImportantMarginLeft(rendered, 4.5);
+  Integration.applyImportantPaddingLeft(rendered, 4.5);
 
   assert.equal(rendered.dataset.readerTocIndent, '4.5');
-  assert.deepEqual(declarations, [['margin-left', '4.5%', 'important']]);
+  assert.deepEqual(declarations, [
+    ['padding-left', '4.5%', 'important'],
+    ['box-sizing', 'border-box', 'important'],
+  ]);
 });
 
-test('falls back to marginLeft for lightweight test DOMs', () => {
+test('falls back to paddingLeft for lightweight test DOMs', () => {
   const rendered = { dataset: {}, style: {} };
 
-  Integration.applyImportantMarginLeft(rendered, 3);
+  Integration.applyImportantPaddingLeft(rendered, 3);
 
   assert.equal(rendered.dataset.readerTocIndent, '3');
-  assert.equal(rendered.style.marginLeft, '3%');
+  assert.equal(rendered.style.paddingLeft, '3%');
+  assert.equal(rendered.style.boxSizing, 'border-box');
 });
