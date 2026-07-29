@@ -47,6 +47,31 @@ test('semantic full-page presentation preserves physical source-unit page bounda
   assert.equal(pages[0].elements[0].node, nodes[1]);
 });
 
+test('cross-page canonical node creates one page fragment element per physical page', () => {
+  const units = [
+    { source_unit_id: 'p1', source_order: 0, kind: 'physical_page' },
+    { source_unit_id: 'p2', source_order: 1, kind: 'physical_page' },
+  ];
+  const sourceNode = {
+    ...node('n1', 0, 'p1', 'First fragment continues on page two.'),
+    source_unit_ids: ['p1', 'p2'],
+    metadata: {
+      page_fragments: [
+        { source_unit_id: 'p1', text: 'First fragment', source_anchor: { kind: 'spatial', source_unit_id: 'p1', normalized_bbox: [0.1, 0.84, 0.9, 0.96] } },
+        { source_unit_id: 'p2', text: 'continues on page two.', source_anchor: { kind: 'spatial', source_unit_id: 'p2', normalized_bbox: [0.1, 0.02, 0.9, 0.14] } },
+      ],
+    },
+  };
+
+  const pages = Presentation.deriveSemanticFullPages(units, [sourceNode]);
+  assert.deepEqual(pages.map((page) => page.nodes.map((item) => item.node_id)), [['n1'], ['n1']]);
+  assert.deepEqual(pages.map((page) => page.elements[0].display_text), ['First fragment', 'continues on page two.']);
+  assert.deepEqual(pages[0].elements[0].normalized_bbox, [0.1, 0.84, 0.9, 0.96]);
+  assert.deepEqual(pages[1].elements[0].normalized_bbox, [0.1, 0.02, 0.9, 0.14]);
+  assert.equal(pages[0].elements[0].node, sourceNode);
+  assert.equal(sourceNode.text, 'First fragment continues on page two.');
+});
+
 test('semantic page selects the matching spatial anchor when location uses another anchor kind', () => {
   const units = [{ source_unit_id: 'p1', source_order: 0, kind: 'physical_page' }];
   const sourceNode = {
