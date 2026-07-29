@@ -33,8 +33,7 @@
         )) || null;
     }
 
-    function normalizedBBoxForNode(node, sourceUnitId = primarySourceUnitId(node)) {
-        const bbox = spatialAnchorForNode(node, sourceUnitId)?.normalized_bbox;
+    function normalizeBbox(bbox) {
         if (!Array.isArray(bbox) || bbox.length !== 4) return null;
         const values = bbox.map(Number);
         if (values.some((value) => !Number.isFinite(value))) return null;
@@ -48,13 +47,36 @@
         ];
     }
 
-    function semanticElementForNode(node, sourceUnitId = primarySourceUnitId(node)) {
+    function normalizedBBoxForNode(node, sourceUnitId = primarySourceUnitId(node)) {
+        return normalizeBbox(spatialAnchorForNode(node, sourceUnitId)?.normalized_bbox);
+    }
+
+    function pageFragmentsForNode(node) {
+        const fragments = node?.metadata?.page_fragments;
+        if (!Array.isArray(fragments)) return [];
+        return fragments.map((fragment, index) => {
+            const sourceUnitId = String(fragment?.source_unit_id || '').trim();
+            if (!sourceUnitId) return null;
+            const sourceAnchor = fragment?.source_anchor;
+            return {
+                fragment_index: index,
+                source_unit_id: sourceUnitId,
+                text: typeof fragment?.text === 'string' ? fragment.text : '',
+                normalized_bbox: normalizeBbox(sourceAnchor?.normalized_bbox),
+            };
+        }).filter(Boolean);
+    }
+
+    function semanticElementForNode(node, sourceUnitId = primarySourceUnitId(node), fragment = null) {
+        const fragmentSuffix = fragment ? `:fragment:${fragment.fragment_index}` : '';
         return {
-            element_id: `node:${node.node_id}`,
-            kind: 'semantic_node',
+            element_id: `node:${node.node_id}${fragmentSuffix}`,
+            kind: fragment ? 'semantic_node_fragment' : 'semantic_node',
             node_id: node.node_id,
             node,
-            normalized_bbox: normalizedBBoxForNode(node, sourceUnitId),
+            display_text: fragment ? fragment.text : null,
+            fragment_index: fragment?.fragment_index ?? null,
+            normalized_bbox: fragment?.normalized_bbox || normalizedBBoxForNode(node, sourceUnitId),
             source_unit_id: sourceUnitId,
         };
     }
@@ -73,6 +95,17 @@
         }]));
         const unplaced = [];
         for (const node of model.orderedNodes(nodes)) {
+            const fragments = pageFragmentsForNode(node);
+            let placedFragment = false;
+            for (const fragment of fragments) {
+                const page = pageById.get(fragment.source_unit_id);
+                if (!page) continue;
+                page.nodes.push(node);
+                page.elements.push(semanticElementForNode(node, fragment.source_unit_id, fragment));
+                placedFragment = true;
+            }
+            if (placedFragment) continue;
+
             const unitId = primarySourceUnitId(node);
             const page = unitId ? pageById.get(unitId) : null;
             if (page) {
@@ -191,6 +224,7 @@
         estimateNodeLines,
         findPresentationPageForNode,
         normalizedBBoxForNode,
+        pageFragmentsForNode,
         presentationForDocument,
         primarySourceUnitId,
         semanticElementForNode,
