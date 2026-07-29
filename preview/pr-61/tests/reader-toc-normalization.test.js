@@ -5,21 +5,6 @@ const path = require('node:path');
 
 const Integration = require('../reader-semantic-page-integration.js');
 
-function fakeDocument() {
-  function element(tag) {
-    return {
-      tagName: tag.toUpperCase(),
-      className: '',
-      textContent: '',
-      dataset: {},
-      style: {},
-      children: [],
-      appendChild(child) { this.children.push(child); return child; },
-    };
-  }
-  return { createElement: element };
-}
-
 function tocPage() {
   const heading = {
     node_id: 'toc-heading',
@@ -55,27 +40,16 @@ test('detects only semantic pages with a toc heading and recovered toc items', (
   assert.equal(Integration.isNormalizedTocPage({ ...page, page_kind: 'cover' }), false);
 });
 
-test('renders toc items in normalized flow while omitting the structural list carrier', () => {
-  const document = fakeDocument();
-  const controller = {
-    document,
-    renderNode(node) {
-      const rendered = document.createElement('article');
-      rendered.dataset.readerNodeId = node.node_id;
-      rendered.textContent = node.text || '';
-      return rendered;
-    },
-  };
-  const section = Integration.renderNormalizedTocPage(controller, tocPage());
-  assert.match(section.className, /reader-v2-page--normalized-toc/);
-  const shell = section.children[1];
-  assert.equal(shell.style.aspectRatio, String(883 / 1313));
-  const flow = shell.children[0];
-  assert.equal(flow.className, 'reader-v2-semantic-page-toc');
-  assert.equal(flow.children.length, 5);
-  assert.match(flow.children[0].className, /reader-v2-semantic-page-toc-heading/);
-  assert.match(flow.children[1].className, /reader-v2-semantic-page-toc-item/);
-  assert.equal(flow.children.some((child) => child.dataset.readerNodeId === 'toc-list'), false);
+test('separates toc heading, item nodes, and the structural list carrier', () => {
+  const parts = Integration.tocParts(tocPage());
+  assert.equal(parts.heading.node_id, 'toc-heading');
+  assert.deepEqual(parts.items.map((node) => node.node_id), [
+    'toc-item-0',
+    'toc-item-1',
+    'toc-item-2',
+    'toc-item-3',
+  ]);
+  assert.equal(parts.listNodeIds.has('toc-list'), true);
 });
 
 test('toc CSS uses a stable safe content region and normalized typography', () => {
