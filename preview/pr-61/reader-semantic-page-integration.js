@@ -90,6 +90,17 @@
         return { heading, items, lists, listNodeIds };
     }
 
+    function tocDisplayNode(item) {
+        if (!item) return item;
+        return {
+            ...item,
+            node_type: 'paragraph',
+            presentation_canonical_node_id: item.node_id,
+            presentation_original_node_type: item.node_type,
+            presentation_role: 'toc_item',
+        };
+    }
+
     function nodeNormalizedBbox(node) {
         const direct = node?.location?.source_anchor?.normalized_bbox;
         const candidates = [direct, ...(node?.source_anchors || []).map((anchor) => anchor?.normalized_bbox)];
@@ -399,9 +410,10 @@
 
         const itemIds = new Set(items.map((node) => node.node_id));
         for (const item of items) {
-            const rendered = controller.renderNode(item);
+            const rendered = controller.renderNode(tocDisplayNode(item));
             addClass(rendered, 'reader-v2-semantic-page-toc-item');
             rendered.dataset.readerNodeId = item.node_id;
+            rendered.dataset.readerOriginalNodeType = item.node_type || '';
             const indentPercent = layout.indentByNodeId.get(item.node_id) || 0;
             applyImportantPaddingLeft(rendered, indentPercent);
             rendered.dataset.readerTocIndentSource = layout.indentSourceByNodeId.get(item.node_id) || 'default';
@@ -498,6 +510,7 @@
         renderTocDebugPanel,
         tocCoordinateIndentPercent,
         tocDebugPayload,
+        tocDisplayNode,
         tocIndentDecision,
         tocLayout,
         tocLevelFromMetadata,
