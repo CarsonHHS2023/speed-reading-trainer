@@ -64,6 +64,7 @@ test('successful bookshelf load caches normalized non-processing books', async (
             urls.push(url);
             return {
                 ok: true,
+                status: 200,
                 async json() {
                     return {
                         books: [
@@ -87,6 +88,7 @@ test('successful bookshelf load caches normalized non-processing books', async (
     );
     assert.equal(instance.bookRenderCalls, 1);
     assert.equal(instance.loadingEvents.at(-1).value, false);
+    assert.equal(instance.bookshelfConnectionDiagnostics.summary, 'books=HTTP 200');
 });
 
 test('failed bookshelf load restores the most recent cached list instead of clearing it', async () => {
@@ -98,7 +100,7 @@ test('failed bookshelf load restores the most recent cached list instead of clea
     Lifecycle.installBookshelfResilience(prototype, {
         storage,
         resolveBaseUrl: () => 'https://backend.test',
-        fetchImpl: async () => { throw new Error('offline'); },
+        fetchImpl: async () => { throw new TypeError('offline'); },
     });
     const instance = bookshelfInstance(prototype);
 
@@ -107,6 +109,8 @@ test('failed bookshelf load restores the most recent cached list instead of clea
     assert.deepEqual(instance.books.map((book) => book.id), ['cached']);
     assert.equal(instance.bookRenderCalls, 1);
     assert.match(instance.loadingEvents.at(-1).message, /显示最近书单/);
+    assert.match(instance.loadingEvents.at(-1).message, /books=NETWORK\/CORS/);
+    assert.match(instance.loadingEvents.at(-1).message, /health=NETWORK\/CORS/);
 });
 
 test('failed refresh preserves books already held in memory', async () => {
@@ -123,4 +127,47 @@ test('failed refresh preserves books already held in memory', async () => {
 
     assert.deepEqual(instance.books.map((book) => book.id), ['existing']);
     assert.match(instance.loadingEvents.at(-1).message, /显示最近书单/);
+    assert.equal(instance.bookshelfConnectionDiagnostics.books.status, 503);
+    assert.equal(instance.bookshelfConnectionDiagnostics.health.status, 503);
+});
+
+test('diagnostics distinguish a failed books route from a healthy application', async () => {
+    const prototype = bookshelfPrototype();
+    const urls = [];
+    Lifecycle.installBookshelfResilience(prototype, {
+        storage: memoryStorage(),
+        resolveBaseUrl: () => 'https://backend.test',
+        fetchImpl: async (url) => {
+            urls.push(url);
+            if (url.endsWith('/api/v1/books')) return { ok: false, status: 500 };
+            if (url.endsWith('/api/v1/health')) return { ok: true, status: 200 };
+            throw new Error(`unexpected URL ${url}`);
+        },
+    });
+    const instance = bookshelfInstance(prototype);
+
+    await instance.loadBooksFromBackend();
+
+    assert.deepEqual(urls, [
+        'https://backend.test/api/v1/books',
+        'https://backend.test/api/v1/health',
+    ]);
+    assert.equal(instance.bookshelfConnectionDiagnostics.summary, 'books=HTTP 500 · health=HTTP 200');
+    assert.match(instance.loadingEvents.at(-1).message, /books=HTTP 500/);
+    assert.match(instance.loadingEvents.at(-1).message, /health=HTTP 200/);
+});
+
+test('endpoint diagnostic labels preserve HTTP, invalid JSON, and network categories', () => {
+    assert.equal(
+        Lifecycle.endpointDiagnosticLabel({ kind: 'http', status: 404 }),
+        'HTTP 404',
+    );
+    assert.equal(
+        Lifecycle.endpointDiagnosticLabel({ kind: 'invalid_json', status: 200 }),
+        'INVALID JSON (200)',
+    );
+    assert.equal(
+        Lifecycle.endpointDiagnosticLabel({ kind: 'network_or_cors', status: 0 }),
+        'NETWORK/CORS',
+    );
 });

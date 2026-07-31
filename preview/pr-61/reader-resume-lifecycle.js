@@ -1,9 +1,20 @@
 (function (root) {
     'use strict';
 
-    const ASSET_VERSION = '2026-07-30-phase24c5e';
+    const ASSET_VERSION = '2026-07-31-bookshelf-diagnostics';
     const DEFAULT_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
     const BOOKSHELF_CACHE_KEY = 'reader-v2-bookshelf-cache-v1';
+
+    class BookshelfEndpointError extends Error {
+        constructor(message, options = {}) {
+            super(message);
+            this.name = 'BookshelfEndpointError';
+            this.kind = options.kind || 'unknown';
+            this.status = Number(options.status || 0);
+            this.url = String(options.url || '');
+            this.cause = options.cause;
+        }
+    }
 
     function versionedAsset(src) {
         const separator = String(src).includes('?') ? '&' : '?';
@@ -76,6 +87,100 @@
         }
     }
 
+    async function fetchResponse(fetchImpl, url) {
+        try {
+            return await fetchImpl(url, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json' },
+            });
+        } catch (error) {
+            throw new BookshelfEndpointError('Network or CORS request failed', {
+                kind: 'network_or_cors',
+                url,
+                cause: error,
+            });
+        }
+    }
+
+    async function fetchBooksPayload(fetchImpl, url) {
+        const response = await fetchResponse(fetchImpl, url);
+        if (!response?.ok) {
+            throw new BookshelfEndpointError(`HTTP ${response?.status || 0}`, {
+                kind: 'http',
+                status: response?.status || 0,
+                url,
+            });
+        }
+        try {
+            return await response.json();
+        } catch (error) {
+            throw new BookshelfEndpointError('Invalid JSON response', {
+                kind: 'invalid_json',
+                status: response?.status || 0,
+                url,
+                cause: error,
+            });
+        }
+    }
+
+    function endpointDiagnosticFromError(error, url) {
+        if (error instanceof BookshelfEndpointError) {
+            return {
+                url: error.url || url,
+                ok: false,
+                kind: error.kind,
+                status: error.status || 0,
+                error_name: error.cause?.name || error.name,
+            };
+        }
+        return {
+            url,
+            ok: false,
+            kind: 'unknown',
+            status: 0,
+            error_name: error?.name || 'Error',
+        };
+    }
+
+    async function probeEndpoint(fetchImpl, url) {
+        try {
+            const response = await fetchResponse(fetchImpl, url);
+            return {
+                url,
+                ok: Boolean(response?.ok),
+                kind: 'http',
+                status: Number(response?.status || 0),
+                error_name: null,
+            };
+        } catch (error) {
+            return endpointDiagnosticFromError(error, url);
+        }
+    }
+
+    function endpointDiagnosticLabel(result) {
+        if (!result) return 'UNKNOWN';
+        if (result.kind === 'network_or_cors') return 'NETWORK/CORS';
+        if (result.kind === 'invalid_json') return `INVALID JSON${result.status ? ` (${result.status})` : ''}`;
+        if (result.status) return `HTTP ${result.status}`;
+        return String(result.kind || 'UNKNOWN').toUpperCase();
+    }
+
+    async function diagnoseBookshelfFailure(fetchImpl, baseUrl, booksError) {
+        const booksUrl = `${baseUrl}/api/v1/books`;
+        const healthUrl = `${baseUrl}/api/v1/health`;
+        const diagnostics = {
+            checked_at: new Date().toISOString(),
+            base_url: baseUrl,
+            books: endpointDiagnosticFromError(booksError, booksUrl),
+            health: await probeEndpoint(fetchImpl, healthUrl),
+        };
+        diagnostics.summary = (
+            `books=${endpointDiagnosticLabel(diagnostics.books)} · `
+            + `health=${endpointDiagnosticLabel(diagnostics.health)}`
+        );
+        return diagnostics;
+    }
+
     function installBookshelfResilience(prototype, options = {}) {
         if (!prototype || prototype.__bookshelfResilienceInstalled) return Boolean(prototype);
         const fetchImpl = options.fetchImpl
@@ -85,25 +190,41 @@
 
         prototype.loadBooksFromBackend = async function loadBooksFromBackendResilient() {
             this.setLoading(true, '⏳ 正在加载书架...');
+            const baseUrl = resolveBaseUrl();
+            const booksUrl = `${baseUrl}/api/v1/books`;
             try {
-                if (typeof fetchImpl !== 'function') throw new Error('fetch is unavailable');
-                const response = await fetchImpl(`${resolveBaseUrl()}/api/v1/books`);
-                if (!response?.ok) throw new Error(`HTTP ${response?.status || 0}`);
-
-                const result = await response.json();
+                if (typeof fetchImpl !== 'function') {
+                    throw new BookshelfEndpointError('fetch is unavailable', {
+                        kind: 'fetch_unavailable',
+                        url: booksUrl,
+                    });
+                }
+                const result = await fetchBooksPayload(fetchImpl, booksUrl);
                 const books = Array.isArray(result?.books) ? result.books : [];
                 this.books = books
                     .filter((book) => book?.status !== 'processing')
                     .map((book) => this.normalizeBook(book));
 
                 writeCachedBooks(this.books, storage);
+                this.bookshelfConnectionDiagnostics = {
+                    checked_at: new Date().toISOString(),
+                    base_url: baseUrl,
+                    books: { url: booksUrl, ok: true, kind: 'http', status: 200 },
+                    health: null,
+                    summary: 'books=HTTP 200',
+                };
+                if (root) root.__BOOKSHELF_CONNECTION_DIAGNOSTICS__ = this.bookshelfConnectionDiagnostics;
                 this.ensureCategoryIntegrity();
                 this.renderCategories();
                 this.renderBooks();
                 this.setLoading(false);
                 return this.books;
             } catch (error) {
-                console.error('加载书籍失败:', error);
+                const diagnostics = await diagnoseBookshelfFailure(fetchImpl, baseUrl, error);
+                this.bookshelfConnectionDiagnostics = diagnostics;
+                if (root) root.__BOOKSHELF_CONNECTION_DIAGNOSTICS__ = diagnostics;
+                console.error('[Bookshelf connection diagnostics]', diagnostics, error);
+
                 const cachedBooks = readCachedBooks(storage);
                 if ((!Array.isArray(this.books) || this.books.length === 0) && cachedBooks.length) {
                     this.books = cachedBooks.map((book) => this.normalizeBook(book));
@@ -111,11 +232,10 @@
                 this.ensureCategoryIntegrity();
                 this.renderCategories();
                 this.renderBooks();
+                const cachePrefix = this.books.length ? '正在显示最近书单 · ' : '';
                 this.setLoading(
                     false,
-                    this.books.length
-                        ? '⚠️ 书架服务暂时不可用<br><span>正在显示最近书单</span>'
-                        : '⚠️ 无法连接书架服务<br><span>请稍后刷新</span>',
+                    `⚠️ 书架服务不可用<br><span>${cachePrefix}${diagnostics.summary}</span>`,
                 );
                 return this.books;
             }
@@ -176,12 +296,19 @@
     const exported = {
         ASSET_VERSION,
         BOOKSHELF_CACHE_KEY,
+        BookshelfEndpointError,
         DEFAULT_API_BASE_URL,
+        diagnoseBookshelfFailure,
+        endpointDiagnosticFromError,
+        endpointDiagnosticLabel,
+        fetchBooksPayload,
+        fetchResponse,
         install,
         installBookshelfResilience,
         installEnhancements,
         loadScript,
         normalizeBaseUrl,
+        probeEndpoint,
         readCachedBooks,
         refreshStylesheet,
         resolveBookshelfBaseUrl,
