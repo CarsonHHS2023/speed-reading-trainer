@@ -113,12 +113,86 @@
             .trim();
     }
 
-    function tocTextIndentPercent(item) {
+    function tocTextIndentDecision(item) {
         const text = normalizedTocItemText(item);
-        if (/^第[一二三四五六七八九十百千万0-9]+[章节篇部卷]/.test(text)) return 0;
-        if (/^[一二三四五六七八九十]+[、.．)]/.test(text)) return 5;
-        if (/^[（(][一二三四五六七八九十0-9]+[）)]/.test(text)) return 8;
-        return 0;
+        if (/^第[一二三四五六七八九十百千万0-9]+[章节篇部卷]/.test(text)) {
+            return { indentPercent: 0, matched: true };
+        }
+        if (/^[一二三四五六七八九十]+[、.．)]/.test(text)) {
+            return { indentPercent: 5, matched: true };
+        }
+        if (/^[（(][一二三四五六七八九十0-9]+[）)]/.test(text)) {
+            return { indentPercent: 8, matched: true };
+        }
+        return { indentPercent: 0, matched: false };
+    }
+
+    function tocTextIndentPercent(item) {
+        return tocTextIndentDecision(item).indentPercent;
+    }
+
+    function tocLevelFromMetadata(item) {
+        const value = item?.metadata?.toc_level;
+        return Number.isInteger(value) && value >= 1 && value <= 12 ? value : null;
+    }
+
+    function tocLevelIndentPercent(level) {
+        if (!Number.isInteger(level) || level < 1 || level > 12) return null;
+        if (level === 1) return 0;
+        if (level === 2) return 5;
+        return clamp(8 + ((level - 3) * 3), 0, 20);
+    }
+
+    function tocCoordinateIndentPercent(item, minimumLeft) {
+        if (!Number.isFinite(minimumLeft)) return null;
+        const bbox = nodeNormalizedBbox(item);
+        if (!bbox) return null;
+        const sourceIndent = Math.max(0, bbox[0] - minimumLeft) * 100;
+        return sourceIndent >= 1.5 ? clamp(sourceIndent, 0, 12) : null;
+    }
+
+    function tocIndentDecision(item, minimumLeft = null) {
+        const tocLevel = tocLevelFromMetadata(item);
+        const coordinateIndent = tocCoordinateIndentPercent(item, minimumLeft);
+        const legacyText = tocTextIndentDecision(item);
+        if (tocLevel !== null) {
+            return {
+                indentPercent: tocLevelIndentPercent(tocLevel),
+                source: 'metadata.toc_level',
+                tocLevel,
+                coordinateIndentPercent: coordinateIndent,
+                legacyTextIndentPercent: legacyText.indentPercent,
+                legacyTextMatched: legacyText.matched,
+            };
+        }
+        if (coordinateIndent !== null) {
+            return {
+                indentPercent: coordinateIndent,
+                source: 'bbox',
+                tocLevel: null,
+                coordinateIndentPercent: coordinateIndent,
+                legacyTextIndentPercent: legacyText.indentPercent,
+                legacyTextMatched: legacyText.matched,
+            };
+        }
+        if (legacyText.matched) {
+            return {
+                indentPercent: legacyText.indentPercent,
+                source: 'legacy_text_pattern',
+                tocLevel: null,
+                coordinateIndentPercent: null,
+                legacyTextIndentPercent: legacyText.indentPercent,
+                legacyTextMatched: true,
+            };
+        }
+        return {
+            indentPercent: 0,
+            source: 'default',
+            tocLevel: null,
+            coordinateIndentPercent: null,
+            legacyTextIndentPercent: 0,
+            legacyTextMatched: false,
+        };
     }
 
     function tocLayout(page) {
@@ -126,27 +200,30 @@
         const measured = [heading, ...items].filter(Boolean).map((node) => ({ node, bbox: nodeNormalizedBbox(node) }));
         const boxes = measured.map((entry) => entry.bbox).filter(Boolean);
         const itemBoxes = items.map(nodeNormalizedBbox).filter(Boolean);
-        if (!boxes.length) {
-            return {
-                top: 0.07,
-                bottom: 0.87,
-                indentByNodeId: new Map(items.map((item) => [item.node_id, tocTextIndentPercent(item)])),
-            };
-        }
-
-        const sourceTop = Math.min(...boxes.map((bbox) => bbox[1]));
-        const top = clamp(sourceTop - 0.015, 0.045, heading ? 0.13 : 0.08);
+        const top = boxes.length
+            ? clamp(Math.min(...boxes.map((bbox) => bbox[1])) - 0.015, 0.045, heading ? 0.13 : 0.08)
+            : 0.07;
         const bottom = 0.87;
-        const minimumLeft = itemBoxes.length ? Math.min(...itemBoxes.map((bbox) => bbox[0])) : 0;
+        const minimumLeft = itemBoxes.length ? Math.min(...itemBoxes.map((bbox) => bbox[0])) : null;
         const indentByNodeId = new Map();
+        const indentSourceByNodeId = new Map();
+        const tocLevelByNodeId = new Map();
+        const decisionByNodeId = new Map();
         for (const item of items) {
-            const bbox = nodeNormalizedBbox(item);
-            const sourceIndent = bbox ? Math.max(0, bbox[0] - minimumLeft) * 100 : 0;
-            const coordinateIndent = sourceIndent >= 1.5 ? clamp(sourceIndent, 0, 12) : 0;
-            const semanticIndent = tocTextIndentPercent(item);
-            indentByNodeId.set(item.node_id, Math.max(coordinateIndent, semanticIndent));
+            const decision = tocIndentDecision(item, minimumLeft);
+            indentByNodeId.set(item.node_id, decision.indentPercent);
+            indentSourceByNodeId.set(item.node_id, decision.source);
+            if (decision.tocLevel !== null) tocLevelByNodeId.set(item.node_id, decision.tocLevel);
+            decisionByNodeId.set(item.node_id, decision);
         }
-        return { top, bottom, indentByNodeId };
+        return {
+            top,
+            bottom,
+            indentByNodeId,
+            indentSourceByNodeId,
+            tocLevelByNodeId,
+            decisionByNodeId,
+        };
     }
 
     function isNormalizedTocPage(page, previousPageWasToc = false) {
@@ -200,7 +277,7 @@
             node !== heading && !itemIds.has(node.node_id) && !listNodeIds.has(node.node_id)
         ));
         return {
-            diagnostic_version: 'reader_toc_structure_debug_v1',
+            diagnostic_version: 'reader_toc_structure_debug_v2',
             page: {
                 presentation_id: page?.presentation_id ?? null,
                 kind: page?.kind ?? null,
@@ -216,6 +293,8 @@
                 top: layout.top,
                 bottom: layout.bottom,
                 indent_by_node_id: Object.fromEntries(layout.indentByNodeId || []),
+                indent_source_by_node_id: Object.fromEntries(layout.indentSourceByNodeId || []),
+                toc_level_by_node_id: Object.fromEntries(layout.tocLevelByNodeId || []),
             },
             heading: heading ? {
                 raw_node: heading,
@@ -225,14 +304,23 @@
                 raw_node: node,
                 frontend_bbox: nodeNormalizedBbox(node),
             })),
-            toc_items: items.map((node, index) => ({
-                index,
-                raw_node: node,
-                frontend_bbox: nodeNormalizedBbox(node),
-                normalized_text_for_current_fallback: normalizedTocItemText(node),
-                current_text_fallback_indent_percent: tocTextIndentPercent(node),
-                final_frontend_indent_percent: layout.indentByNodeId.get(node.node_id) || 0,
-            })),
+            toc_items: items.map((node, index) => {
+                const decision = layout.decisionByNodeId?.get(node.node_id)
+                    || tocIndentDecision(node, null);
+                return {
+                    index,
+                    raw_node: node,
+                    frontend_bbox: nodeNormalizedBbox(node),
+                    metadata_toc_level: tocLevelFromMetadata(node),
+                    metadata_toc_level_source: node?.metadata?.toc_level_source ?? null,
+                    normalized_text_for_legacy_fallback: normalizedTocItemText(node),
+                    current_text_fallback_indent_percent: decision.legacyTextIndentPercent,
+                    legacy_text_fallback_matched: decision.legacyTextMatched,
+                    coordinate_fallback_indent_percent: decision.coordinateIndentPercent,
+                    final_frontend_indent_percent: decision.indentPercent,
+                    final_frontend_indent_source: decision.source,
+                };
+            }),
             extra_nodes_on_toc_page: extras.map((node) => ({
                 raw_node: node,
                 frontend_bbox: nodeNormalizedBbox(node),
@@ -314,7 +402,11 @@
             const rendered = controller.renderNode(item);
             addClass(rendered, 'reader-v2-semantic-page-toc-item');
             rendered.dataset.readerNodeId = item.node_id;
-            applyImportantPaddingLeft(rendered, layout.indentByNodeId.get(item.node_id) || 0);
+            const indentPercent = layout.indentByNodeId.get(item.node_id) || 0;
+            applyImportantPaddingLeft(rendered, indentPercent);
+            rendered.dataset.readerTocIndentSource = layout.indentSourceByNodeId.get(item.node_id) || 'default';
+            const tocLevel = layout.tocLevelByNodeId.get(item.node_id);
+            if (tocLevel !== undefined) rendered.dataset.readerTocLevel = String(tocLevel);
             flow.appendChild(rendered);
         }
 
@@ -404,9 +496,14 @@
         normalizedTocItemText,
         renderNormalizedTocPage,
         renderTocDebugPanel,
+        tocCoordinateIndentPercent,
         tocDebugPayload,
+        tocIndentDecision,
         tocLayout,
+        tocLevelFromMetadata,
+        tocLevelIndentPercent,
         tocParts,
+        tocTextIndentDecision,
         tocTextIndentPercent,
     };
 });
