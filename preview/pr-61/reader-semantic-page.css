@@ -53,6 +53,17 @@
     margin: 0;
 }
 
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-paragraph:not([data-reader-fragment-index])
+> .reader-v2-node-text,
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-paragraph[data-reader-fragment-index="0"]
+> .reader-v2-node-text {
+    text-indent: 2em;
+}
+
 .reader-v2-semantic-page-element--height-expanded > .reader-v2-node,
 .reader-v2-semantic-page-element--height-expanded .reader-v2-node-text {
     height: auto;
