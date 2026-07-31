@@ -7,9 +7,23 @@
 
     const DEFAULT_PAGE_ASPECT_RATIO = 1 / Math.sqrt(2);
     const DEFAULT_TEXT_RIGHT_EDGE = 0.94;
+    const DEFAULT_TEXT_MARGIN_LEFT = 0.10;
+    const DEFAULT_TEXT_MARGIN_RIGHT = 0.90;
+    const MIN_BODY_FRAME_WIDTH = 0.55;
+    const MIN_TEXT_FRAME_SCALE = 0.80;
+    const MAX_TEXT_FRAME_SCALE = 1.30;
     const OVERFLOW_TOLERANCE_PX = 1;
     const PROVIDER_DEBUG_FIELD = /^\s*(?:label|bbox|content)\s*:\s*.*$/i;
     const VISUAL_NODE_TYPES = new Set(['figure', 'table', 'formula']);
+    const BODY_FRAME_CANDIDATE_TYPES = new Set([
+        'paragraph', 'list_item', 'quote', 'code', 'reference',
+    ]);
+    const TEXT_MARGIN_NORMALIZED_TYPES = new Set([
+        'heading', 'paragraph', 'list', 'list_item', 'quote', 'code', 'reference',
+    ]);
+    const SOURCE_POSITIONED_TEXT_TYPES = new Set([
+        'header', 'footer', 'footnote', 'caption',
+    ]);
 
     function clamp01(value) {
         const number = Number(value);
@@ -26,8 +40,12 @@
         return [x1, y1, x2, y2];
     }
 
+    function elementNodeType(element) {
+        return String(element?.node?.node_type || '').toLowerCase();
+    }
+
     function isVisualElement(element) {
-        return VISUAL_NODE_TYPES.has(String(element?.node?.node_type || '').toLowerCase());
+        return VISUAL_NODE_TYPES.has(elementNodeType(element));
     }
 
     function isCoverSourceRendering(page, element) {
@@ -68,6 +86,95 @@
             else fallback.push(element);
         }
         return { positioned, fallback };
+    }
+
+    function median(values) {
+        const ordered = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        if (!ordered.length) return null;
+        const middle = Math.floor(ordered.length / 2);
+        return ordered.length % 2
+            ? ordered[middle]
+            : (ordered[middle - 1] + ordered[middle]) / 2;
+    }
+
+    function isBodyFrameCandidate(element) {
+        const bbox = normalizeBbox(element?.normalized_bbox);
+        if (!bbox || !BODY_FRAME_CANDIDATE_TYPES.has(elementNodeType(element))) return false;
+        return bbox[2] - bbox[0] >= MIN_BODY_FRAME_WIDTH;
+    }
+
+    function inferPageTextFrame(elements) {
+        const candidates = (elements || []).filter(isBodyFrameCandidate);
+        if (!candidates.length) return null;
+        const left = median(candidates.map((element) => element.normalized_bbox[0]));
+        const right = median(candidates.map((element) => element.normalized_bbox[2]));
+        if (!Number.isFinite(left) || !Number.isFinite(right) || right - left < MIN_BODY_FRAME_WIDTH) {
+            return null;
+        }
+        return [left, right];
+    }
+
+    function textMarginLayout(page, options = {}) {
+        const coverPage = page?.page_kind === 'cover' && page?.presentation_mode === 'source_rendering';
+        if (coverPage || options.normalizeTextMargins === false) {
+            return { enabled: false, sourceFrame: null, targetFrame: null, scale: 1 };
+        }
+        const sourceFrame = inferPageTextFrame(page?.elements || []);
+        if (!sourceFrame) return { enabled: false, sourceFrame: null, targetFrame: null, scale: 1 };
+
+        const targetLeft = clamp01(options.textMarginLeft ?? DEFAULT_TEXT_MARGIN_LEFT);
+        const targetRight = clamp01(options.textMarginRight ?? DEFAULT_TEXT_MARGIN_RIGHT);
+        if (
+            targetLeft === null
+            || targetRight === null
+            || targetRight - targetLeft < MIN_BODY_FRAME_WIDTH
+        ) {
+            return { enabled: false, sourceFrame, targetFrame: null, scale: 1 };
+        }
+
+        const scale = (targetRight - targetLeft) / (sourceFrame[1] - sourceFrame[0]);
+        if (scale < MIN_TEXT_FRAME_SCALE || scale > MAX_TEXT_FRAME_SCALE) {
+            return { enabled: false, sourceFrame, targetFrame: [targetLeft, targetRight], scale };
+        }
+        return {
+            enabled: true,
+            sourceFrame,
+            targetFrame: [targetLeft, targetRight],
+            scale,
+        };
+    }
+
+    function shouldNormalizeTextElement(element) {
+        const nodeType = elementNodeType(element);
+        return TEXT_MARGIN_NORMALIZED_TYPES.has(nodeType)
+            && !SOURCE_POSITIONED_TEXT_TYPES.has(nodeType)
+            && !isVisualElement(element);
+    }
+
+    function normalizeTextBbox(normalizedBbox, layout) {
+        const bbox = normalizeBbox(normalizedBbox);
+        if (!bbox || !layout?.enabled || !layout.sourceFrame || !layout.targetFrame) return bbox;
+        const [sourceLeft] = layout.sourceFrame;
+        const [targetLeft] = layout.targetFrame;
+        const [x1, y1, x2, y2] = bbox;
+        let mappedLeft = targetLeft + ((x1 - sourceLeft) * layout.scale);
+        let mappedRight = targetLeft + ((x2 - sourceLeft) * layout.scale);
+        mappedLeft = Math.max(0.02, Math.min(0.98, mappedLeft));
+        mappedRight = Math.max(0.02, Math.min(0.98, mappedRight));
+        if (mappedRight <= mappedLeft) return bbox;
+        return [mappedLeft, y1, mappedRight, y2];
+    }
+
+    function presentationBbox(page, element, layout = textMarginLayout(page)) {
+        const bbox = normalizeBbox(element?.normalized_bbox);
+        if (!bbox || !shouldNormalizeTextElement(element)) return bbox;
+        return normalizeTextBbox(bbox, layout);
+    }
+
+    function bboxesEqual(left, right, tolerance = 1e-9) {
+        const a = normalizeBbox(left);
+        const b = normalizeBbox(right);
+        return Boolean(a && b && a.every((value, index) => Math.abs(value - b[index]) <= tolerance));
     }
 
     function createElement(documentObject, tag, className, text) {
@@ -192,6 +299,15 @@
         const coverPage = page?.page_kind === 'cover' && page?.presentation_mode === 'source_rendering';
         if (coverPage) addClass(section, 'reader-v2-page--cover-source-rendering');
 
+        const marginLayout = textMarginLayout(page, options);
+        section.dataset.readerTextMarginLayout = marginLayout.enabled ? 'normalized' : 'source';
+        if (marginLayout.sourceFrame) {
+            section.dataset.readerSourceTextFrame = marginLayout.sourceFrame.join(',');
+        }
+        if (marginLayout.targetFrame) {
+            section.dataset.readerTargetTextFrame = marginLayout.targetFrame.join(',');
+        }
+
         const resolvedLabel = pageNumberLabel || `第 ${Number(pageNumber ?? page.source_order) + 1} 页`;
         const label = createElement(documentObject, 'div', 'reader-v2-page-label', resolvedLabel);
         section.appendChild(label);
@@ -209,20 +325,29 @@
         for (const element of positioned) {
             const visual = isVisualElement(element);
             const coverElement = isCoverSourceRendering(page, element);
+            const displayBbox = presentationBbox(page, element, marginLayout);
             const slot = createElement(
                 documentObject,
                 'div',
                 `reader-v2-semantic-page-element reader-v2-semantic-page-element--${visual ? 'visual' : 'text'}`,
             );
             if (coverElement) addClass(slot, 'reader-v2-semantic-page-element--cover-source-rendering');
+            if (!bboxesEqual(displayBbox, element.normalized_bbox)) {
+                addClass(slot, 'reader-v2-semantic-page-element--margin-normalized');
+                slot.dataset.readerSourceBbox = element.normalized_bbox.join(',');
+                slot.dataset.readerPresentationBbox = displayBbox.join(',');
+            }
             slot.dataset.readerElementId = element.element_id || '';
             slot.dataset.readerNodeId = element.node_id || '';
-            applyStyle(slot, spatialStyle(element.normalized_bbox, { constrainHeight: true }));
+            applyStyle(slot, spatialStyle(displayBbox, { constrainHeight: true }));
             const rendered = renderElementNode(element, renderNode);
             if (rendered) slot.appendChild(rendered);
             canvas.appendChild(slot);
             if (!visual && schedule) {
-                schedule(() => adaptOverflowingTextSlot(slot, element.normalized_bbox, { schedule }));
+                const rightEdge = marginLayout.enabled && marginLayout.targetFrame
+                    ? marginLayout.targetFrame[1]
+                    : DEFAULT_TEXT_RIGHT_EDGE;
+                schedule(() => adaptOverflowingTextSlot(slot, displayBbox, { schedule, rightEdge }));
             }
         }
 
@@ -240,23 +365,40 @@
     }
 
     return {
+        BODY_FRAME_CANDIDATE_TYPES,
         DEFAULT_PAGE_ASPECT_RATIO,
+        DEFAULT_TEXT_MARGIN_LEFT,
+        DEFAULT_TEXT_MARGIN_RIGHT,
         DEFAULT_TEXT_RIGHT_EDGE,
+        MAX_TEXT_FRAME_SCALE,
+        MIN_BODY_FRAME_WIDTH,
+        MIN_TEXT_FRAME_SCALE,
         OVERFLOW_TOLERANCE_PX,
+        SOURCE_POSITIONED_TEXT_TYPES,
+        TEXT_MARGIN_NORMALIZED_TYPES,
         VISUAL_NODE_TYPES,
         adaptOverflowingTextSlot,
+        bboxesEqual,
+        elementNodeType,
         elementOverflows,
         expandTextSlotHeight,
         expandTextSlotWidth,
+        inferPageTextFrame,
+        isBodyFrameCandidate,
         isCoverSourceRendering,
         isVisualElement,
+        median,
         nodeForElement,
         normalizeBbox,
+        normalizeTextBbox,
         pageAspectRatio,
         partitionElements,
+        presentationBbox,
         renderElementNode,
         renderSemanticPage,
+        shouldNormalizeTextElement,
         spatialStyle,
         stripProviderDebugFields,
+        textMarginLayout,
     };
 });
