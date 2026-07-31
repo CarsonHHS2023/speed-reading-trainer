@@ -49,6 +49,19 @@ function tocPage(items) {
   };
 }
 
+function fakeElement(tag) {
+  return {
+    tagName: tag.toUpperCase(),
+    className: '',
+    textContent: '',
+    dataset: {},
+    style: {},
+    children: [],
+    open: false,
+    appendChild(child) { this.children.push(child); return child; },
+  };
+}
+
 test('metadata.toc_level overrides conflicting text and bbox hints', () => {
   const levelOne = tocItem(
     'level-one',
@@ -81,7 +94,7 @@ test('falls back to bbox before legacy text patterns when canonical level is abs
 
   assert.equal(layout.indentByNodeId.get('minimum-left'), 5);
   assert.equal(layout.indentSourceByNodeId.get('minimum-left'), 'legacy_text_pattern');
-  assert.equal(layout.indentByNodeId.get('coordinate'), 8);
+  assert.ok(Math.abs(layout.indentByNodeId.get('coordinate') - 8) < 1e-9);
   assert.equal(layout.indentSourceByNodeId.get('coordinate'), 'bbox');
 });
 
@@ -94,4 +107,31 @@ test('maps deeper canonical levels deterministically and rejects invalid metadat
   assert.equal(Integration.tocLevelIndentPercent(0), null);
   assert.equal(Integration.tocLevelFromMetadata({ metadata: { toc_level: '2' } }), null);
   assert.equal(Integration.tocLevelFromMetadata({ metadata: { toc_level: 13 } }), null);
+});
+
+test('renders canonical toc level and source markers into the DOM', () => {
+  const item = tocItem(
+    'canonical-item',
+    '第二章 文本与层级冲突',
+    0.08,
+    { toc_level: 2, toc_level_source: 'llm_structure_refinement' },
+  );
+  const controller = {
+    document: { createElement: fakeElement },
+    renderNode(node) {
+      const rendered = fakeElement('article');
+      rendered.textContent = node.text || '';
+      return rendered;
+    },
+  };
+
+  const section = Integration.renderNormalizedTocPage(controller, tocPage([item]));
+  const flow = section.children[1].children[0];
+  const renderedItem = flow.children[1];
+
+  assert.equal(renderedItem.dataset.readerNodeId, 'canonical-item');
+  assert.equal(renderedItem.dataset.readerTocLevel, '2');
+  assert.equal(renderedItem.dataset.readerTocIndentSource, 'metadata.toc_level');
+  assert.equal(renderedItem.dataset.readerTocIndent, '5');
+  assert.equal(renderedItem.style.paddingLeft, '5%');
 });
