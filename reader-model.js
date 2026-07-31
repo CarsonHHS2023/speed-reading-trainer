@@ -19,13 +19,24 @@
         });
     }
 
+    function isSuppressedArtifact(node) {
+        const metadata = node && typeof node.metadata === 'object' && node.metadata
+            ? node.metadata
+            : {};
+        return metadata.suppressed_as_artifact === true
+            || (typeof metadata.suppressed_original_kind === 'string'
+                && metadata.suppressed_original_kind.trim() !== '');
+    }
+
     function orderedNodes(nodes) {
-        return [...(nodes || [])].sort((a, b) => {
-            const ao = Number(a && a.order);
-            const bo = Number(b && b.order);
-            if (ao !== bo) return ao - bo;
-            return String(a && a.node_id || '').localeCompare(String(b && b.node_id || ''));
-        });
+        return [...(nodes || [])]
+            .filter((node) => !isSuppressedArtifact(node))
+            .sort((a, b) => {
+                const ao = Number(a && a.order);
+                const bo = Number(b && b.order);
+                if (ao !== bo) return ao - bo;
+                return String(a && a.node_id || '').localeCompare(String(b && b.node_id || ''));
+            });
     }
 
     function mergeNodes(existing, incoming) {
@@ -107,6 +118,7 @@
         TEXTUAL_TYPES,
         findNodeById,
         isReflowableSourceUnit,
+        isSuppressedArtifact,
         locationKey,
         mergeNodes,
         nodeTag,
