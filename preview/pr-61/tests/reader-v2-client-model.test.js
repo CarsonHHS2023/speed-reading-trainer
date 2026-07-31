@@ -69,6 +69,27 @@ test('source units and semantic nodes are deterministically ordered', () => {
     assert.deepEqual(Model.mergeNodes([{ node_id: 'n1', order: 0 }], [{ node_id: 'n2', order: 1 }]).map((x) => x.node_id), ['n1', 'n2']);
 });
 
+test('suppressed OCR artifacts are excluded from Reader ordering and plain text', () => {
+    const visible = { node_id: 'visible', order: 0, node_type: 'paragraph', text: '正文' };
+    const legacySuppressed = {
+        node_id: 'legacy', order: 1, node_type: 'unknown', text: '背透文字',
+        metadata: { suppressed_original_kind: 'paragraph' },
+    };
+    const explicitSuppressed = {
+        node_id: 'explicit', order: 2, node_type: 'unknown', text: 'ghost text',
+        metadata: { suppressed_as_artifact: true },
+    };
+
+    assert.equal(Model.isSuppressedArtifact(visible), false);
+    assert.equal(Model.isSuppressedArtifact(legacySuppressed), true);
+    assert.equal(Model.isSuppressedArtifact(explicitSuppressed), true);
+    assert.deepEqual(
+        Model.orderedNodes([explicitSuppressed, legacySuppressed, visible]).map((node) => node.node_id),
+        ['visible'],
+    );
+    assert.equal(Model.toPlainText([visible, legacySuppressed, explicitSuppressed]), '正文');
+});
+
 test('Reader locations are source anchored and never page anchored', () => {
     const spatial = {
         contract_version: '2', document_ref: 'doc', candidate_id: 'cand',
