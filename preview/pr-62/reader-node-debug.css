@@ -29,16 +29,19 @@ button { cursor: pointer; }
 }
 .debug-status { min-width: 180px; padding: 8px 0; }
 .debug-status[data-kind="error"] { color: #b91c1c; font-weight: 700; }
-.debug-summary { display: grid; grid-template-columns: repeat(8, minmax(90px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.debug-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px; margin-bottom: 14px;
+}
 .debug-stat { background: #fff; border: 1px solid #d7dee7; border-radius: 9px; padding: 11px; display: grid; gap: 3px; }
 .debug-stat strong { font-size: 22px; }
-.debug-stat span { color: #64748b; font-size: 12px; }
+.debug-stat span { color: #64748b; font-size: 12px; overflow-wrap: anywhere; }
 .debug-checkbox { display: flex !important; grid-auto-flow: column; align-items: center; padding-bottom: 8px; }
 .debug-checkbox input { min-width: auto; }
 .debug-workspace { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, 1fr); gap: 14px; align-items: start; }
 .debug-table-panel, .debug-detail-panel { background: #fff; border: 1px solid #d7dee7; border-radius: 10px; overflow: hidden; }
 .debug-table-scroll { overflow: auto; max-height: 72vh; }
-.debug-table { border-collapse: collapse; width: 100%; min-width: 1180px; font-size: 12px; }
+.debug-table { border-collapse: collapse; width: 100%; min-width: 1450px; font-size: 12px; }
 .debug-table th { position: sticky; top: 0; z-index: 1; background: #e8edf3; text-align: left; }
 .debug-table th, .debug-table td { padding: 7px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
 .debug-table tbody tr { cursor: pointer; }
