@@ -3,26 +3,38 @@
         root && root.ReaderApiV2,
         root && root.ReaderModelV2,
         root && root.ReaderPresentationV2,
+        root && root.ReaderSemanticPageIntegrationV2,
     );
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) root.ReaderNodeDebugV2 = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (ReaderApi, Model, Presentation) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (
+    ReaderApi,
+    Model,
+    Presentation,
+    TocIntegration,
+) {
     'use strict';
 
     const CONTENT_BATCH_SIZE = 500;
     const TABLE_PAGE_SIZE = 200;
+    const TOC_ITEM_RULE = 'mineru_popo_toc_item';
 
     function resolveDeps() {
         if (typeof require === 'function') {
             ReaderApi = ReaderApi || require('./reader-api.js');
             Model = Model || require('./reader-model.js');
             Presentation = Presentation || require('./reader-presentation.js');
+            TocIntegration = TocIntegration || require('./reader-semantic-page-integration.js');
         }
-        return { ReaderApi, Model, Presentation };
+        return { ReaderApi, Model, Presentation, TocIntegration };
     }
 
     function plainObject(value) {
         return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    }
+
+    function arrayValue(value) {
+        return Array.isArray(value) ? value : [];
     }
 
     function isSuppressedNode(node) {
@@ -41,11 +53,45 @@
         return null;
     }
 
+    function llmAuditEntries(node) {
+        return arrayValue(plainObject(node && node.metadata).llm_structure_refinement)
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry) => ({ ...entry }));
+    }
+
+    function llmAuditSummary(entries) {
+        const history = arrayValue(entries);
+        const operationCounts = {};
+        let appliedCount = 0;
+        let rejectedCount = 0;
+        const models = new Set();
+        const prompts = new Set();
+        for (const entry of history) {
+            const operation = String(entry?.operation || 'unknown');
+            operationCounts[operation] = (operationCounts[operation] || 0) + 1;
+            if (entry?.applied === true) appliedCount += 1;
+            if (entry?.applied === false) rejectedCount += 1;
+            if (entry?.model_id) models.add(String(entry.model_id));
+            if (entry?.prompt_version) prompts.add(String(entry.prompt_version));
+        }
+        return {
+            has_audit: history.length > 0,
+            entry_count: history.length,
+            applied_count: appliedCount,
+            rejected_count: rejectedCount,
+            operation_counts: operationCounts,
+            operations: Object.keys(operationCounts).sort(),
+            model_ids: [...models].sort(),
+            prompt_versions: [...prompts].sort(),
+            entries: history,
+        };
+    }
+
     function normalizedBBox(node) {
         const candidates = [];
         const locationAnchor = node && node.location && node.location.source_anchor;
         if (locationAnchor) candidates.push(locationAnchor);
-        for (const anchor of (node && node.source_anchors) || []) candidates.push(anchor);
+        for (const anchor of arrayValue(node && node.source_anchors)) candidates.push(anchor);
         for (const anchor of candidates) {
             const bbox = anchor && anchor.normalized_bbox;
             if (!Array.isArray(bbox) || bbox.length !== 4) continue;
@@ -83,7 +129,7 @@
     }
 
     function warningCodes(node) {
-        return [...new Set((node?.warnings || []).map((warning) => warning?.code).filter(Boolean))];
+        return [...new Set(arrayValue(node?.warnings).map((warning) => warning?.code).filter(Boolean))];
     }
 
     function buildPresentationIndex(presentationState) {
@@ -104,15 +150,60 @@
         return index;
     }
 
+    function buildTocDecisionIndex(rawNodes, integration = TocIntegration) {
+        const index = new Map();
+        const byPage = new Map();
+        for (const node of rawNodes || []) {
+            const sourceUnitId = primarySourceUnitId(node);
+            if (!sourceUnitId) continue;
+            if (!byPage.has(sourceUnitId)) byPage.set(sourceUnitId, []);
+            byPage.get(sourceUnitId).push(node);
+        }
+
+        for (const [sourceUnitId, nodes] of byPage) {
+            const tocItems = nodes.filter((node) => node?.metadata?.recovery_rule === TOC_ITEM_RULE);
+            if (!tocItems.length) continue;
+            let layout = null;
+            if (integration && typeof integration.tocLayout === 'function') {
+                try {
+                    layout = integration.tocLayout({ source_unit_id: sourceUnitId, nodes });
+                } catch (error) {
+                    layout = null;
+                }
+            }
+            for (const item of tocItems) {
+                const metadata = plainObject(item.metadata);
+                const decision = layout?.decisionByNodeId?.get(item.node_id) || null;
+                index.set(item.node_id, {
+                    metadata_toc_level: metadata.toc_level ?? null,
+                    metadata_toc_level_confidence: metadata.toc_level_confidence ?? null,
+                    metadata_toc_level_source: metadata.toc_level_source ?? null,
+                    coordinate_fallback_indent_percent: decision?.coordinateIndentPercent ?? null,
+                    legacy_text_fallback_indent_percent: decision?.legacyTextIndentPercent ?? null,
+                    legacy_text_fallback_matched: decision?.legacyTextMatched ?? null,
+                    final_frontend_indent_percent: decision?.indentPercent ?? null,
+                    final_frontend_indent_source: decision?.source
+                        || (metadata.toc_level !== undefined && metadata.toc_level !== null
+                            ? 'metadata.toc_level'
+                            : null),
+                });
+            }
+        }
+        return index;
+    }
+
     function buildDebugRecords(rawNodes, openResponse, presentationState, deps = {}) {
         const model = deps.Model || Model || {};
+        const integration = deps.TocIntegration || TocIntegration || null;
         const unitIndex = sourceUnitIndex(openResponse);
         const presentationIndex = buildPresentationIndex(presentationState);
+        const tocDecisionIndex = buildTocDecisionIndex(rawNodes, integration);
         return (rawNodes || []).map((node, apiIndex) => {
             const metadata = plainObject(node?.metadata);
             const suppressed = isSuppressedNode(node);
             const page = pageInfoForNode(node, unitIndex);
             const frontendTag = typeof model.nodeTag === 'function' ? model.nodeTag(node) : null;
+            const auditEntries = llmAuditEntries(node);
             return {
                 api_index: apiIndex,
                 node_id: node?.node_id || null,
@@ -132,7 +223,9 @@
                 normalized_bbox: normalizedBBox(node),
                 recovery_rule: metadata.recovery_rule ?? null,
                 toc_level: metadata.toc_level ?? null,
-                refinement_operation: metadata.refinement_operation ?? metadata.llm_operation ?? null,
+                toc_level_source: metadata.toc_level_source ?? null,
+                llm_refinement: llmAuditSummary(auditEntries),
+                toc_debug: tocDecisionIndex.get(node?.node_id) || null,
                 page,
                 presentation: presentationIndex.get(node?.node_id) || null,
                 raw_node: node,
@@ -146,6 +239,12 @@
             frontend_visible_count: 0,
             suppressed_count: 0,
             warning_node_count: 0,
+            llm_audit_node_count: 0,
+            llm_applied_node_count: 0,
+            llm_rejected_node_count: 0,
+            llm_entry_count: 0,
+            llm_operation_counts: {},
+            toc_indent_source_counts: {},
             types: {},
             heading_levels: {},
         };
@@ -158,12 +257,41 @@
                 const key = String(record.heading_level);
                 summary.heading_levels[key] = (summary.heading_levels[key] || 0) + 1;
             }
+            const llm = record.llm_refinement || {};
+            if (llm.has_audit) summary.llm_audit_node_count += 1;
+            if (llm.applied_count > 0) summary.llm_applied_node_count += 1;
+            if (llm.rejected_count > 0) summary.llm_rejected_node_count += 1;
+            summary.llm_entry_count += Number(llm.entry_count || 0);
+            for (const [operation, count] of Object.entries(llm.operation_counts || {})) {
+                summary.llm_operation_counts[operation] = (
+                    summary.llm_operation_counts[operation] || 0
+                ) + Number(count || 0);
+            }
+            const tocSource = record.toc_debug?.final_frontend_indent_source;
+            if (tocSource) {
+                summary.toc_indent_source_counts[tocSource] = (
+                    summary.toc_indent_source_counts[tocSource] || 0
+                ) + 1;
+            }
         }
         return summary;
     }
 
     function normalizeFilterText(value) {
         return String(value || '').trim().toLocaleLowerCase();
+    }
+
+    function matchesLlmAudit(record, filter) {
+        const llm = record.llm_refinement || {};
+        if (!filter || filter === 'all') return true;
+        if (filter === 'with_audit') return Boolean(llm.has_audit);
+        if (filter === 'no_audit') return !llm.has_audit;
+        if (filter === 'applied') return Number(llm.applied_count || 0) > 0;
+        if (filter === 'rejected') return Number(llm.rejected_count || 0) > 0;
+        if (filter.startsWith('operation:')) {
+            return Number(llm.operation_counts?.[filter.slice('operation:'.length)] || 0) > 0;
+        }
+        return true;
     }
 
     function recordMatches(record, filters = {}) {
@@ -177,6 +305,9 @@
                 record.recovery_rule,
                 record.warning_codes.join(' '),
                 record.page.source_unit_id,
+                record.llm_refinement?.operations?.join(' '),
+                record.toc_debug?.final_frontend_indent_source,
+                safeJson(record.llm_refinement?.entries || [], 0),
             ].map((value) => String(value || '').toLocaleLowerCase()).join('\n');
             if (!haystack.includes(query)) return false;
         }
@@ -190,7 +321,11 @@
         if (filters.suppression === 'suppressed' && !record.suppressed) return false;
         if (filters.suppression === 'visible' && record.suppressed) return false;
         if (filters.warningsOnly && !record.warning_codes.length) return false;
-        if (filters.recoveryRule && normalizeFilterText(record.recovery_rule) !== normalizeFilterText(filters.recoveryRule)) return false;
+        if (filters.recoveryRule
+            && normalizeFilterText(record.recovery_rule) !== normalizeFilterText(filters.recoveryRule)) return false;
+        if (!matchesLlmAudit(record, filters.llmAudit)) return false;
+        if (filters.tocIndentSource && filters.tocIndentSource !== 'all'
+            && record.toc_debug?.final_frontend_indent_source !== filters.tocIndentSource) return false;
         return true;
     }
 
@@ -212,7 +347,7 @@
 
     function buildDebugBundle(state) {
         return {
-            diagnostic_version: 'reader_node_debug_v1',
+            diagnostic_version: 'reader_node_debug_v2',
             generated_at: new Date().toISOString(),
             document_ref: state.documentRef || null,
             candidate_id: state.candidateId || null,
@@ -222,6 +357,7 @@
             raw_nodes: state.rawNodes || [],
             visible_nodes: state.visibleNodes || [],
             presentation_state: state.presentationState || null,
+            derived_records: state.records || [],
             summary: summarizeRecords(state.records || []),
         };
     }
@@ -249,6 +385,7 @@
             this.api = options.api || new deps.ReaderApi.ReaderApiClientV2(options.apiOptions || {});
             this.model = options.model || deps.Model;
             this.presentation = options.presentation || deps.Presentation;
+            this.tocIntegration = options.tocIntegration || deps.TocIntegration;
             this.fetchImpl = options.fetchImpl || this.api.fetchImpl;
             this.reset();
         }
@@ -283,7 +420,9 @@
             const select = this.element('debugBookSelect');
             if (!select || !this.fetchImpl) return [];
             this.setStatus('正在加载书架…');
-            const response = await this.fetchImpl(`${this.api.baseUrl}/api/v1/books`, { headers: { Accept: 'application/json' } });
+            const response = await this.fetchImpl(`${this.api.baseUrl}/api/v1/books`, {
+                headers: { Accept: 'application/json' },
+            });
             if (!response.ok) throw new Error(`书架请求失败 (${response.status})`);
             const payload = await response.json();
             const books = (Array.isArray(payload?.books) ? payload.books : [])
@@ -294,7 +433,12 @@
             select.appendChild(createElement(this.document, 'option', '', '选择书籍…'));
             select.options[0].value = '';
             for (const book of books) {
-                const option = createElement(this.document, 'option', '', `${book.name}${book.status ? ` · ${book.status}` : ''}`);
+                const option = createElement(
+                    this.document,
+                    'option',
+                    '',
+                    `${book.name}${book.status ? ` · ${book.status}` : ''}`,
+                );
                 option.value = String(book.id);
                 select.appendChild(option);
             }
@@ -311,7 +455,9 @@
             const opened = await this.api.open(normalizedRef);
             this.openResponse = opened;
             this.candidateId = String(candidateId || opened.candidate_id);
-            const navigationResponse = await this.api.navigation(normalizedRef, { candidateId: this.candidateId });
+            const navigationResponse = await this.api.navigation(normalizedRef, {
+                candidateId: this.candidateId,
+            });
             this.navigation = navigationResponse.navigation || [];
 
             let startNodeOrder = 0;
@@ -344,7 +490,7 @@
                 this.rawNodes,
                 this.openResponse,
                 this.presentationState,
-                { Model: this.model },
+                { Model: this.model, TocIntegration: this.tocIntegration },
             );
             this.populateFilterOptions();
             this.renderSummary();
@@ -385,6 +531,23 @@
                 }
                 ruleSelect.value = rules.includes(current) ? current : '';
             }
+            const tocSelect = this.element('debugTocIndentSource');
+            if (tocSelect) {
+                const current = tocSelect.value || 'all';
+                tocSelect.textContent = '';
+                const all = createElement(this.document, 'option', '', '全部 TOC 来源');
+                all.value = 'all';
+                tocSelect.appendChild(all);
+                const sources = [...new Set(this.records
+                    .map((record) => record.toc_debug?.final_frontend_indent_source)
+                    .filter(Boolean))].sort();
+                for (const source of sources) {
+                    const option = createElement(this.document, 'option', '', source);
+                    option.value = source;
+                    tocSelect.appendChild(option);
+                }
+                tocSelect.value = sources.includes(current) ? current : 'all';
+            }
         }
 
         currentFilters() {
@@ -396,6 +559,8 @@
                 suppression: this.element('debugSuppression')?.value || 'all',
                 warningsOnly: Boolean(this.element('debugWarningsOnly')?.checked),
                 recoveryRule: this.element('debugRecoveryRule')?.value || '',
+                llmAudit: this.element('debugLlmAudit')?.value || 'all',
+                tocIndentSource: this.element('debugTocIndentSource')?.value || 'all',
             };
         }
 
@@ -415,11 +580,15 @@
                 ['API 原始节点', summary.raw_node_count],
                 ['前端可见', summary.frontend_visible_count],
                 ['被抑制', summary.suppressed_count],
-                ['Heading', summary.types.heading || 0],
-                ['List', summary.types.list || 0],
-                ['List Item', summary.types.list_item || 0],
-                ['Paragraph', summary.types.paragraph || 0],
                 ['有 warning', summary.warning_node_count],
+                ['有 LLM 审计', summary.llm_audit_node_count],
+                ['LLM 已应用节点', summary.llm_applied_node_count],
+                ['LLM 被拒节点', summary.llm_rejected_node_count],
+                ['LLM 操作总数', summary.llm_entry_count],
+                ['set_toc_level', summary.llm_operation_counts.set_toc_level || 0],
+                ['suppress_as_artifact', summary.llm_operation_counts.suppress_as_artifact || 0],
+                ['reclassify_node', summary.llm_operation_counts.reclassify_node || 0],
+                ['correct_text', summary.llm_operation_counts.correct_text || 0],
             ];
             for (const [label, value] of entries) {
                 const card = createElement(this.document, 'div', 'debug-stat');
@@ -443,6 +612,10 @@
             for (const record of pageRecords) {
                 const row = createElement(this.document, 'tr', record.suppressed ? 'is-suppressed' : '');
                 row.dataset.nodeId = record.node_id || '';
+                const llm = record.llm_refinement;
+                const llmLabel = llm.has_audit
+                    ? `${llm.entry_count} (${llm.applied_count}✓/${llm.rejected_count}×)`
+                    : '—';
                 const values = [
                     record.order ?? '—',
                     record.page.physical_page_number ?? record.page.source_order ?? '—',
@@ -450,6 +623,8 @@
                     record.heading_level ?? '—',
                     String(record.text || '').replace(/\s+/g, ' ').slice(0, 120),
                     record.suppressed ? '是' : '否',
+                    llmLabel,
+                    record.toc_debug?.final_frontend_indent_source || '—',
                     record.warning_codes.join(', ') || '—',
                     record.recovery_rule || '—',
                     record.node_id || '—',
@@ -484,8 +659,8 @@
                 page: record.page,
                 warning_codes: record.warning_codes,
                 recovery_rule: record.recovery_rule,
-                toc_level: record.toc_level,
-                refinement_operation: record.refinement_operation,
+                llm_structure_refinement: record.llm_refinement,
+                toc_debug: record.toc_debug,
             });
             if (presentation) presentation.textContent = safeJson(record.presentation);
             this.renderBboxPreview(record);
@@ -496,7 +671,9 @@
             if (!canvas) return;
             canvas.textContent = '';
             const sourceUnitId = record.page.source_unit_id;
-            const peers = this.records.filter((item) => item.page.source_unit_id === sourceUnitId && item.normalized_bbox);
+            const peers = this.records.filter((item) => (
+                item.page.source_unit_id === sourceUnitId && item.normalized_bbox
+            ));
             for (const peer of peers) {
                 const [x1, y1, x2, y2] = peer.normalized_bbox;
                 const box = createElement(this.document, 'button', 'debug-bbox');
@@ -545,14 +722,28 @@
             const candidateInput = this.element('debugCandidateId');
             load?.addEventListener('click', () => {
                 const documentRef = documentInput?.value || select?.value || '';
-                this.loadDocument(documentRef, candidateInput?.value || null).catch((error) => this.setStatus(error.message, 'error'));
+                this.loadDocument(documentRef, candidateInput?.value || null)
+                    .catch((error) => this.setStatus(error.message, 'error'));
             });
             select?.addEventListener('change', () => {
                 if (documentInput) documentInput.value = select.value;
             });
-            for (const id of ['debugSearch', 'debugNodeType', 'debugHeadingLevel', 'debugPageNumber', 'debugSuppression', 'debugWarningsOnly', 'debugRecoveryRule']) {
+            for (const id of [
+                'debugSearch',
+                'debugNodeType',
+                'debugHeadingLevel',
+                'debugPageNumber',
+                'debugSuppression',
+                'debugWarningsOnly',
+                'debugRecoveryRule',
+                'debugLlmAudit',
+                'debugTocIndentSource',
+            ]) {
                 const element = this.element(id);
-                element?.addEventListener(element.tagName === 'INPUT' ? 'input' : 'change', () => this.applyFilters());
+                element?.addEventListener(
+                    element.tagName === 'INPUT' ? 'input' : 'change',
+                    () => this.applyFilters(),
+                );
             }
             this.element('debugTablePrev')?.addEventListener('click', () => {
                 this.tablePage = Math.max(0, this.tablePage - 1);
@@ -564,7 +755,9 @@
                 this.renderTable();
             });
             this.element('debugExport')?.addEventListener('click', () => this.exportBundle());
-            this.element('debugCopyNode')?.addEventListener('click', () => this.copySelectedNode().catch((error) => this.setStatus(error.message, 'error')));
+            this.element('debugCopyNode')?.addEventListener('click', () => (
+                this.copySelectedNode().catch((error) => this.setStatus(error.message, 'error'))
+            ));
         }
 
         async initializeFromLocation() {
@@ -579,28 +772,32 @@
             const candidateId = params.get('candidate_id') || '';
             if (this.element('debugDocumentRef')) this.element('debugDocumentRef').value = documentRef;
             if (this.element('debugCandidateId')) this.element('debugCandidateId').value = candidateId;
-            if (documentRef) {
-                await this.loadDocument(documentRef, candidateId || null);
-            }
+            if (documentRef) await this.loadDocument(documentRef, candidateId || null);
         }
     }
 
     function bootstrap() {
         if (typeof document === 'undefined') return null;
         const controller = new ReaderNodeDebugController();
-        controller.initializeFromLocation().catch((error) => controller.setStatus(error.message, 'error'));
+        controller.initializeFromLocation()
+            .catch((error) => controller.setStatus(error.message, 'error'));
         return controller;
     }
 
     return {
         CONTENT_BATCH_SIZE,
         TABLE_PAGE_SIZE,
+        TOC_ITEM_RULE,
         ReaderNodeDebugController,
         buildDebugBundle,
         buildDebugRecords,
         buildPresentationIndex,
+        buildTocDecisionIndex,
         filterRecords,
         isSuppressedNode,
+        llmAuditEntries,
+        llmAuditSummary,
+        matchesLlmAudit,
         normalizedBBox,
         pageInfoForNode,
         recordMatches,
