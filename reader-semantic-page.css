@@ -221,6 +221,15 @@
     line-height: 1.4;
 }
 
+.reader-v2-toc-structure-debug {
+    display: none;
+}
+
+:root[data-reader-toc-debug="true"] .reader-v2-toc-structure-debug,
+body[data-reader-toc-debug="true"] .reader-v2-toc-structure-debug {
+    display: block;
+}
+
 .reader-v2-semantic-page-fallback {
     position: relative;
     z-index: 2;
