@@ -193,8 +193,15 @@
 }
 
 .reader-v2-semantic-page-toc-item .reader-v2-node-text {
+    display: block;
     margin: 0;
+    padding-inline-start: 0;
+    list-style: none;
     white-space: pre-wrap;
+}
+
+.reader-v2-semantic-page-toc-item .reader-v2-node-text::marker {
+    content: '';
 }
 
 .reader-v2-semantic-page-toc-extra {
