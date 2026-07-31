@@ -17,6 +17,25 @@ test('footer furniture aligns to the bottom of its spatial region', () => {
   assert.match(css, /\.reader-v2-semantic-page-element \.reader-v2-node-footer\s*\{[^}]*align-items:\s*flex-end;/s);
 });
 
+test('semantic body paragraphs use a two-character first-line indent', () => {
+  assert.match(
+    css,
+    /\.reader-v2-node-paragraph:not\(\[data-reader-fragment-index\]\)\s*>\s*\.reader-v2-node-text,/s,
+  );
+  assert.match(
+    css,
+    /\.reader-v2-node-paragraph\[data-reader-fragment-index="0"\]\s*>\s*\.reader-v2-node-text\s*\{[^}]*text-indent:\s*2em;/s,
+  );
+  assert.doesNotMatch(
+    css,
+    /data-reader-fragment-index="1"[^}]*text-indent/s,
+  );
+  assert.doesNotMatch(
+    css,
+    /\.reader-v2-semantic-page-toc-item[^}]*text-indent/s,
+  );
+});
+
 test('text slots remain clipped until width-first adaptation releases height', () => {
   assert.match(
     css,
