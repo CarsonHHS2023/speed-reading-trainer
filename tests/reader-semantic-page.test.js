@@ -131,6 +131,56 @@ test('overflow adaptation stops after width expansion when content fits', () => 
   assert.doesNotMatch(slot.className, /height-expanded/);
 });
 
+test('infers a shifted body frame from wide paragraphs and maps it to canonical margins', () => {
+  const page = {
+    elements: [
+      { normalized_bbox: [0.18, 0.20, 0.88, 0.30], node: { node_type: 'paragraph' } },
+      { normalized_bbox: [0.19, 0.40, 0.89, 0.50], node: { node_type: 'paragraph' } },
+      { normalized_bbox: [0.44, 0.10, 0.58, 0.14], node: { node_type: 'heading' } },
+    ],
+  };
+  const layout = SemanticPage.textMarginLayout(page);
+  assert.equal(layout.enabled, true);
+  assert.deepEqual(layout.sourceFrame, [0.185, 0.885]);
+  assert.deepEqual(layout.targetFrame, [0.1, 0.9]);
+
+  const paragraph = SemanticPage.presentationBbox(page, page.elements[0], layout);
+  assert.ok(Math.abs(paragraph[0] - 0.0942857142857143) < 1e-12);
+  assert.ok(Math.abs(paragraph[2] - 0.8942857142857144) < 1e-12);
+
+  const heading = SemanticPage.presentationBbox(page, page.elements[2], layout);
+  assert.ok(heading[0] < 0.40);
+  assert.ok(heading[2] > 0.54);
+});
+
+test('preserves visual assets and page furniture while normalizing body text', () => {
+  const page = {
+    elements: [
+      { normalized_bbox: [0.18, 0.20, 0.88, 0.30], node: { node_type: 'paragraph' } },
+      { normalized_bbox: [0.20, 0.40, 0.86, 0.60], node: { node_type: 'figure' } },
+      { normalized_bbox: [0.70, 0.94, 0.88, 0.97], node: { node_type: 'footer' } },
+      { normalized_bbox: [0.42, 0.10, 0.58, 0.14], node: { node_type: 'heading' } },
+    ],
+  };
+  const layout = SemanticPage.textMarginLayout(page);
+  assert.equal(layout.enabled, true);
+  assert.deepEqual(SemanticPage.presentationBbox(page, page.elements[1], layout), [0.20, 0.40, 0.86, 0.60]);
+  assert.deepEqual(SemanticPage.presentationBbox(page, page.elements[2], layout), [0.70, 0.94, 0.88, 0.97]);
+  assert.notDeepEqual(SemanticPage.presentationBbox(page, page.elements[3], layout), page.elements[3].normalized_bbox);
+});
+
+test('does not normalize pages without a reliable single-column body frame', () => {
+  const page = {
+    elements: [
+      { normalized_bbox: [0.12, 0.20, 0.45, 0.30], node: { node_type: 'paragraph' } },
+      { normalized_bbox: [0.55, 0.20, 0.88, 0.30], node: { node_type: 'paragraph' } },
+    ],
+  };
+  const layout = SemanticPage.textMarginLayout(page);
+  assert.equal(layout.enabled, false);
+  assert.deepEqual(SemanticPage.presentationBbox(page, page.elements[0], layout), page.elements[0].normalized_bbox);
+});
+
 test('renders bbox-constrained text and visual slots without changing identity', () => {
   const documentObject = fakeDocument();
   const page = {
@@ -169,6 +219,7 @@ test('renders bbox-constrained text and visual slots without changing identity',
   });
 
   assert.equal(rendered.dataset.sourceUnitId, 'p1');
+  assert.equal(rendered.dataset.readerTextMarginLayout, 'normalized');
   const shell = rendered.children[1];
   assert.equal(shell.className, 'reader-v2-semantic-page-shell');
   assert.equal(shell.style.aspectRatio, String(1000 / 1400));
@@ -178,8 +229,10 @@ test('renders bbox-constrained text and visual slots without changing identity',
 
   const textSlot = canvas.children[0];
   assert.match(textSlot.className, /reader-v2-semantic-page-element--text/);
+  assert.match(textSlot.className, /margin-normalized/);
   assert.equal(textSlot.dataset.readerNodeId, 'n1');
   assert.equal(textSlot.style.left, '10%');
+  assert.equal(textSlot.style.width, '80%');
   assert.equal(textSlot.style.height, '10%');
   const fragmentArticle = textSlot.children[0];
   assert.equal(fragmentArticle.dataset.readerNodeId, 'n1');
@@ -188,6 +241,9 @@ test('renders bbox-constrained text and visual slots without changing identity',
 
   const visualSlot = canvas.children[1];
   assert.match(visualSlot.className, /reader-v2-semantic-page-element--visual/);
+  assert.doesNotMatch(visualSlot.className, /margin-normalized/);
+  assert.equal(visualSlot.style.left, '20%');
+  assert.equal(visualSlot.style.width, '49.99999999999999%');
   assert.equal(visualSlot.style.height, '30%');
 
   const fallback = rendered.children[2];
