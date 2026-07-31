@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reader v2 节点调试</title>
+    <link rel="stylesheet" href="reader-node-debug.css">
+</head>
+<body>
+    <header class="debug-header">
+        <div>
+            <h1>Reader v2 节点调试</h1>
+            <p>显示 Reader API 原始节点、前端过滤结果、Presentation 归属和页面坐标。</p>
+        </div>
+        <a href="index.html" class="debug-back">返回阅读器</a>
+    </header>
+
+    <main class="debug-main">
+        <section class="debug-controls" aria-label="文档选择">
+            <label>书籍
+                <select id="debugBookSelect"><option value="">正在加载书架…</option></select>
+            </label>
+            <label>document_ref
+                <input id="debugDocumentRef" type="text" autocomplete="off" placeholder="书籍/文档 ID">
+            </label>
+            <label>candidate_id（可选）
+                <input id="debugCandidateId" type="text" autocomplete="off" placeholder="默认使用当前选择">
+            </label>
+            <button id="debugLoad" type="button">加载全部节点</button>
+            <button id="debugExport" type="button">导出调试 JSON</button>
+            <span id="debugStatus" class="debug-status" role="status" aria-live="polite"></span>
+        </section>
+
+        <section id="debugSummary" class="debug-summary" aria-label="节点统计"></section>
+
+        <section class="debug-filters" aria-label="节点筛选">
+            <label>搜索
+                <input id="debugSearch" type="search" placeholder="文本、node_id、parent_ref、warning…">
+            </label>
+            <label>节点类型
+                <select id="debugNodeType"><option value="all">全部类型</option></select>
+            </label>
+            <label>Heading level
+                <select id="debugHeadingLevel">
+                    <option value="all">全部</option>
+                    <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                    <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                </select>
+            </label>
+            <label>物理页
+                <input id="debugPageNumber" type="number" min="1" placeholder="全部">
+            </label>
+            <label>抑制状态
+                <select id="debugSuppression">
+                    <option value="all">全部</option>
+                    <option value="visible">仅前端可见</option>
+                    <option value="suppressed">仅被抑制</option>
+                </select>
+            </label>
+            <label>recovery_rule
+                <select id="debugRecoveryRule"><option value="">全部 recovery_rule</option></select>
+            </label>
+            <label class="debug-checkbox"><input id="debugWarningsOnly" type="checkbox"> 仅有 warning</label>
+            <strong id="debugFilterCount">筛选结果 0 / 0</strong>
+        </section>
+
+        <section class="debug-workspace">
+            <div class="debug-table-panel">
+                <div class="debug-table-scroll">
+                    <table class="debug-table">
+                        <thead><tr>
+                            <th>order</th><th>页</th><th>node_type</th><th>level</th><th>text</th>
+                            <th>抑制</th><th>warnings</th><th>recovery_rule</th><th>node_id</th>
+                        </tr></thead>
+                        <tbody id="debugNodeRows"></tbody>
+                    </table>
+                </div>
+                <div class="debug-pagination">
+                    <button id="debugTablePrev" type="button">上一批</button>
+                    <span id="debugTablePage">1 / 1</span>
+                    <button id="debugTableNext" type="button">下一批</button>
+                </div>
+            </div>
+
+            <aside class="debug-detail-panel">
+                <div class="debug-detail-heading">
+                    <h2>当前节点</h2>
+                    <button id="debugCopyNode" type="button">复制原始节点 JSON</button>
+                </div>
+                <section>
+                    <h3>页面 bbox 预览</h3>
+                    <div id="debugBboxCanvas" class="debug-bbox-canvas" aria-label="节点坐标预览"></div>
+                    <p class="debug-help">红框是当前节点；虚线框是被前端抑制的节点。点击框可切换节点。</p>
+                </section>
+                <details open><summary>Reader API 原始节点</summary><pre id="debugRawNode">选择一个节点查看。</pre></details>
+                <details open><summary>前端解释</summary><pre id="debugFrontendNode">选择一个节点查看。</pre></details>
+                <details><summary>Presentation 归属</summary><pre id="debugPresentationNode">选择一个节点查看。</pre></details>
+            </aside>
+        </section>
+    </main>
+
+    <script src="reader-api.js"></script>
+    <script src="reader-model.js"></script>
+    <script src="reader-presentation.js"></script>
+    <script src="reader-node-debug.js"></script>
+    <script>ReaderNodeDebugV2.bootstrap();</script>
+</body>
+</html>
