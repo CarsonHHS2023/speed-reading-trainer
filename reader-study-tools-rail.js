@@ -6,6 +6,7 @@
     'use strict';
 
     const STORAGE_KEY = 'reader.studyToolsRail.v1';
+    const DEBUG_PAGE_PATH = 'reader-node-debug.html';
     const DEFAULT_STATE = Object.freeze({ expanded: false, activeToolId: 'notes' });
     const TOOL_DEFINITIONS = Object.freeze([
         { id: 'navigation', label: '文档导航', icon: '☰', selectors: ['.reader-v2-title', '.reader-v2-meta', '.reader-v2-find', '.reader-v2-navigation'] },
@@ -30,6 +31,89 @@
         try { storage?.setItem?.(STORAGE_KEY, JSON.stringify(normalizeState(state))); } catch (_) { /* ignore */ }
     }
 
+    function normalizedIdentityValue(value) {
+        if (value === undefined || value === null) return null;
+        const normalized = String(value).trim();
+        return normalized || null;
+    }
+
+    function firstSourceUnitId(...values) {
+        for (const value of values) {
+            if (Array.isArray(value)) {
+                const nested = firstSourceUnitId(...value);
+                if (nested) return nested;
+                continue;
+            }
+            const normalized = normalizedIdentityValue(value);
+            if (normalized) return normalized;
+        }
+        return null;
+    }
+
+    function visibleSourceUnitId(documentObject) {
+        const pages = Array.from(documentObject?.querySelectorAll?.('.reader-v2-page[data-source-unit-id]') || []);
+        if (!pages.length) return null;
+        const viewport = documentObject?.querySelector?.('.reader-v2-main');
+        const viewportRect = viewport?.getBoundingClientRect?.() || null;
+        let bestSourceUnitId = null;
+        let bestVisibleHeight = -1;
+        for (const page of pages) {
+            const sourceUnitId = normalizedIdentityValue(page?.dataset?.sourceUnitId);
+            if (!sourceUnitId) continue;
+            const rect = page?.getBoundingClientRect?.();
+            if (!rect || !viewportRect) {
+                if (!bestSourceUnitId) bestSourceUnitId = sourceUnitId;
+                continue;
+            }
+            const visibleTop = Math.max(Number(rect.top || 0), Number(viewportRect.top || 0));
+            const visibleBottom = Math.min(Number(rect.bottom || 0), Number(viewportRect.bottom || 0));
+            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+            if (visibleHeight > bestVisibleHeight) {
+                bestVisibleHeight = visibleHeight;
+                bestSourceUnitId = sourceUnitId;
+            }
+        }
+        return bestSourceUnitId;
+    }
+
+    function resolveDebugContext(options = {}) {
+        const reader = options.reader || null;
+        const playback = options.playback || null;
+        const frame = playback?.currentFrame?.() || null;
+        const frameIdentity = frame?.identity || {};
+        const location = reader?.lastLocation || reader?.resumeRecord || {};
+        return {
+            documentRef: normalizedIdentityValue(
+                frameIdentity.document_ref
+                || reader?.documentRef
+                || reader?.openResponse?.document_ref
+                || location.document_ref,
+            ),
+            candidateId: normalizedIdentityValue(
+                frameIdentity.candidate_id
+                || reader?.candidateId
+                || reader?.openResponse?.candidate_id
+                || location.candidate_id,
+            ),
+            sourceUnitId: firstSourceUnitId(
+                frameIdentity.source_unit_id,
+                frameIdentity.source_unit_ids,
+                location.source_unit_id,
+                location.source_unit_ids,
+                visibleSourceUnitId(options.documentObject),
+            ),
+        };
+    }
+
+    function buildDebugPageUrl(context = {}, baseHref = '') {
+        const base = normalizedIdentityValue(baseHref) || 'http://localhost/';
+        const url = new URL(DEBUG_PAGE_PATH, base);
+        if (context.documentRef) url.searchParams.set('document_ref', context.documentRef);
+        if (context.candidateId) url.searchParams.set('candidate_id', context.candidateId);
+        if (context.sourceUnitId) url.searchParams.set('source_unit_id', context.sourceUnitId);
+        return url.href;
+    }
+
     class StudyToolsRailController {
         constructor(options = {}) {
             this.document = options.documentObject || (typeof document !== 'undefined' ? document : null);
@@ -47,6 +131,26 @@
                 else element.setAttribute(name, value);
             }
             return element;
+        }
+
+        debugControllers() {
+            const playbackController = this.window?.ReaderSpeedPlaybackUI?.getDefaultController?.() || null;
+            const reader = playbackController?.reader
+                || this.window?.ReaderUIV2?.getDefaultController?.()
+                || null;
+            return { reader, playback: playbackController?.playback || null };
+        }
+
+        openDebugPage() {
+            const controllers = this.debugControllers();
+            const context = resolveDebugContext({
+                ...controllers,
+                documentObject: this.document,
+            });
+            const href = buildDebugPageUrl(context, this.window?.location?.href || '');
+            const opened = this.window?.open?.(href, '_blank', 'noopener,noreferrer') || null;
+            try { if (opened) opened.opener = null; } catch (_) { /* cross-origin window */ }
+            return href;
         }
 
         ensureRail() {
@@ -89,6 +193,14 @@
                 }
                 body.appendChild(panelElement);
             }
+
+            const debugButton = this.createElement('button', 'reader-study-tools-debug', {
+                id: 'readerStudyToolsDebug', type: 'button', title: '打开节点调试页',
+                'aria-label': '打开节点调试页', text: '🐞',
+            });
+            debugButton.addEventListener('click', () => this.openDebugPage());
+            tabs.appendChild(debugButton);
+
             collapse.addEventListener('click', () => this.setExpanded(false));
             rail.append(tabs, drawer);
             panel.appendChild(rail);
@@ -177,5 +289,19 @@
         else install();
     }
 
-    return { DEFAULT_STATE, STORAGE_KEY, TOOL_DEFINITIONS, StudyToolsRailController, loadState, normalizeState, saveState, install };
+    return {
+        DEBUG_PAGE_PATH,
+        DEFAULT_STATE,
+        STORAGE_KEY,
+        TOOL_DEFINITIONS,
+        StudyToolsRailController,
+        buildDebugPageUrl,
+        firstSourceUnitId,
+        loadState,
+        normalizeState,
+        resolveDebugContext,
+        saveState,
+        visibleSourceUnitId,
+        install,
+    };
 });
