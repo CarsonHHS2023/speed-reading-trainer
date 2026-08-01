@@ -18,6 +18,7 @@
     const CONTENT_BATCH_SIZE = 500;
     const TABLE_PAGE_SIZE = 200;
     const TOC_ITEM_RULE = 'mineru_popo_toc_item';
+    const ALL_SOURCE_UNITS = '__all__';
 
     function resolveDeps() {
         if (typeof require === 'function') {
@@ -35,6 +36,31 @@
 
     function arrayValue(value) {
         return Array.isArray(value) ? value : [];
+    }
+
+    function finiteSourceOrder(unit) {
+        const order = Number(unit?.source_order);
+        return Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER;
+    }
+
+    function orderedSourceUnits(openResponse) {
+        return [...arrayValue(openResponse?.source_units)].sort((left, right) => (
+            finiteSourceOrder(left) - finiteSourceOrder(right)
+            || String(left?.source_unit_id || '').localeCompare(String(right?.source_unit_id || ''))
+        ));
+    }
+
+    function selectableSourceUnits(openResponse) {
+        const ordered = orderedSourceUnits(openResponse);
+        const physical = ordered.filter((unit) => unit?.kind === 'physical_page');
+        return physical.length ? physical : ordered;
+    }
+
+    function sourceUnitLabel(unit) {
+        const order = finiteSourceOrder(unit);
+        const ordinal = order === Number.MAX_SAFE_INTEGER ? '?' : order + 1;
+        if (unit?.kind === 'physical_page') return `第 ${ordinal} 页`;
+        return `Source ${ordinal} · ${unit?.kind || 'unknown'}`;
     }
 
     function isSuppressedNode(node) {
@@ -87,13 +113,44 @@
         };
     }
 
-    function normalizedBBox(node) {
+    function nodeSourceUnitIds(node) {
+        const ids = new Set();
+        function add(value) {
+            const normalized = String(value || '').trim();
+            if (normalized) ids.add(normalized);
+        }
+        add(node?.location?.source_unit_id);
+        add(node?.location?.source_anchor?.source_unit_id);
+        for (const sourceUnitId of arrayValue(node?.source_unit_ids)) add(sourceUnitId);
+        for (const anchor of arrayValue(node?.source_anchors)) add(anchor?.source_unit_id);
+        for (const fragment of arrayValue(node?.metadata?.page_fragments)) {
+            add(fragment?.source_unit_id);
+            add(fragment?.source_anchor?.source_unit_id);
+        }
+        return [...ids];
+    }
+
+    function nodeBelongsToSourceUnit(node, sourceUnitId) {
+        const expected = String(sourceUnitId || '').trim();
+        return Boolean(expected && nodeSourceUnitIds(node).includes(expected));
+    }
+
+    function normalizedBBox(node, preferredSourceUnitId = null) {
         const candidates = [];
-        const locationAnchor = node && node.location && node.location.source_anchor;
+        const locationAnchor = node?.location?.source_anchor;
         if (locationAnchor) candidates.push(locationAnchor);
-        for (const anchor of arrayValue(node && node.source_anchors)) candidates.push(anchor);
+        for (const anchor of arrayValue(node?.source_anchors)) candidates.push(anchor);
+        for (const fragment of arrayValue(node?.metadata?.page_fragments)) {
+            if (fragment?.source_anchor) candidates.push(fragment.source_anchor);
+        }
+        if (preferredSourceUnitId) {
+            candidates.sort((left, right) => (
+                Number(right?.source_unit_id === preferredSourceUnitId)
+                - Number(left?.source_unit_id === preferredSourceUnitId)
+            ));
+        }
         for (const anchor of candidates) {
-            const bbox = anchor && anchor.normalized_bbox;
+            const bbox = anchor?.normalized_bbox;
             if (!Array.isArray(bbox) || bbox.length !== 4) continue;
             const values = bbox.map(Number);
             if (values.every(Number.isFinite) && values[2] > values[0] && values[3] > values[1]) {
@@ -103,7 +160,10 @@
         return null;
     }
 
-    function primarySourceUnitId(node) {
+    function primarySourceUnitId(node, preferredSourceUnitId = null) {
+        if (preferredSourceUnitId && nodeBelongsToSourceUnit(node, preferredSourceUnitId)) {
+            return preferredSourceUnitId;
+        }
         return node?.location?.source_unit_id || node?.source_unit_ids?.[0] || null;
     }
 
@@ -113,8 +173,95 @@
         return index;
     }
 
-    function pageInfoForNode(node, unitIndex) {
-        const sourceUnitId = primarySourceUnitId(node);
+    function physicalPageOrdersForNode(node, unitIndex) {
+        return nodeSourceUnitIds(node)
+            .map((sourceUnitId) => unitIndex.get(sourceUnitId))
+            .filter((unit) => unit?.kind === 'physical_page')
+            .map((unit) => Number(unit.source_order))
+            .filter(Number.isFinite);
+    }
+
+    function chunkHasPassedSourceUnit(nodes, selectedUnit, unitIndex) {
+        if (selectedUnit?.kind !== 'physical_page') return false;
+        const selectedOrder = Number(selectedUnit.source_order);
+        if (!Number.isFinite(selectedOrder)) return false;
+        return arrayValue(nodes).some((node) => {
+            const orders = physicalPageOrdersForNode(node, unitIndex);
+            return orders.length > 0 && Math.min(...orders) > selectedOrder;
+        });
+    }
+
+    async function collectNodesForSourceUnit(options = {}) {
+        const {
+            openResponse,
+            sourceUnitId,
+            fetchChunk,
+            batchSize = CONTENT_BATCH_SIZE,
+            onProgress,
+        } = options;
+        if (typeof fetchChunk !== 'function') throw new Error('fetchChunk is required');
+        const units = orderedSourceUnits(openResponse);
+        const unitIndex = sourceUnitIndex(openResponse);
+        const allUnits = sourceUnitId === ALL_SOURCE_UNITS;
+        const selectedUnit = allUnits ? null : unitIndex.get(sourceUnitId);
+        if (!allUnits && !selectedUnit) throw new Error('所选页面不存在，请重新选择页面');
+
+        const rawChunks = [];
+        const pageNodes = [];
+        const seenNodeKeys = new Set();
+        let startNodeOrder = 0;
+        let hasMore = true;
+        let scannedNodeCount = 0;
+        let scannedChunkCount = 0;
+        let stoppedAfterPage = false;
+
+        while (hasMore) {
+            if (typeof onProgress === 'function') {
+                onProgress({ scannedNodeCount, scannedChunkCount, selectedNodeCount: pageNodes.length });
+            }
+            const chunk = await fetchChunk({ startNodeOrder, limit: batchSize });
+            const chunkNodes = arrayValue(chunk?.nodes);
+            scannedChunkCount += 1;
+            scannedNodeCount += chunkNodes.length;
+            const selectedChunkNodes = allUnits
+                ? chunkNodes
+                : chunkNodes.filter((node) => nodeBelongsToSourceUnit(node, sourceUnitId));
+            for (const [index, node] of selectedChunkNodes.entries()) {
+                const key = node?.node_id || `${node?.order ?? 'unknown'}:${scannedChunkCount}:${index}`;
+                if (seenNodeKeys.has(key)) continue;
+                seenNodeKeys.add(key);
+                pageNodes.push(node);
+            }
+            rawChunks.push({ ...chunk, nodes: selectedChunkNodes });
+
+            hasMore = Boolean(chunk?.has_more);
+            stoppedAfterPage = !allUnits && chunkHasPassedSourceUnit(chunkNodes, selectedUnit, unitIndex);
+            if (!hasMore || stoppedAfterPage) break;
+
+            const next = chunk?.next_node_order;
+            if (next === null || next === undefined || Number(next) <= startNodeOrder) {
+                throw new Error('Reader content pagination did not advance');
+            }
+            startNodeOrder = Number(next);
+        }
+
+        return {
+            rawChunks,
+            pageNodes,
+            selectedUnit,
+            selectableUnits: units,
+            scanStats: {
+                scanned_chunk_count: scannedChunkCount,
+                scanned_node_count: scannedNodeCount,
+                selected_node_count: pageNodes.length,
+                stopped_after_selected_page: stoppedAfterPage,
+                exhausted_content: !hasMore,
+            },
+        };
+    }
+
+    function pageInfoForNode(node, unitIndex, preferredSourceUnitId = null) {
+        const sourceUnitId = primarySourceUnitId(node, preferredSourceUnitId);
         const unit = sourceUnitId ? unitIndex.get(sourceUnitId) : null;
         const isPhysical = unit?.kind === 'physical_page';
         const order = Number(unit?.source_order);
@@ -150,11 +297,11 @@
         return index;
     }
 
-    function buildTocDecisionIndex(rawNodes, integration = TocIntegration) {
+    function buildTocDecisionIndex(rawNodes, integration = TocIntegration, preferredSourceUnitId = null) {
         const index = new Map();
         const byPage = new Map();
         for (const node of rawNodes || []) {
-            const sourceUnitId = primarySourceUnitId(node);
+            const sourceUnitId = primarySourceUnitId(node, preferredSourceUnitId);
             if (!sourceUnitId) continue;
             if (!byPage.has(sourceUnitId)) byPage.set(sourceUnitId, []);
             byPage.get(sourceUnitId).push(node);
@@ -167,7 +314,7 @@
             if (integration && typeof integration.tocLayout === 'function') {
                 try {
                     layout = integration.tocLayout({ source_unit_id: sourceUnitId, nodes });
-                } catch (error) {
+                } catch (_error) {
                     layout = null;
                 }
             }
@@ -195,13 +342,14 @@
     function buildDebugRecords(rawNodes, openResponse, presentationState, deps = {}) {
         const model = deps.Model || Model || {};
         const integration = deps.TocIntegration || TocIntegration || null;
+        const selectedSourceUnitId = deps.selectedSourceUnitId || null;
         const unitIndex = sourceUnitIndex(openResponse);
         const presentationIndex = buildPresentationIndex(presentationState);
-        const tocDecisionIndex = buildTocDecisionIndex(rawNodes, integration);
+        const tocDecisionIndex = buildTocDecisionIndex(rawNodes, integration, selectedSourceUnitId);
         return (rawNodes || []).map((node, apiIndex) => {
             const metadata = plainObject(node?.metadata);
             const suppressed = isSuppressedNode(node);
-            const page = pageInfoForNode(node, unitIndex);
+            const page = pageInfoForNode(node, unitIndex, selectedSourceUnitId);
             const frontendTag = typeof model.nodeTag === 'function' ? model.nodeTag(node) : null;
             const auditEntries = llmAuditEntries(node);
             return {
@@ -220,7 +368,7 @@
                 suppression_reason: suppressionReason(node),
                 frontend_visible: !suppressed,
                 frontend_tag: frontendTag,
-                normalized_bbox: normalizedBBox(node),
+                normalized_bbox: normalizedBBox(node, selectedSourceUnitId),
                 recovery_rule: metadata.recovery_rule ?? null,
                 toc_level: metadata.toc_level ?? null,
                 toc_level_source: metadata.toc_level_source ?? null,
@@ -294,6 +442,18 @@
         return true;
     }
 
+    function safeJson(value, spacing = 2) {
+        const seen = new WeakSet();
+        return JSON.stringify(value, (_key, current) => {
+            if (typeof current === 'bigint') return String(current);
+            if (current && typeof current === 'object') {
+                if (seen.has(current)) return '[Circular]';
+                seen.add(current);
+            }
+            return current;
+        }, spacing);
+    }
+
     function recordMatches(record, filters = {}) {
         const query = normalizeFilterText(filters.query);
         if (query) {
@@ -333,24 +493,28 @@
         return (records || []).filter((record) => recordMatches(record, filters));
     }
 
-    function safeJson(value, spacing = 2) {
-        const seen = new WeakSet();
-        return JSON.stringify(value, (key, current) => {
-            if (typeof current === 'bigint') return String(current);
-            if (current && typeof current === 'object') {
-                if (seen.has(current)) return '[Circular]';
-                seen.add(current);
-            }
-            return current;
-        }, spacing);
+    function selectedPageDescriptor(state) {
+        const selectedId = state.selectedSourceUnitId || null;
+        const unit = selectedId && selectedId !== ALL_SOURCE_UNITS
+            ? sourceUnitIndex(state.openResponse).get(selectedId)
+            : null;
+        return selectedId ? {
+            source_unit_id: selectedId,
+            label: selectedId === ALL_SOURCE_UNITS ? '全文' : sourceUnitLabel(unit),
+            kind: unit?.kind || null,
+            source_order: Number.isFinite(Number(unit?.source_order)) ? Number(unit.source_order) : null,
+        } : null;
     }
 
     function buildDebugBundle(state) {
         return {
-            diagnostic_version: 'reader_node_debug_v2',
+            diagnostic_version: 'reader_node_debug_v3_page_scoped',
             generated_at: new Date().toISOString(),
             document_ref: state.documentRef || null,
             candidate_id: state.candidateId || null,
+            selected_source_unit_id: state.selectedSourceUnitId || null,
+            selected_page: selectedPageDescriptor(state),
+            scan_stats: state.scanStats || null,
             open_response: state.openResponse || null,
             navigation: state.navigation || [],
             raw_content_chunks: state.rawChunks || [],
@@ -390,11 +554,8 @@
             this.reset();
         }
 
-        reset() {
-            this.documentRef = null;
-            this.candidateId = null;
-            this.openResponse = null;
-            this.navigation = [];
+        resetPageState() {
+            this.selectedSourceUnitId = null;
             this.rawChunks = [];
             this.rawNodes = [];
             this.visibleNodes = [];
@@ -403,6 +564,15 @@
             this.filteredRecords = [];
             this.selectedRecord = null;
             this.tablePage = 0;
+            this.scanStats = null;
+        }
+
+        reset() {
+            this.documentRef = null;
+            this.candidateId = null;
+            this.openResponse = null;
+            this.navigation = [];
+            this.resetPageState();
         }
 
         element(id) {
@@ -414,6 +584,20 @@
             if (!element) return;
             element.textContent = message || '';
             element.dataset.kind = kind;
+        }
+
+        clearPageDisplay() {
+            this.populateFilterOptions();
+            this.renderSummary();
+            this.applyFilters();
+            const raw = this.element('debugRawNode');
+            const frontend = this.element('debugFrontendNode');
+            const presentation = this.element('debugPresentationNode');
+            if (raw) raw.textContent = '选择一个节点查看。';
+            if (frontend) frontend.textContent = '选择一个节点查看。';
+            if (presentation) presentation.textContent = '选择一个节点查看。';
+            const canvas = this.element('debugBboxCanvas');
+            if (canvas) canvas.textContent = '';
         }
 
         async loadBooks() {
@@ -446,12 +630,41 @@
             return books;
         }
 
-        async loadDocument(documentRef, candidateId = null) {
+        populatePageOptions(selectedValue = '') {
+            const select = this.element('debugPageSelect');
+            if (!select) return [];
+            const units = selectableSourceUnits(this.openResponse);
+            select.textContent = '';
+            const prompt = createElement(
+                this.document,
+                'option',
+                '',
+                units.length ? '选择页面加载…' : '没有可选页面',
+            );
+            prompt.value = '';
+            select.appendChild(prompt);
+            for (const unit of units) {
+                const option = createElement(
+                    this.document,
+                    'option',
+                    '',
+                    `${sourceUnitLabel(unit)} · ${unit.source_unit_id}`,
+                );
+                option.value = String(unit.source_unit_id);
+                select.appendChild(option);
+            }
+            if (!units.some((unit) => unit.source_unit_id === selectedValue)) selectedValue = '';
+            select.value = selectedValue;
+            select.disabled = units.length === 0;
+            return units;
+        }
+
+        async openDocument(documentRef, candidateId = null) {
             const normalizedRef = String(documentRef || '').trim();
             if (!normalizedRef) throw new Error('请选择书籍或输入 document_ref');
             this.reset();
             this.documentRef = normalizedRef;
-            this.setStatus('正在打开 Reader v2…');
+            this.setStatus('正在打开 Reader v2 并读取页面列表…');
             const opened = await this.api.open(normalizedRef);
             this.openResponse = opened;
             this.candidateId = String(candidateId || opened.candidate_id);
@@ -459,27 +672,48 @@
                 candidateId: this.candidateId,
             });
             this.navigation = navigationResponse.navigation || [];
+            const pages = this.populatePageOptions();
+            this.clearPageDisplay();
+            this.setStatus(pages.length ? '请选择页面加载节点。' : '当前文档没有可选页面。');
+            this.syncUrl();
+            return pages;
+        }
 
-            let startNodeOrder = 0;
-            let hasMore = true;
-            while (hasMore) {
-                this.setStatus(`正在读取节点，已加载 ${this.rawNodes.length} 个…`);
-                const chunk = await this.api.content(normalizedRef, {
-                    candidateId: this.candidateId,
-                    startNodeOrder,
-                    limit: CONTENT_BATCH_SIZE,
-                });
-                this.rawChunks.push(chunk);
-                this.rawNodes.push(...(chunk.nodes || []));
-                hasMore = Boolean(chunk.has_more);
-                const next = chunk.next_node_order;
-                if (!hasMore) break;
-                if (next === null || next === undefined || Number(next) <= startNodeOrder) {
-                    throw new Error('Reader content pagination did not advance');
-                }
-                startNodeOrder = Number(next);
+        async loadSelectedPage(sourceUnitId) {
+            const normalizedId = String(sourceUnitId || '').trim();
+            if (!this.openResponse || !this.documentRef || !this.candidateId) {
+                throw new Error('请先选择书籍或打开文档');
+            }
+            if (!normalizedId) {
+                this.resetPageState();
+                this.clearPageDisplay();
+                this.syncUrl();
+                this.setStatus('请选择页面加载节点。');
+                return [];
             }
 
+            this.resetPageState();
+            this.selectedSourceUnitId = normalizedId;
+            const unit = sourceUnitIndex(this.openResponse).get(normalizedId);
+            const label = normalizedId === ALL_SOURCE_UNITS ? '全文' : sourceUnitLabel(unit);
+            this.setStatus(`正在加载${label}节点…`);
+
+            const result = await collectNodesForSourceUnit({
+                openResponse: this.openResponse,
+                sourceUnitId: normalizedId,
+                fetchChunk: ({ startNodeOrder, limit }) => this.api.content(this.documentRef, {
+                    candidateId: this.candidateId,
+                    startNodeOrder,
+                    limit,
+                }),
+                onProgress: ({ scannedNodeCount, selectedNodeCount }) => {
+                    this.setStatus(`正在加载${label}节点：已扫描 ${scannedNodeCount}，找到 ${selectedNodeCount}…`);
+                },
+            });
+
+            this.rawChunks = result.rawChunks;
+            this.rawNodes = result.pageNodes;
+            this.scanStats = result.scanStats;
             this.visibleNodes = this.model.orderedNodes(this.rawNodes);
             this.presentationState = this.presentation.presentationForDocument(
                 this.openResponse,
@@ -490,14 +724,28 @@
                 this.rawNodes,
                 this.openResponse,
                 this.presentationState,
-                { Model: this.model, TocIntegration: this.tocIntegration },
+                {
+                    Model: this.model,
+                    TocIntegration: this.tocIntegration,
+                    selectedSourceUnitId: normalizedId === ALL_SOURCE_UNITS ? null : normalizedId,
+                },
             );
             this.populateFilterOptions();
             this.renderSummary();
             this.applyFilters();
-            this.setStatus(`已读取 ${this.rawNodes.length} 个原始节点。`);
+            this.setStatus(`${label}已加载 ${this.rawNodes.length} 个原始节点。`);
             this.syncUrl();
             return this.records;
+        }
+
+        // Compatibility alias for callers that previously loaded the whole document.
+        async loadDocument(documentRef, candidateId = null, sourceUnitId = null) {
+            const pages = await this.openDocument(documentRef, candidateId);
+            const target = sourceUnitId || pages[0]?.source_unit_id || '';
+            if (!target) return [];
+            const pageSelect = this.element('debugPageSelect');
+            if (pageSelect) pageSelect.value = target;
+            return this.loadSelectedPage(target);
         }
 
         populateFilterOptions() {
@@ -555,7 +803,6 @@
                 query: this.element('debugSearch')?.value || '',
                 nodeType: this.element('debugNodeType')?.value || 'all',
                 headingLevel: this.element('debugHeadingLevel')?.value || 'all',
-                pageNumber: this.element('debugPageNumber')?.value || '',
                 suppression: this.element('debugSuppression')?.value || 'all',
                 warningsOnly: Boolean(this.element('debugWarningsOnly')?.checked),
                 recoveryRule: this.element('debugRecoveryRule')?.value || '',
@@ -577,11 +824,11 @@
             container.textContent = '';
             const summary = summarizeRecords(this.records);
             const entries = [
-                ['API 原始节点', summary.raw_node_count],
-                ['前端可见', summary.frontend_visible_count],
-                ['被抑制', summary.suppressed_count],
-                ['有 warning', summary.warning_node_count],
-                ['有 LLM 审计', summary.llm_audit_node_count],
+                ['本页 API 原始节点', summary.raw_node_count],
+                ['本页前端可见', summary.frontend_visible_count],
+                ['本页被抑制', summary.suppressed_count],
+                ['本页有 warning', summary.warning_node_count],
+                ['本页有 LLM 审计', summary.llm_audit_node_count],
                 ['LLM 已应用节点', summary.llm_applied_node_count],
                 ['LLM 被拒节点', summary.llm_rejected_node_count],
                 ['LLM 操作总数', summary.llm_entry_count],
@@ -644,7 +891,7 @@
 
         selectRecord(record) {
             this.selectedRecord = record;
-            for (const row of this.document.querySelectorAll('#debugNodeRows tr')) {
+            for (const row of this.document?.querySelectorAll?.('#debugNodeRows tr') || []) {
                 row.classList.toggle('is-selected', row.dataset.nodeId === record.node_id);
             }
             const raw = this.element('debugRawNode');
@@ -691,20 +938,32 @@
         }
 
         syncUrl() {
-            if (typeof history === 'undefined') return;
+            if (typeof history === 'undefined' || typeof location === 'undefined') return;
             const params = new URLSearchParams(location.search);
-            params.set('document_ref', this.documentRef);
-            params.set('candidate_id', this.candidateId);
+            if (this.documentRef) params.set('document_ref', this.documentRef);
+            else params.delete('document_ref');
+            if (this.candidateId) params.set('candidate_id', this.candidateId);
+            else params.delete('candidate_id');
+            if (this.selectedSourceUnitId) params.set('source_unit_id', this.selectedSourceUnitId);
+            else params.delete('source_unit_id');
             history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
         }
 
         exportBundle() {
+            if (!this.selectedSourceUnitId) {
+                this.setStatus('请先选择页面加载节点。', 'error');
+                return;
+            }
             const payload = safeJson(buildDebugBundle(this), 2);
             const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const link = this.document.createElement('a');
             link.href = url;
-            link.download = `reader-node-debug-${this.documentRef || 'document'}.json`;
+            const unit = sourceUnitIndex(this.openResponse).get(this.selectedSourceUnitId);
+            const pageSuffix = unit?.kind === 'physical_page'
+                ? `-page-${Number(unit.source_order) + 1}`
+                : `-${this.selectedSourceUnitId}`;
+            link.download = `reader-node-debug-${this.documentRef || 'document'}${pageSuffix}.json`;
             link.click();
             URL.revokeObjectURL(url);
         }
@@ -715,24 +974,42 @@
             this.setStatus('当前节点 JSON 已复制。');
         }
 
-        bind() {
-            const load = this.element('debugLoad');
-            const select = this.element('debugBookSelect');
+        async openFromInputs() {
+            const bookSelect = this.element('debugBookSelect');
             const documentInput = this.element('debugDocumentRef');
             const candidateInput = this.element('debugCandidateId');
-            load?.addEventListener('click', () => {
-                const documentRef = documentInput?.value || select?.value || '';
-                this.loadDocument(documentRef, candidateInput?.value || null)
+            const documentRef = documentInput?.value || bookSelect?.value || '';
+            return this.openDocument(documentRef, candidateInput?.value || null);
+        }
+
+        bind() {
+            const bookSelect = this.element('debugBookSelect');
+            const pageSelect = this.element('debugPageSelect');
+            const documentInput = this.element('debugDocumentRef');
+            const candidateInput = this.element('debugCandidateId');
+
+            bookSelect?.addEventListener('change', () => {
+                if (documentInput) documentInput.value = bookSelect.value;
+                if (candidateInput) candidateInput.value = '';
+                if (!bookSelect.value) return;
+                this.openDocument(bookSelect.value, null)
                     .catch((error) => this.setStatus(error.message, 'error'));
             });
-            select?.addEventListener('change', () => {
-                if (documentInput) documentInput.value = select.value;
+            pageSelect?.addEventListener('change', () => {
+                this.loadSelectedPage(pageSelect.value)
+                    .catch((error) => this.setStatus(error.message, 'error'));
             });
+            for (const input of [documentInput, candidateInput]) {
+                input?.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter') return;
+                    this.openFromInputs().catch((error) => this.setStatus(error.message, 'error'));
+                });
+            }
+
             for (const id of [
                 'debugSearch',
                 'debugNodeType',
                 'debugHeadingLevel',
-                'debugPageNumber',
                 'debugSuppression',
                 'debugWarningsOnly',
                 'debugRecoveryRule',
@@ -770,9 +1047,19 @@
             const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
             const documentRef = params.get('document_ref') || '';
             const candidateId = params.get('candidate_id') || '';
+            const sourceUnitId = params.get('source_unit_id') || '';
             if (this.element('debugDocumentRef')) this.element('debugDocumentRef').value = documentRef;
             if (this.element('debugCandidateId')) this.element('debugCandidateId').value = candidateId;
-            if (documentRef) await this.loadDocument(documentRef, candidateId || null);
+            if (!documentRef) {
+                this.populatePageOptions();
+                return;
+            }
+            const pages = await this.openDocument(documentRef, candidateId || null);
+            if (sourceUnitId && pages.some((unit) => unit.source_unit_id === sourceUnitId)) {
+                const select = this.element('debugPageSelect');
+                if (select) select.value = sourceUnitId;
+                await this.loadSelectedPage(sourceUnitId);
+            }
         }
     }
 
@@ -785,6 +1072,7 @@
     }
 
     return {
+        ALL_SOURCE_UNITS,
         CONTENT_BATCH_SIZE,
         TABLE_PAGE_SIZE,
         TOC_ITEM_RULE,
@@ -793,15 +1081,24 @@
         buildDebugRecords,
         buildPresentationIndex,
         buildTocDecisionIndex,
+        chunkHasPassedSourceUnit,
+        collectNodesForSourceUnit,
         filterRecords,
         isSuppressedNode,
         llmAuditEntries,
         llmAuditSummary,
         matchesLlmAudit,
+        nodeBelongsToSourceUnit,
+        nodeSourceUnitIds,
         normalizedBBox,
+        orderedSourceUnits,
         pageInfoForNode,
+        physicalPageOrdersForNode,
         recordMatches,
         safeJson,
+        selectableSourceUnits,
+        sourceUnitIndex,
+        sourceUnitLabel,
         summarizeRecords,
         bootstrap,
     };
