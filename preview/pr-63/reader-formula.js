@@ -9,14 +9,23 @@
     'use strict';
 
     const FORMULA_NODE_TYPE = 'formula';
+    const PROVIDER_DEBUG_FIELD = /^\s*(?:label|bbox|content)\s*:\s*.*$/i;
     const SEMANTIC_PATCH_RETRY_MS = 20;
     const SEMANTIC_PATCH_MAX_ATTEMPTS = 500;
     const SEMANTIC_SLOT_CLASS = 'reader-v2-semantic-page-element';
     const SEMANTIC_VISUAL_CLASS = 'reader-v2-semantic-page-element--visual';
     const SEMANTIC_TEXT_CLASS = 'reader-v2-semantic-page-element--text';
 
+    function stripProviderDiagnostics(value) {
+        const text = typeof value === 'string' ? value.trim() : '';
+        if (!text) return '';
+        const lines = text.split(/\r\n|\r|\n/);
+        const filtered = lines.filter((line) => !PROVIDER_DEBUG_FIELD.test(line));
+        return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
     function normalizeFormulaSource(value) {
-        const original = typeof value === 'string' ? value.trim() : '';
+        const original = stripProviderDiagnostics(value);
         if (!original) return { original, source: '', delimiter: null };
 
         const delimiters = [
@@ -258,6 +267,7 @@
 
     return {
         FORMULA_NODE_TYPE,
+        PROVIDER_DEBUG_FIELD,
         SEMANTIC_PATCH_MAX_ATTEMPTS,
         SEMANTIC_PATCH_RETRY_MS,
         appendFormulaFallback,
@@ -271,5 +281,6 @@
         renderFormulaNode,
         scheduleFormulaTextSlot,
         scheduleSemanticPagePatch,
+        stripProviderDiagnostics,
     };
 });
