@@ -10,30 +10,32 @@
     <header class="debug-header">
         <div>
             <h1>Reader v2 节点调试</h1>
-            <p>显示 Reader API 原始节点、LLM 审计、TOC 缩进来源、前端过滤和页面坐标。</p>
+            <p>按页面显示 Reader API 原始节点、LLM 审计、TOC 缩进来源、前端过滤和页面坐标。</p>
         </div>
         <a href="index.html" class="debug-back">返回阅读器</a>
     </header>
 
     <main class="debug-main">
-        <section class="debug-controls" aria-label="文档选择">
+        <section class="debug-controls" aria-label="文档和页面选择">
             <label>书籍
                 <select id="debugBookSelect"><option value="">正在加载书架…</option></select>
             </label>
             <label>document_ref
-                <input id="debugDocumentRef" type="text" autocomplete="off" placeholder="书籍/文档 ID">
+                <input id="debugDocumentRef" type="text" autocomplete="off" placeholder="书籍/文档 ID；按 Enter 打开">
             </label>
             <label>candidate_id（可选）
-                <input id="debugCandidateId" type="text" autocomplete="off" placeholder="默认使用当前选择">
+                <input id="debugCandidateId" type="text" autocomplete="off" placeholder="默认使用当前选择；按 Enter 打开">
             </label>
-            <button id="debugLoad" type="button">加载全部节点</button>
-            <button id="debugExport" type="button">导出调试 JSON</button>
+            <label>选择页面加载
+                <select id="debugPageSelect" disabled><option value="">请先选择书籍…</option></select>
+            </label>
+            <button id="debugExport" type="button">导出本页调试 JSON</button>
             <span id="debugStatus" class="debug-status" role="status" aria-live="polite"></span>
         </section>
 
-        <section id="debugSummary" class="debug-summary" aria-label="节点统计"></section>
+        <section id="debugSummary" class="debug-summary" aria-label="当前页节点统计"></section>
 
-        <section class="debug-filters" aria-label="节点筛选">
+        <section class="debug-filters" aria-label="当前页节点筛选">
             <label>搜索
                 <input id="debugSearch" type="search" placeholder="文本、node_id、LLM 操作、warning…">
             </label>
@@ -46,9 +48,6 @@
                     <option value="1">1</option><option value="2">2</option><option value="3">3</option>
                     <option value="4">4</option><option value="5">5</option><option value="6">6</option>
                 </select>
-            </label>
-            <label>物理页
-                <input id="debugPageNumber" type="number" min="1" placeholder="全部">
             </label>
             <label>抑制状态
                 <select id="debugSuppression">
