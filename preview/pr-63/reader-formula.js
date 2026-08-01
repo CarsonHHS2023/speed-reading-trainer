@@ -11,6 +11,9 @@
     const FORMULA_NODE_TYPE = 'formula';
     const SEMANTIC_PATCH_RETRY_MS = 20;
     const SEMANTIC_PATCH_MAX_ATTEMPTS = 500;
+    const SEMANTIC_SLOT_CLASS = 'reader-v2-semantic-page-element';
+    const SEMANTIC_VISUAL_CLASS = 'reader-v2-semantic-page-element--visual';
+    const SEMANTIC_TEXT_CLASS = 'reader-v2-semantic-page-element--text';
 
     function normalizeFormulaSource(value) {
         const original = typeof value === 'string' ? value.trim() : '';
@@ -147,22 +150,66 @@
         return wrapper;
     }
 
-    function markFormulaAsSemanticText(SemanticPage) {
+    function classNames(element) {
+        return new Set(String(element?.className || '').split(/\s+/).filter(Boolean));
+    }
+
+    function replaceClass(element, removeName, addName) {
+        if (!element) return;
+        if (element.classList?.remove && element.classList?.add) {
+            element.classList.remove(removeName);
+            element.classList.add(addName);
+            return;
+        }
+        const names = classNames(element);
+        names.delete(removeName);
+        names.add(addName);
+        element.className = [...names].join(' ');
+    }
+
+    function markFormulaTextSlot(wrapper) {
+        const slot = wrapper?.parentElement || wrapper?.parentNode || null;
+        if (!slot || !classNames(slot).has(SEMANTIC_SLOT_CLASS)) return false;
+        replaceClass(slot, SEMANTIC_VISUAL_CLASS, SEMANTIC_TEXT_CLASS);
+        if (slot.style) {
+            slot.style.height = 'auto';
+            slot.style.overflow = 'visible';
+        }
+        if (slot.dataset) slot.dataset.readerFormulaLayout = 'text';
+        return true;
+    }
+
+    function layoutScheduler(root) {
+        if (typeof root?.requestAnimationFrame === 'function') {
+            return root.requestAnimationFrame.bind(root);
+        }
+        if (typeof root?.setTimeout === 'function') {
+            return (callback) => root.setTimeout(callback, 0);
+        }
+        if (typeof setTimeout === 'function') return (callback) => setTimeout(callback, 0);
+        return (callback) => callback();
+    }
+
+    function scheduleFormulaTextSlot(wrapper, root) {
+        layoutScheduler(root)(() => markFormulaTextSlot(wrapper));
+    }
+
+    function preserveFormulaVisualClassification(SemanticPage) {
         const visualTypes = SemanticPage?.VISUAL_NODE_TYPES;
-        if (!visualTypes || typeof visualTypes.delete !== 'function') return false;
-        visualTypes.delete(FORMULA_NODE_TYPE);
-        return typeof visualTypes.has !== 'function' || !visualTypes.has(FORMULA_NODE_TYPE);
+        if (!visualTypes || typeof visualTypes.add !== 'function') return false;
+        visualTypes.add(FORMULA_NODE_TYPE);
+        return typeof visualTypes.has !== 'function' || visualTypes.has(FORMULA_NODE_TYPE);
     }
 
     function scheduleSemanticPagePatch(root) {
-        if (!root || markFormulaAsSemanticText(root.ReaderSemanticPageV2)) return true;
+        if (!root || preserveFormulaVisualClassification(root.ReaderSemanticPageV2)) return true;
         if (root.__readerFormulaSemanticPatchScheduled) return false;
         root.__readerFormulaSemanticPatchScheduled = true;
         let attempts = 0;
 
         function retry() {
             attempts += 1;
-            if (markFormulaAsSemanticText(root.ReaderSemanticPageV2)) {
+            if (preserveFormulaVisualClassification(root.ReaderSemanticPageV2)) {
                 root.__readerFormulaSemanticPatchScheduled = false;
                 return;
             }
@@ -198,6 +245,7 @@
                 ) {
                     return originalRenderNode.call(this, node);
                 }
+                scheduleFormulaTextSlot(rendered, root);
                 return rendered;
             };
             prototype.__readerFormulaRenderingInstalled = true;
@@ -216,10 +264,12 @@
         formulaRenderer,
         hasAssetReferences,
         installFormulaRendering,
-        markFormulaAsSemanticText,
+        markFormulaTextSlot,
         normalizeFormulaSource,
+        preserveFormulaVisualClassification,
         renderFormulaInto,
         renderFormulaNode,
+        scheduleFormulaTextSlot,
         scheduleSemanticPagePatch,
     };
 });
