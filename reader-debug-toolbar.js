@@ -9,9 +9,11 @@
     'use strict';
 
     const BUTTON_ID = 'speedReadingDebug';
+    const ACTIVE_PLAYBACK_STATES = new Set(['playing', 'paused', 'manual']);
 
     function currentSourceUnitId(controller) {
-        const frame = controller?.playback?.snapshot?.()?.frame;
+        const snapshot = controller?.playback?.snapshot?.() || null;
+        const frame = ACTIVE_PLAYBACK_STATES.has(snapshot?.state) ? snapshot?.frame : null;
         return frame?.identity?.source_unit_id
             || controller?.reader?.lastLocation?.source_unit_id
             || null;
@@ -69,5 +71,12 @@
         return true;
     }
 
-    return { BUTTON_ID, buildDebugUrl, currentSourceUnitId, ensureButton, install };
+    return {
+        ACTIVE_PLAYBACK_STATES,
+        BUTTON_ID,
+        buildDebugUrl,
+        currentSourceUnitId,
+        ensureButton,
+        install,
+    };
 });
