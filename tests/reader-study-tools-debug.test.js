@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const Rail = require('../reader-study-tools-rail.js');
 
@@ -110,4 +111,14 @@ test('debug action opens a protected new tab with the current Reader context', (
   assert.equal(calls[0][0], href);
   assert.equal(new URL(href).searchParams.get('source_unit_id'), 'pdf-page:000009');
   assert.equal(openedWindow.opener, null);
+});
+
+test('right-side rail exposes a bottom-aligned debug action', () => {
+  const source = fs.readFileSync(require.resolve('../reader-study-tools-rail.js'), 'utf8');
+  const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
+
+  assert.match(source, /id:\s*'readerStudyToolsDebug'/);
+  assert.match(source, /title:\s*'打开节点调试页'/);
+  assert.match(source, /text:\s*'🐞'/);
+  assert.match(css, /\.reader-study-tools-debug\s*\{[^}]*margin-top:\s*auto/s);
 });
