@@ -260,3 +260,63 @@ test('a stale scan stops before requesting another chunk from a newly opened doc
     assert.equal(controller.documentRef, 'doc-new');
     assert.equal(controller.candidateId, 'candidate-new');
 });
+
+test('diagnostic serialization preserves repeated node aliases and only marks true cycles', () => {
+    const shared = node('shared-node', 'page-1', 1);
+    const cycle = { label: 'cycle' };
+    cycle.self = cycle;
+
+    const serialized = Debug.safeJson({
+        raw_nodes: [shared],
+        visible_nodes: [shared],
+        derived_records: [{ raw_node: shared }],
+        cycle,
+    });
+    const parsed = JSON.parse(serialized);
+
+    assert.equal(parsed.raw_nodes[0].node_id, 'shared-node');
+    assert.equal(parsed.visible_nodes[0].node_id, 'shared-node');
+    assert.equal(parsed.derived_records[0].raw_node.node_id, 'shared-node');
+    assert.equal(parsed.cycle.self, '[Circular]');
+});
+
+test('opening a new document clears old diagnostics and page choices before the request settles', async () => {
+    const pending = deferred();
+    const api = {
+        open: async () => pending.promise,
+        navigation: async () => ({ navigation: [] }),
+    };
+    const controller = controllerWithApi(api);
+    controller.documentRef = 'doc-old';
+    controller.candidateId = 'candidate-old';
+    controller.openResponse = openResponse('candidate-old', 'doc-old');
+    controller.selectedSourceUnitId = 'page-2';
+    controller.rawNodes = [node('old-node', 'page-2', 2)];
+    controller.records = [{ node_id: 'old-node' }];
+
+    let pageOptionsCleared = 0;
+    let displayCleared = 0;
+    controller.populatePageOptions = () => {
+        pageOptionsCleared += 1;
+        return [];
+    };
+    controller.clearPageDisplay = () => {
+        displayCleared += 1;
+    };
+
+    const opening = controller.openDocument('doc-new');
+    await Promise.resolve();
+
+    assert.equal(pageOptionsCleared, 1);
+    assert.equal(displayCleared, 1);
+    assert.equal(controller.documentRef, 'doc-new');
+    assert.equal(controller.openResponse, null);
+    assert.equal(controller.selectedSourceUnitId, null);
+    assert.deepEqual(controller.rawNodes, []);
+    assert.deepEqual(controller.records, []);
+
+    pending.reject(new Error('new document failed'));
+    await assert.rejects(opening, /new document failed/);
+    assert.equal(controller.openResponse, null);
+    assert.deepEqual(controller.records, []);
+});
