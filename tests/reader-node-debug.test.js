@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const Debug = require('../reader-node-debug.js');
 
@@ -16,6 +17,7 @@ function openResponse() {
         source_units: [
             { source_unit_id: 'page-1', kind: 'physical_page', source_order: 0, dimensions: { width: 600, height: 800 } },
             { source_unit_id: 'page-2', kind: 'physical_page', source_order: 1, dimensions: { width: 600, height: 800 } },
+            { source_unit_id: 'page-3', kind: 'physical_page', source_order: 2, dimensions: { width: 600, height: 800 } },
         ],
     };
 }
@@ -149,6 +151,7 @@ test('builds raw, LLM, TOC and frontend diagnostics without dropping suppressed 
     const records = Debug.buildDebugRecords(raw, openResponse(), presentation, {
         Model,
         TocIntegration: fakeTocIntegration(),
+        selectedSourceUnitId: 'page-1',
     });
 
     assert.equal(records.length, 3);
@@ -226,24 +229,101 @@ test('summary reports LLM operation and TOC source counts', () => {
     assert.equal(summary.toc_indent_source_counts['metadata.toc_level'], 1);
 });
 
-test('debug bundle exports raw nodes and derived LLM diagnostics', () => {
+test('page selector uses ordered physical pages and page labels', () => {
+    const response = {
+        source_units: [
+            { source_unit_id: 'page-3', kind: 'physical_page', source_order: 2 },
+            { source_unit_id: 'flow', kind: 'text_flow', source_order: 0 },
+            { source_unit_id: 'page-1', kind: 'physical_page', source_order: 0 },
+        ],
+    };
+    assert.deepEqual(Debug.selectableSourceUnits(response).map((unit) => unit.source_unit_id), ['page-1', 'page-3']);
+    assert.equal(Debug.sourceUnitLabel(response.source_units[2]), '第 1 页');
+});
+
+test('page membership includes source ids, anchors and page fragments', () => {
+    assert.equal(Debug.nodeBelongsToSourceUnit(node(), 'page-1'), true);
+    assert.equal(Debug.nodeBelongsToSourceUnit(node({
+        source_unit_ids: [],
+        source_anchors: [],
+        location: null,
+        metadata: {
+            page_fragments: [{ source_unit_id: 'page-2', source_anchor: { source_unit_id: 'page-2' } }],
+        },
+    }), 'page-2'), true);
+    assert.equal(Debug.nodeBelongsToSourceUnit(node(), 'page-3'), false);
+});
+
+test('selected-page collection stops after a later physical page and retains only selected nodes', async () => {
+    const chunks = [
+        {
+            nodes: [
+                node({ node_id: 'p1', order: 1, source_unit_ids: ['page-1'] }),
+                node({ node_id: 'p2-a', order: 2, source_unit_ids: ['page-2'], source_anchors: [{ source_unit_id: 'page-2', normalized_bbox: [0.1, 0.1, 0.8, 0.2] }] }),
+            ],
+            has_more: true,
+            next_node_order: 3,
+        },
+        {
+            nodes: [
+                node({ node_id: 'p2-b', order: 3, source_unit_ids: ['page-2'], source_anchors: [{ source_unit_id: 'page-2', normalized_bbox: [0.1, 0.2, 0.8, 0.3] }] }),
+                node({ node_id: 'p3', order: 4, source_unit_ids: ['page-3'], source_anchors: [{ source_unit_id: 'page-3', normalized_bbox: [0.1, 0.3, 0.8, 0.4] }] }),
+            ],
+            has_more: true,
+            next_node_order: 5,
+        },
+    ];
+    const calls = [];
+    const result = await Debug.collectNodesForSourceUnit({
+        openResponse: openResponse(),
+        sourceUnitId: 'page-2',
+        fetchChunk: async ({ startNodeOrder }) => {
+            calls.push(startNodeOrder);
+            return chunks[calls.length - 1];
+        },
+    });
+
+    assert.deepEqual(calls, [0, 3]);
+    assert.deepEqual(result.pageNodes.map((item) => item.node_id), ['p2-a', 'p2-b']);
+    assert.equal(result.scanStats.scanned_node_count, 4);
+    assert.equal(result.scanStats.stopped_after_selected_page, true);
+    assert.equal(result.rawChunks.every((chunk) => chunk.nodes.every((item) => item.source_unit_ids.includes('page-2'))), true);
+});
+
+test('debug bundle is page-scoped and records selected source unit and scan stats', () => {
     const records = Debug.buildDebugRecords([
         node({
             metadata: {
                 llm_structure_refinement: [{ operation: 'reclassify_node', applied: true }],
             },
         }),
-    ], openResponse(), { pages: [] }, { Model, TocIntegration: fakeTocIntegration() });
+    ], openResponse(), { pages: [] }, {
+        Model,
+        TocIntegration: fakeTocIntegration(),
+        selectedSourceUnitId: 'page-1',
+    });
     const bundle = Debug.buildDebugBundle({
         documentRef: 'doc',
         candidateId: 'candidate',
+        selectedSourceUnitId: 'page-1',
+        openResponse: openResponse(),
+        scanStats: { scanned_node_count: 3, selected_node_count: 1 },
         rawNodes: [records[0].raw_node],
         visibleNodes: [records[0].raw_node],
         records,
     });
 
-    assert.equal(bundle.diagnostic_version, 'reader_node_debug_v2');
+    assert.equal(bundle.diagnostic_version, 'reader_node_debug_v3_page_scoped');
+    assert.equal(bundle.selected_source_unit_id, 'page-1');
+    assert.equal(bundle.selected_page.label, '第 1 页');
     assert.equal(bundle.raw_nodes.length, 1);
     assert.equal(bundle.derived_records[0].llm_refinement.has_audit, true);
     assert.equal(bundle.summary.llm_operation_counts.reclassify_node, 1);
+});
+
+test('debug HTML replaces load-all control and page-number filter with a page-load select', () => {
+    const html = fs.readFileSync('reader-node-debug.html', 'utf8');
+    assert.match(html, /id="debugPageSelect"/);
+    assert.match(html, />选择页面加载\s*</);
+    assert.doesNotMatch(html, /加载全部节点|id="debugLoad"|id="debugPageNumber"/);
 });
