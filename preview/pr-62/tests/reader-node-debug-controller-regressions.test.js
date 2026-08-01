@@ -37,18 +37,18 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-function controllerWithApi(api, presentation = null) {
+function controllerWithApi(api, presentation = null, options = {}) {
     const controller = new Debug.ReaderNodeDebugController({
         api,
         documentObject: null,
-        model: { orderedNodes: (nodes) => [...nodes], nodeTag: () => 'p' },
+        model: options.model || { orderedNodes: (nodes) => [...nodes], nodeTag: () => 'p' },
         presentation: presentation || {
             presentationForDocument: (_opened, nodes) => ({
                 mode: 'semantic_full_page',
                 pages: [{ nodes }],
             }),
         },
-        tocIntegration: null,
+        tocIntegration: options.tocIntegration || null,
     });
     controller.populatePageOptions = () => Debug.selectableSourceUnits(controller.openResponse);
     controller.clearPageDisplay = () => {};
@@ -319,4 +319,93 @@ test('opening a new document clears old diagnostics and page choices before the 
     await assert.rejects(opening, /new document failed/);
     assert.equal(controller.openResponse, null);
     assert.deepEqual(controller.records, []);
+});
+
+test('loading a new page clears prior diagnostics before the request settles or fails', async () => {
+    const pending = deferred();
+    const api = {
+        content: async () => pending.promise,
+    };
+    const controller = controllerWithApi(api);
+    controller.documentRef = 'doc';
+    controller.candidateId = 'candidate-current';
+    controller.openResponse = openResponse();
+    controller.selectedSourceUnitId = 'page-1';
+    controller.rawNodes = [node('old-node', 'page-1', 1)];
+    controller.records = [{ node_id: 'old-node' }];
+
+    let displayCleared = 0;
+    controller.clearPageDisplay = () => {
+        displayCleared += 1;
+    };
+
+    const loading = controller.loadSelectedPage('page-2');
+    await Promise.resolve();
+
+    assert.equal(displayCleared, 1);
+    assert.equal(controller.selectedSourceUnitId, 'page-2');
+    assert.deepEqual(controller.rawNodes, []);
+    assert.deepEqual(controller.records, []);
+
+    pending.reject(new Error('new page failed'));
+    await assert.rejects(loading, /new page failed/);
+    assert.equal(controller.selectedSourceUnitId, 'page-2');
+    assert.deepEqual(controller.records, []);
+});
+
+test('TOC layout decisions are derived only from frontend-visible nodes', async () => {
+    const suppressed = node('suppressed-toc', 'page-1', 1);
+    suppressed.metadata = {
+        recovery_rule: 'mineru_popo_toc_item',
+        suppressed_as_artifact: true,
+    };
+    const visible = node('visible-toc', 'page-1', 2);
+    visible.metadata = { recovery_rule: 'mineru_popo_toc_item' };
+
+    const layoutInputs = [];
+    const tocIntegration = {
+        tocLayout(page) {
+            layoutInputs.push(page.nodes.map((item) => item.node_id));
+            return {
+                decisionByNodeId: new Map([
+                    [visible.node_id, {
+                        coordinateIndentPercent: 12,
+                        legacyTextIndentPercent: null,
+                        legacyTextMatched: false,
+                        indentPercent: 12,
+                        source: 'coordinate_fallback',
+                    }],
+                ]),
+            };
+        },
+    };
+    const model = {
+        orderedNodes: (nodes) => nodes.filter((item) => item.metadata?.suppressed_as_artifact !== true),
+        nodeTag: () => 'p',
+    };
+    const api = {
+        content: async () => ({
+            nodes: [suppressed, visible],
+            has_more: false,
+            next_node_order: null,
+        }),
+    };
+    const controller = controllerWithApi(api, null, { model, tocIntegration });
+    controller.documentRef = 'doc';
+    controller.candidateId = 'candidate-current';
+    controller.openResponse = openResponse();
+
+    await controller.loadSelectedPage('page-1');
+
+    assert.deepEqual(layoutInputs, [['visible-toc']]);
+    assert.deepEqual(controller.rawNodes.map((item) => item.node_id), [
+        'suppressed-toc',
+        'visible-toc',
+    ]);
+    assert.deepEqual(controller.visibleNodes.map((item) => item.node_id), ['visible-toc']);
+    const visibleRecord = controller.records.find((record) => record.node_id === 'visible-toc');
+    const suppressedRecord = controller.records.find((record) => record.node_id === 'suppressed-toc');
+    assert.equal(visibleRecord.toc_debug.final_frontend_indent_percent, 12);
+    assert.equal(visibleRecord.toc_debug.final_frontend_indent_source, 'coordinate_fallback');
+    assert.equal(suppressedRecord.suppressed, true);
 });
