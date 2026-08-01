@@ -74,6 +74,25 @@
         return fallback;
     }
 
+    function visibleTocIntegration(integration, visibleNodes) {
+        if (!integration || typeof integration.tocLayout !== 'function') return integration;
+        const visibleNodeIds = new Set(
+            (visibleNodes || [])
+                .map((node) => String(node?.node_id || '').trim())
+                .filter(Boolean),
+        );
+        return {
+            tocLayout(page) {
+                return integration.tocLayout({
+                    ...page,
+                    nodes: (page?.nodes || []).filter((node) => (
+                        visibleNodeIds.has(String(node?.node_id || '').trim())
+                    )),
+                });
+            },
+        };
+    }
+
     class ReaderNodeDebugRuntimeController extends BaseController {
         reset() {
             this._documentLoadGeneration = Number(this._documentLoadGeneration || 0) + 1;
@@ -155,7 +174,9 @@
             const candidateId = this.candidateId;
 
             this.resetPageState();
+            this.clearPageDisplay();
             this.selectedSourceUnitId = normalizedId;
+            this.syncUrl();
             const unit = Debug.sourceUnitIndex(openResponse).get(normalizedId);
             const label = normalizedId === Debug.ALL_SOURCE_UNITS ? '全文' : Debug.sourceUnitLabel(unit);
             const isCurrent = () => (
@@ -211,7 +232,7 @@
                 this.presentationState,
                 {
                     Model: this.model,
-                    TocIntegration: this.tocIntegration,
+                    TocIntegration: visibleTocIntegration(this.tocIntegration, this.visibleNodes),
                     selectedSourceUnitId: selectedPresentationSourceUnitId,
                 },
             ).map((record) => ({
@@ -270,6 +291,7 @@
         ...Debug,
         ReaderNodeDebugController: ReaderNodeDebugRuntimeController,
         presentationForNode,
+        visibleTocIntegration,
         safeJson,
         serializeDebugBundle,
         bootstrap,
