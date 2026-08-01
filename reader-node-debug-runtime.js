@@ -15,6 +15,39 @@
 
     const BaseController = Debug.ReaderNodeDebugController;
 
+    function safeJson(value, spacing = 2) {
+        const ancestors = new WeakSet();
+
+        function normalize(current) {
+            if (typeof current === 'bigint') return String(current);
+            if (!current || typeof current !== 'object') return current;
+            if (ancestors.has(current)) return '[Circular]';
+
+            ancestors.add(current);
+            try {
+                if (Array.isArray(current)) return current.map((item) => normalize(item));
+                if (typeof current.toJSON === 'function') {
+                    const serialized = current.toJSON();
+                    if (serialized !== current) return normalize(serialized);
+                }
+                const output = {};
+                for (const [key, item] of Object.entries(current)) {
+                    const normalized = normalize(item);
+                    if (normalized !== undefined) output[key] = normalized;
+                }
+                return output;
+            } finally {
+                ancestors.delete(current);
+            }
+        }
+
+        return JSON.stringify(normalize(value), null, spacing);
+    }
+
+    function serializeDebugBundle(state, spacing = 2) {
+        return safeJson(Debug.buildDebugBundle(state), spacing);
+    }
+
     function presentationForNode(presentationState, nodeId, preferredSourceUnitId = null) {
         const expectedNodeId = String(nodeId || '').trim();
         const expectedSourceUnitId = String(preferredSourceUnitId || '').trim();
@@ -55,6 +88,9 @@
             this.reset();
             const generation = this._documentLoadGeneration;
             this.documentRef = normalizedRef;
+            this.populatePageOptions();
+            this.clearPageDisplay();
+            this.syncUrl();
             this.setStatus('正在打开 Reader v2 并读取页面列表…');
 
             let opened;
@@ -195,6 +231,31 @@
             this.syncUrl();
             return this.records;
         }
+
+        exportBundle() {
+            if (!this.selectedSourceUnitId) {
+                this.setStatus('请先选择页面加载节点。', 'error');
+                return;
+            }
+            const payload = serializeDebugBundle(this, 2);
+            const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = this.document.createElement('a');
+            link.href = url;
+            const unit = Debug.sourceUnitIndex(this.openResponse).get(this.selectedSourceUnitId);
+            const pageSuffix = unit?.kind === 'physical_page'
+                ? `-page-${Number(unit.source_order) + 1}`
+                : `-${this.selectedSourceUnitId}`;
+            link.download = `reader-node-debug-${this.documentRef || 'document'}${pageSuffix}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async copySelectedNode() {
+            if (!this.selectedRecord) return;
+            await navigator.clipboard.writeText(safeJson(this.selectedRecord.raw_node));
+            this.setStatus('当前节点 JSON 已复制。');
+        }
     }
 
     function bootstrap() {
@@ -209,6 +270,8 @@
         ...Debug,
         ReaderNodeDebugController: ReaderNodeDebugRuntimeController,
         presentationForNode,
+        safeJson,
+        serializeDebugBundle,
         bootstrap,
     };
 });
