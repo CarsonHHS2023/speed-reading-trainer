@@ -120,13 +120,101 @@ test('installed renderer separates formulas from figure/table asset rendering', 
     node_type: 'formula',
     text: '$$ F=P\\times(1+i)^{n} $$',
     content_state: 'ready',
+    asset_refs: ['asset-formula-image'],
   };
   const rendered = controller.renderNode(formulaNode);
   assert.equal(rendered.className, 'reader-v2-node reader-v2-node-formula');
   assert.equal(rendered.dataset.readerNodeId, 'formula-1');
+  assert.equal(rendered.dataset.formulaRendering, 'katex');
   assert.equal(rendered.children[0].className, 'reader-v2-formula');
   assert.deepEqual(calls, ['F=P\\times(1+i)^{n}']);
   assert.deepEqual(controller.renderNode({ node_type: 'paragraph' }), { legacyNodeType: 'paragraph' });
+});
+
+test('asset-backed formulas delegate to the original renderer when KaTeX cannot render', () => {
+  function createController(katex) {
+    class Controller {
+      constructor() {
+        this.document = new FakeDocument();
+        this.legacyCalls = [];
+      }
+      renderNode(node) {
+        this.legacyCalls.push(node);
+        return { legacyNodeType: node.node_type, assetRefs: node.asset_refs };
+      }
+      currentFindResult() { return null; }
+    }
+    const root = {
+      ReaderUIV2: { ReaderV2Controller: Controller },
+      ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
+      katex,
+      setTimeout(callback) { callback(); },
+    };
+    Formula.installFormulaRendering({ root });
+    return new Controller();
+  }
+
+  const missingKatex = createController(null);
+  const missingResult = missingKatex.renderNode({
+    node_id: 'formula-missing-katex',
+    node_type: 'formula',
+    text: '$$ x^2 $$',
+    asset_refs: ['asset-1'],
+  });
+  assert.deepEqual(missingResult, { legacyNodeType: 'formula', assetRefs: ['asset-1'] });
+  assert.equal(missingKatex.legacyCalls.length, 1);
+
+  const invalidKatex = createController({ render() { throw new Error('invalid TeX'); } });
+  const invalidResult = invalidKatex.renderNode({
+    node_id: 'formula-invalid',
+    node_type: 'formula',
+    text: '$$ \\badcommand $$',
+    asset_refs: ['asset-2'],
+  });
+  assert.deepEqual(invalidResult, { legacyNodeType: 'formula', assetRefs: ['asset-2'] });
+  assert.equal(invalidKatex.legacyCalls.length, 1);
+
+  const emptySource = createController({ render() { throw new Error('must not render empty source'); } });
+  const emptyResult = emptySource.renderNode({
+    node_id: 'formula-empty',
+    node_type: 'formula',
+    text: '   ',
+    asset_refs: ['asset-3'],
+  });
+  assert.deepEqual(emptyResult, { legacyNodeType: 'formula', assetRefs: ['asset-3'] });
+  assert.equal(emptySource.legacyCalls.length, 1);
+});
+
+test('formula nodes without assets keep readable fallback text when KaTeX is unavailable', () => {
+  class Controller {
+    constructor() {
+      this.document = new FakeDocument();
+      this.legacyCalls = 0;
+    }
+    renderNode(node) {
+      this.legacyCalls += 1;
+      return { legacyNodeType: node.node_type };
+    }
+    currentFindResult() { return null; }
+  }
+  const root = {
+    ReaderUIV2: { ReaderV2Controller: Controller },
+    ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
+    setTimeout(callback) { callback(); },
+  };
+  Formula.installFormulaRendering({ root });
+
+  const controller = new Controller();
+  const rendered = controller.renderNode({
+    node_id: 'formula-text-fallback',
+    node_type: 'formula',
+    text: '$$ x^2 $$',
+    asset_refs: [],
+  });
+
+  assert.equal(controller.legacyCalls, 0);
+  assert.equal(rendered.dataset.formulaRendering, 'fallback');
+  assert.equal(rendered.children[0].children[0].textContent, 'x^2');
 });
 
 test('main page loads pinned KaTeX and formula integration after Reader UI', () => {

@@ -51,6 +51,10 @@
         return candidate && typeof candidate.render === 'function' ? candidate : null;
     }
 
+    function hasAssetReferences(node) {
+        return Array.isArray(node?.asset_refs) && node.asset_refs.length > 0;
+    }
+
     function appendFormulaFallback(documentObject, target, source) {
         target.replaceChildren?.();
         while (!target.replaceChildren && target.firstChild) target.removeChild(target.firstChild);
@@ -112,13 +116,14 @@
         wrapper.tabIndex = -1;
 
         const formula = createElement(documentObject, 'div', 'reader-v2-formula');
-        renderFormulaInto({
+        const result = renderFormulaInto({
             documentObject,
             target: formula,
             text: node?.text || '',
             root: options.root,
             katex: options.katex,
         });
+        wrapper.dataset.formulaRendering = result.mode;
         wrapper.appendChild(formula);
 
         if (node?.text && controller.currentFindResult?.()?.node_id === node.node_id) {
@@ -186,7 +191,14 @@
                 if (String(node?.node_type || '').toLowerCase() !== FORMULA_NODE_TYPE) {
                     return originalRenderNode.call(this, node);
                 }
-                return renderFormulaNode(this, node, { root, katex: options.katex });
+                const rendered = renderFormulaNode(this, node, { root, katex: options.katex });
+                if (
+                    !rendered
+                    || (hasAssetReferences(node) && rendered.dataset.formulaRendering !== 'katex')
+                ) {
+                    return originalRenderNode.call(this, node);
+                }
+                return rendered;
             };
             prototype.__readerFormulaRenderingInstalled = true;
             prototype.__readerFormulaOriginalRenderNode = originalRenderNode;
@@ -202,6 +214,7 @@
         SEMANTIC_PATCH_RETRY_MS,
         appendFormulaFallback,
         formulaRenderer,
+        hasAssetReferences,
         installFormulaRendering,
         markFormulaAsSemanticText,
         normalizeFormulaSource,
