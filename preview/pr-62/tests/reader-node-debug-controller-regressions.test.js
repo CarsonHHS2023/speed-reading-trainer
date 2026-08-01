@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const Debug = require('../reader-node-debug.js');
+const Debug = require('../reader-node-debug-runtime.js');
 
 function openResponse(candidateId = 'candidate-current') {
     return {
