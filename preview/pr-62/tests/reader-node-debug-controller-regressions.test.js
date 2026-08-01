@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 
 const Debug = require('../reader-node-debug-runtime.js');
 
-function openResponse(candidateId = 'candidate-current') {
+function openResponse(candidateId = 'candidate-current', documentRef = 'doc') {
     return {
-        document_ref: 'doc',
+        document_ref: documentRef,
         candidate_id: candidateId,
         source_units: [
             { source_unit_id: 'page-1', kind: 'physical_page', source_order: 0 },
@@ -37,12 +37,12 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-function controllerWithApi(api) {
+function controllerWithApi(api, presentation = null) {
     const controller = new Debug.ReaderNodeDebugController({
         api,
         documentObject: null,
         model: { orderedNodes: (nodes) => [...nodes], nodeTag: () => 'p' },
-        presentation: {
+        presentation: presentation || {
             presentationForDocument: (_opened, nodes) => ({
                 mode: 'semantic_full_page',
                 pages: [{ nodes }],
@@ -171,4 +171,92 @@ test('an error from a stale page load is ignored after a newer page is selected'
     await assert.doesNotReject(pageOneLoad);
     assert.equal(controller.selectedSourceUnitId, 'page-2');
     assert.deepEqual(controller.rawNodes.map((item) => item.node_id), ['page-two-node']);
+});
+
+test('cross-page presentation matching prefers the selected source-unit occurrence', () => {
+    const shared = node('cross-page-node', 'page-1', 1);
+    const presentation = {
+        mode: 'semantic_full_page',
+        pages: [
+            {
+                presentation_id: 'presentation-page-1',
+                kind: 'semantic_full_page',
+                presentation_order: 0,
+                source_unit_id: 'page-1',
+                source_order: 0,
+                nodes: [shared],
+            },
+            {
+                presentation_id: 'presentation-page-2',
+                kind: 'semantic_full_page',
+                presentation_order: 1,
+                source_unit_id: 'page-2',
+                source_order: 1,
+                nodes: [shared],
+            },
+        ],
+    };
+
+    const selected = Debug.presentationForNode(presentation, shared.node_id, 'page-2');
+
+    assert.equal(selected.presentation_id, 'presentation-page-2');
+    assert.equal(selected.source_unit_id, 'page-2');
+});
+
+test('a superseded document-open failure is ignored', async () => {
+    const first = deferred();
+    const second = deferred();
+    const api = {
+        open: (documentRef) => (documentRef === 'doc-a' ? first.promise : second.promise),
+        navigation: async () => ({ navigation: [] }),
+    };
+    const controller = controllerWithApi(api);
+
+    const oldOpen = controller.openDocument('doc-a');
+    await Promise.resolve();
+    const currentOpen = controller.openDocument('doc-b');
+    second.resolve(openResponse('candidate-b', 'doc-b'));
+    await currentOpen;
+
+    first.reject(new Error('old document failed'));
+    await assert.doesNotReject(oldOpen);
+
+    assert.equal(controller.documentRef, 'doc-b');
+    assert.equal(controller.candidateId, 'candidate-b');
+});
+
+test('a stale scan stops before requesting another chunk from a newly opened document', async () => {
+    const oldChunk = deferred();
+    const contentCalls = [];
+    const api = {
+        fetchImpl: null,
+        content: async (documentRef, options) => {
+            contentCalls.push({ documentRef, options });
+            if (contentCalls.length > 1) throw new Error('stale scan requested another chunk');
+            return oldChunk.promise;
+        },
+        open: async (documentRef) => openResponse('candidate-new', documentRef),
+        navigation: async () => ({ navigation: [] }),
+    };
+    const controller = controllerWithApi(api);
+    controller.documentRef = 'doc-old';
+    controller.candidateId = 'candidate-old';
+    controller.openResponse = openResponse('candidate-old', 'doc-old');
+
+    const staleScan = controller.loadSelectedPage('page-1');
+    await Promise.resolve();
+    await controller.openDocument('doc-new');
+
+    oldChunk.resolve({
+        nodes: [node('old-node', 'page-1', 1)],
+        has_more: true,
+        next_node_order: 2,
+    });
+    await assert.doesNotReject(staleScan);
+
+    assert.equal(contentCalls.length, 1);
+    assert.equal(contentCalls[0].documentRef, 'doc-old');
+    assert.equal(contentCalls[0].options.candidateId, 'candidate-old');
+    assert.equal(controller.documentRef, 'doc-new');
+    assert.equal(controller.candidateId, 'candidate-new');
 });
