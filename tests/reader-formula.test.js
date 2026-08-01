@@ -13,10 +13,30 @@ class FakeElement {
     this.className = '';
     this.textContent = '';
     this.tabIndex = 0;
+    this.style = {};
+    this.parentElement = null;
+    this.parentNode = null;
   }
-  appendChild(child) { this.children.push(child); return child; }
-  removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; }
-  replaceChildren(...children) { this.children = children; }
+  appendChild(child) {
+    this.children.push(child);
+    child.parentElement = this;
+    child.parentNode = this;
+    return child;
+  }
+  removeChild(child) {
+    this.children.splice(this.children.indexOf(child), 1);
+    child.parentElement = null;
+    child.parentNode = null;
+    return child;
+  }
+  replaceChildren(...children) {
+    for (const child of this.children) {
+      child.parentElement = null;
+      child.parentNode = null;
+    }
+    this.children = [];
+    for (const child of children) this.appendChild(child);
+  }
   get firstChild() { return this.children[0] || null; }
   setAttribute(name, value) { this.attributes[name] = String(value); }
 }
@@ -89,7 +109,7 @@ test('missing or invalid KaTeX safely falls back to readable formula text', () =
   assert.equal(invalidTarget.children[0].textContent, '\\badcommand');
 });
 
-test('installed renderer separates formulas from figure/table asset rendering', () => {
+test('installed renderer preserves formula visual classification until actual rendering is known', () => {
   class Controller {
     constructor() {
       this.document = new FakeDocument();
@@ -98,6 +118,7 @@ test('installed renderer separates formulas from figure/table asset rendering', 
     currentFindResult() { return null; }
   }
   const calls = [];
+  const scheduled = [];
   const root = {
     ReaderUIV2: { ReaderV2Controller: Controller },
     ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
@@ -107,11 +128,12 @@ test('installed renderer separates formulas from figure/table asset rendering', 
         target.textContent = 'rendered';
       },
     },
+    requestAnimationFrame(callback) { scheduled.push(callback); },
     setTimeout(callback) { callback(); },
   };
 
   assert.equal(Formula.installFormulaRendering({ root }), true);
-  assert.equal(root.ReaderSemanticPageV2.VISUAL_NODE_TYPES.has('formula'), false);
+  assert.equal(root.ReaderSemanticPageV2.VISUAL_NODE_TYPES.has('formula'), true);
   assert.equal(root.ReaderSemanticPageV2.VISUAL_NODE_TYPES.has('figure'), true);
 
   const controller = new Controller();
@@ -128,11 +150,52 @@ test('installed renderer separates formulas from figure/table asset rendering', 
   assert.equal(rendered.dataset.formulaRendering, 'katex');
   assert.equal(rendered.children[0].className, 'reader-v2-formula');
   assert.deepEqual(calls, ['F=P\\times(1+i)^{n}']);
+  assert.equal(scheduled.length, 1);
   assert.deepEqual(controller.renderNode({ node_type: 'paragraph' }), { legacyNodeType: 'paragraph' });
 });
 
-test('asset-backed formulas delegate to the original renderer when KaTeX cannot render', () => {
+test('KaTeX and readable fallbacks convert their semantic visual slot to expandable text layout', () => {
+  const scheduled = [];
+  class Controller {
+    constructor() { this.document = new FakeDocument(); }
+    renderNode(node) { return { legacyNodeType: node.node_type }; }
+    currentFindResult() { return null; }
+  }
+  const root = {
+    ReaderUIV2: { ReaderV2Controller: Controller },
+    ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
+    katex: { render(_source, target) { target.textContent = 'rendered'; } },
+    requestAnimationFrame(callback) { scheduled.push(callback); },
+    setTimeout(callback) { callback(); },
+  };
+  Formula.installFormulaRendering({ root });
+
+  const controller = new Controller();
+  const rendered = controller.renderNode({
+    node_id: 'formula-layout',
+    node_type: 'formula',
+    text: '$$ x^2 $$',
+    asset_refs: [],
+  });
+  const slot = new FakeElement('div');
+  slot.className = 'reader-v2-semantic-page-element reader-v2-semantic-page-element--visual';
+  slot.style.height = '2%';
+  slot.style.overflow = 'hidden';
+  slot.appendChild(rendered);
+
+  assert.equal(scheduled.length, 1);
+  scheduled[0]();
+
+  assert.match(slot.className, /reader-v2-semantic-page-element--text/);
+  assert.doesNotMatch(slot.className, /reader-v2-semantic-page-element--visual/);
+  assert.equal(slot.style.height, 'auto');
+  assert.equal(slot.style.overflow, 'visible');
+  assert.equal(slot.dataset.readerFormulaLayout, 'text');
+});
+
+test('asset-backed formulas delegate to the original renderer without demoting the visual slot', () => {
   function createController(katex) {
+    const scheduled = [];
     class Controller {
       constructor() {
         this.document = new FakeDocument();
@@ -148,41 +211,46 @@ test('asset-backed formulas delegate to the original renderer when KaTeX cannot 
       ReaderUIV2: { ReaderV2Controller: Controller },
       ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
       katex,
+      requestAnimationFrame(callback) { scheduled.push(callback); },
       setTimeout(callback) { callback(); },
     };
     Formula.installFormulaRendering({ root });
-    return new Controller();
+    return { controller: new Controller(), root, scheduled };
   }
 
   const missingKatex = createController(null);
-  const missingResult = missingKatex.renderNode({
+  const missingResult = missingKatex.controller.renderNode({
     node_id: 'formula-missing-katex',
     node_type: 'formula',
     text: '$$ x^2 $$',
     asset_refs: ['asset-1'],
   });
   assert.deepEqual(missingResult, { legacyNodeType: 'formula', assetRefs: ['asset-1'] });
-  assert.equal(missingKatex.legacyCalls.length, 1);
+  assert.equal(missingKatex.controller.legacyCalls.length, 1);
+  assert.equal(missingKatex.root.ReaderSemanticPageV2.VISUAL_NODE_TYPES.has('formula'), true);
+  assert.equal(missingKatex.scheduled.length, 0);
 
   const invalidKatex = createController({ render() { throw new Error('invalid TeX'); } });
-  const invalidResult = invalidKatex.renderNode({
+  const invalidResult = invalidKatex.controller.renderNode({
     node_id: 'formula-invalid',
     node_type: 'formula',
     text: '$$ \\badcommand $$',
     asset_refs: ['asset-2'],
   });
   assert.deepEqual(invalidResult, { legacyNodeType: 'formula', assetRefs: ['asset-2'] });
-  assert.equal(invalidKatex.legacyCalls.length, 1);
+  assert.equal(invalidKatex.controller.legacyCalls.length, 1);
+  assert.equal(invalidKatex.scheduled.length, 0);
 
   const emptySource = createController({ render() { throw new Error('must not render empty source'); } });
-  const emptyResult = emptySource.renderNode({
+  const emptyResult = emptySource.controller.renderNode({
     node_id: 'formula-empty',
     node_type: 'formula',
     text: '   ',
     asset_refs: ['asset-3'],
   });
   assert.deepEqual(emptyResult, { legacyNodeType: 'formula', assetRefs: ['asset-3'] });
-  assert.equal(emptySource.legacyCalls.length, 1);
+  assert.equal(emptySource.controller.legacyCalls.length, 1);
+  assert.equal(emptySource.scheduled.length, 0);
 });
 
 test('formula nodes without assets keep readable fallback text when KaTeX is unavailable', () => {
@@ -200,6 +268,7 @@ test('formula nodes without assets keep readable fallback text when KaTeX is una
   const root = {
     ReaderUIV2: { ReaderV2Controller: Controller },
     ReaderSemanticPageV2: { VISUAL_NODE_TYPES: new Set(['figure', 'table', 'formula']) },
+    requestAnimationFrame() {},
     setTimeout(callback) { callback(); },
   };
   Formula.installFormulaRendering({ root });
