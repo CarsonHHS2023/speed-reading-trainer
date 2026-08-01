@@ -15,6 +15,32 @@
 
     const BaseController = Debug.ReaderNodeDebugController;
 
+    function presentationForNode(presentationState, nodeId, preferredSourceUnitId = null) {
+        const expectedNodeId = String(nodeId || '').trim();
+        const expectedSourceUnitId = String(preferredSourceUnitId || '').trim();
+        if (!expectedNodeId) return null;
+
+        let fallback = null;
+        for (const page of presentationState?.pages || []) {
+            for (const node of page?.nodes || []) {
+                if (String(node?.node_id || '') !== expectedNodeId) continue;
+                const entry = {
+                    mode: presentationState?.mode || null,
+                    presentation_id: page.presentation_id || null,
+                    page_kind: page.kind || null,
+                    presentation_order: page.presentation_order ?? null,
+                    source_unit_id: page.source_unit_id || null,
+                    source_order: page.source_order ?? null,
+                };
+                if (!fallback) fallback = entry;
+                if (expectedSourceUnitId && entry.source_unit_id === expectedSourceUnitId) {
+                    return entry;
+                }
+            }
+        }
+        return fallback;
+    }
+
     class ReaderNodeDebugRuntimeController extends BaseController {
         reset() {
             this._documentLoadGeneration = Number(this._documentLoadGeneration || 0) + 1;
@@ -31,7 +57,13 @@
             this.documentRef = normalizedRef;
             this.setStatus('正在打开 Reader v2 并读取页面列表…');
 
-            const opened = await this.api.open(normalizedRef);
+            let opened;
+            try {
+                opened = await this.api.open(normalizedRef);
+            } catch (error) {
+                if (generation !== this._documentLoadGeneration) return [];
+                throw error;
+            }
             if (generation !== this._documentLoadGeneration) return [];
 
             this.openResponse = opened;
@@ -40,9 +72,15 @@
             this.candidateId = requestedCandidateId || currentCandidateId;
 
             if (this.candidateId === currentCandidateId) {
-                const navigationResponse = await this.api.navigation(normalizedRef, {
-                    candidateId: currentCandidateId,
-                });
+                let navigationResponse;
+                try {
+                    navigationResponse = await this.api.navigation(normalizedRef, {
+                        candidateId: currentCandidateId,
+                    });
+                } catch (error) {
+                    if (generation !== this._documentLoadGeneration) return [];
+                    throw error;
+                }
                 if (generation !== this._documentLoadGeneration) return [];
                 this.navigation = navigationResponse.navigation || [];
             } else {
@@ -75,26 +113,37 @@
                 return [];
             }
 
+            const documentGeneration = this._documentLoadGeneration;
+            const openResponse = this.openResponse;
+            const documentRef = this.documentRef;
+            const candidateId = this.candidateId;
+
             this.resetPageState();
             this.selectedSourceUnitId = normalizedId;
-            const unit = Debug.sourceUnitIndex(this.openResponse).get(normalizedId);
+            const unit = Debug.sourceUnitIndex(openResponse).get(normalizedId);
             const label = normalizedId === Debug.ALL_SOURCE_UNITS ? '全文' : Debug.sourceUnitLabel(unit);
             const isCurrent = () => (
                 generation === this._pageLoadGeneration
+                && documentGeneration === this._documentLoadGeneration
                 && this.selectedSourceUnitId === normalizedId
+                && this.documentRef === documentRef
+                && this.candidateId === candidateId
             );
             this.setStatus(`正在加载${label}节点…`);
 
             let result;
             try {
                 result = await Debug.collectNodesForSourceUnit({
-                    openResponse: this.openResponse,
+                    openResponse,
                     sourceUnitId: normalizedId,
-                    fetchChunk: ({ startNodeOrder, limit }) => this.api.content(this.documentRef, {
-                        candidateId: this.candidateId,
-                        startNodeOrder,
-                        limit,
-                    }),
+                    fetchChunk: ({ startNodeOrder, limit }) => {
+                        if (!isCurrent()) throw new Error('stale_reader_node_debug_page_load');
+                        return this.api.content(documentRef, {
+                            candidateId,
+                            startNodeOrder,
+                            limit,
+                        });
+                    },
                     onProgress: ({ scannedNodeCount, selectedNodeCount }) => {
                         if (!isCurrent()) return;
                         this.setStatus(
@@ -113,20 +162,30 @@
             this.scanStats = result.scanStats;
             this.visibleNodes = this.model.orderedNodes(this.rawNodes);
             this.presentationState = this.presentation.presentationForDocument(
-                this.openResponse,
+                openResponse,
                 this.visibleNodes,
                 { lineWidth: 35, maxLines: 20, fontSize: 28, viewportWidth: 700 },
             );
+            const selectedPresentationSourceUnitId = normalizedId === Debug.ALL_SOURCE_UNITS
+                ? null
+                : normalizedId;
             this.records = Debug.buildDebugRecords(
                 this.rawNodes,
-                this.openResponse,
+                openResponse,
                 this.presentationState,
                 {
                     Model: this.model,
                     TocIntegration: this.tocIntegration,
-                    selectedSourceUnitId: normalizedId === Debug.ALL_SOURCE_UNITS ? null : normalizedId,
+                    selectedSourceUnitId: selectedPresentationSourceUnitId,
                 },
-            );
+            ).map((record) => ({
+                ...record,
+                presentation: presentationForNode(
+                    this.presentationState,
+                    record.node_id,
+                    selectedPresentationSourceUnitId,
+                ),
+            }));
 
             if (!isCurrent()) return [];
             this.populateFilterOptions();
@@ -149,6 +208,7 @@
     return {
         ...Debug,
         ReaderNodeDebugController: ReaderNodeDebugRuntimeController,
+        presentationForNode,
         bootstrap,
     };
 });
