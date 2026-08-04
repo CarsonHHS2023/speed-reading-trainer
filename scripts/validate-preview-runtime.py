@@ -23,7 +23,9 @@ def main() -> None:
     assert "root.fetch = async function previewFetch" in runtime
     assert "book-processing-completed" in runtime
     assert "state.finalResult = payload" in runtime
-    assert "/api/reader/v2/documents/" in runtime
+    # JavaScript regex literals escape path separators as `\/`; normalize them
+    # before validating that the Reader v2 document endpoint is observed.
+    assert "/api/reader/v2/documents/" in runtime.replace("\\/", "/")
     assert "backendBranch: 'deploy/ocrmypdf-test'" in runtime
 
     print("preview runtime validation passed")
