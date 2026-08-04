@@ -1,0 +1,32 @@
+name: Validate preview frontend flow
+
+on:
+  push:
+    branches:
+      - preview
+    paths:
+      - 'index.html'
+      - 'preview-runtime.js'
+      - 'scripts/validate-preview-runtime.py'
+      - '.github/workflows/validate-preview.yml'
+  pull_request:
+    paths:
+      - 'index.html'
+      - 'preview-runtime.js'
+      - 'scripts/validate-preview-runtime.py'
+      - '.github/workflows/validate-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate preview runtime
+        run: |
+          python -m py_compile scripts/validate-preview-runtime.py
+          python scripts/validate-preview-runtime.py
+          node --check preview-runtime.js
