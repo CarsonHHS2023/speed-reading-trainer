@@ -9,12 +9,18 @@ PRODUCTION_API = "https://carsonhhs-pdf-ocr-service.hf.space"
 
 def main() -> None:
     index = Path("index.html").read_text(encoding="utf-8")
+    debug = Path("reader-node-debug.html").read_text(encoding="utf-8")
     runtime = Path("preview-runtime.js").read_text(encoding="utf-8")
 
     preview_position = index.index('<script src="preview-runtime.js"></script>')
     reader_position = index.index('<script src="reader-api.js"></script>')
     bookshelf_position = index.index('<script src="bookshelf.js"></script>')
     assert preview_position < reader_position < bookshelf_position
+
+    debug_preview_position = debug.index('<script src="preview-runtime.js"></script>')
+    debug_reader_position = debug.index('<script src="reader-api.js"></script>')
+    debug_bootstrap_position = debug.index('<script>ReaderNodeDebugV2.bootstrap();</script>')
+    assert debug_preview_position < debug_reader_position < debug_bootstrap_position
 
     assert TEST_API in runtime
     assert PRODUCTION_API in runtime
