@@ -1,6 +1,13 @@
 (function (root) {
     'use strict';
 
+    const PREVIEW_PATH_PATTERN = /\/preview\/pr-\d+(?:\/|$)/;
+    const pathname = String(root.location?.pathname || '');
+    if (!PREVIEW_PATH_PATTERN.test(pathname)) {
+        root.console?.info?.('[preview] runtime skipped outside PR preview', { pathname });
+        return;
+    }
+
     const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
     const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
     const runtimeScriptUrl = root.document?.currentScript?.src || root.location?.href || '';
