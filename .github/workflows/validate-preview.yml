@@ -8,6 +8,13 @@ on:
       - 'index.html'
       - 'reader-node-debug.html'
       - 'preview-runtime.js'
+      - 'reader-semantic-page.js'
+      - 'reader-semantic-page-integration.js'
+      - 'reader-presentation-source-rendering.js'
+      - 'reader-presentation-source-rendering.css'
+      - 'speed-reading-adapter.js'
+      - 'tests/**'
+      - 'package.json'
       - 'scripts/validate-preview-runtime.py'
       - '.github/workflows/validate-preview.yml'
   pull_request:
@@ -15,6 +22,13 @@ on:
       - 'index.html'
       - 'reader-node-debug.html'
       - 'preview-runtime.js'
+      - 'reader-semantic-page.js'
+      - 'reader-semantic-page-integration.js'
+      - 'reader-presentation-source-rendering.js'
+      - 'reader-presentation-source-rendering.css'
+      - 'speed-reading-adapter.js'
+      - 'tests/**'
+      - 'package.json'
       - 'scripts/validate-preview-runtime.py'
       - '.github/workflows/validate-preview.yml'
   workflow_dispatch:
@@ -31,4 +45,7 @@ jobs:
         run: |
           python -m py_compile scripts/validate-preview-runtime.py
           python scripts/validate-preview-runtime.py
-          node --check preview-runtime.js
+      - name: Validate JavaScript and tests
+        run: |
+          npm run check
+          npm test
