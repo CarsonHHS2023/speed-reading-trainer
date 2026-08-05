@@ -85,8 +85,8 @@
         };
     }
 
-    function semanticCompatibilityPage(page) {
-        const carrier = presentationCarrier(page);
+    function semanticCompatibilityPage(page, resolvedCarrier = null) {
+        const carrier = resolvedCarrier || presentationCarrier(page);
         if (!carrier) return page;
         const pageKind = normalizedPageKind(carrier);
         const assetId = String(carrier.metadata.source_rendering_asset_id).trim();
@@ -170,42 +170,6 @@
         }
     }
 
-    function installReaderRenderingPatch(readerUi, semanticIntegration) {
-        const prototype = readerUi?.ReaderV2Controller?.prototype;
-        if (!prototype) return false;
-        semanticIntegration?.installSemanticPageIntegration?.();
-        if (prototype.__presentationSourceRenderingInstalled) return true;
-
-        const legacyRenderPages = prototype.renderPages;
-        prototype.renderPages = function renderPagesWithPresentationSourceRendering() {
-            const originalState = this.presentationState || { mode: 'reflow', pages: [] };
-            const auditByPresentationId = new Map();
-            const pages = (originalState.pages || []).map((page) => {
-                const carrier = presentationCarrier(page);
-                if (!carrier) return page;
-                auditByPresentationId.set(page.presentation_id, classificationAudit(carrier));
-                return semanticCompatibilityPage(page);
-            });
-            if (!auditByPresentationId.size) return legacyRenderPages.call(this);
-
-            this.presentationState = { ...originalState, pages };
-            try {
-                const result = legacyRenderPages.call(this);
-                decorateRenderedPresentationPages(this, auditByPresentationId);
-                return result;
-            } finally {
-                this.presentationState = originalState;
-            }
-        };
-        Object.defineProperty(prototype, '__presentationSourceRenderingInstalled', {
-            configurable: false,
-            enumerable: false,
-            writable: false,
-            value: true,
-        });
-        return true;
-    }
-
     function nodeSourceUnitIds(node) {
         const ids = new Set();
         const addId = (value) => {
@@ -223,6 +187,116 @@
             addId(fragment?.source_anchor?.source_unit_id);
         }
         return ids;
+    }
+
+    function pageSourceUnitId(page) {
+        const value = page?.source_unit_id || page?.source_unit?.source_unit_id;
+        return typeof value === 'string' && value.trim() ? value.trim() : null;
+    }
+
+    function nodeIdentity(node) {
+        const value = typeof node?.node_id === 'string' ? node.node_id.trim() : '';
+        return value ? `node:${value}` : node;
+    }
+
+    function resolvePresentationCarriersForPages(pages, documentNodes) {
+        const carriers = [];
+        const seen = new Set();
+        const addCarrier = (node) => {
+            if (!isPresentationSourceRenderingNode(node)) return;
+            const identity = nodeIdentity(node);
+            if (seen.has(identity)) return;
+            seen.add(identity);
+            carriers.push(node);
+        };
+        for (const node of documentNodes || []) addCarrier(node);
+        for (const page of pages || []) {
+            for (const node of page?.nodes || []) addCarrier(node);
+        }
+
+        const carrierBySourceUnit = new Map();
+        for (const carrier of carriers) {
+            for (const sourceUnitId of nodeSourceUnitIds(carrier)) {
+                if (!carrierBySourceUnit.has(sourceUnitId)) {
+                    carrierBySourceUnit.set(sourceUnitId, carrier);
+                }
+            }
+        }
+
+        const assignments = new Map();
+        const assignedCarrierIdentities = new Set();
+        for (const page of pages || []) {
+            const sourceUnitId = pageSourceUnitId(page);
+            if (!sourceUnitId) continue;
+            const carrier = presentationCarrier(page) || carrierBySourceUnit.get(sourceUnitId) || null;
+            if (!carrier) continue;
+            const identity = nodeIdentity(carrier);
+            if (assignedCarrierIdentities.has(identity)) continue;
+            assignments.set(page, carrier);
+            assignedCarrierIdentities.add(identity);
+        }
+        return { assignments, assignedCarrierIdentities };
+    }
+
+    function stripAssignedPresentationCarriers(page, assignedCarrierIdentities) {
+        const originalNodes = page?.nodes || [];
+        const nodes = originalNodes.filter((node) => (
+            !assignedCarrierIdentities.has(nodeIdentity(node))
+        ));
+        if (nodes.length === originalNodes.length) return page;
+
+        const elements = (page?.elements || []).filter((element) => {
+            if (element?.node && assignedCarrierIdentities.has(nodeIdentity(element.node))) {
+                return false;
+            }
+            const nodeId = typeof element?.node_id === 'string' ? element.node_id.trim() : '';
+            return !nodeId || !assignedCarrierIdentities.has(`node:${nodeId}`);
+        });
+        if (!nodes.length && !elements.length && !pageSourceUnitId(page)) return null;
+        return { ...page, nodes, elements };
+    }
+
+    function installReaderRenderingPatch(readerUi, semanticIntegration) {
+        const prototype = readerUi?.ReaderV2Controller?.prototype;
+        if (!prototype) return false;
+        semanticIntegration?.installSemanticPageIntegration?.();
+        if (prototype.__presentationSourceRenderingInstalled) return true;
+
+        const legacyRenderPages = prototype.renderPages;
+        prototype.renderPages = function renderPagesWithPresentationSourceRendering() {
+            const originalState = this.presentationState || { mode: 'reflow', pages: [] };
+            const originalPages = originalState.pages || [];
+            const { assignments, assignedCarrierIdentities } = (
+                resolvePresentationCarriersForPages(originalPages, this.nodes)
+            );
+            if (!assignments.size) return legacyRenderPages.call(this);
+
+            const auditByPresentationId = new Map();
+            const pages = originalPages.map((page) => {
+                const carrier = assignments.get(page);
+                if (carrier) {
+                    auditByPresentationId.set(page.presentation_id, classificationAudit(carrier));
+                    return semanticCompatibilityPage(page, carrier);
+                }
+                return stripAssignedPresentationCarriers(page, assignedCarrierIdentities);
+            }).filter(Boolean);
+
+            this.presentationState = { ...originalState, pages };
+            try {
+                const result = legacyRenderPages.call(this);
+                decorateRenderedPresentationPages(this, auditByPresentationId);
+                return result;
+            } finally {
+                this.presentationState = originalState;
+            }
+        };
+        Object.defineProperty(prototype, '__presentationSourceRenderingInstalled', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
     }
 
     function presentationSourceUnitIds(nodes) {
@@ -292,8 +366,11 @@
         isPresentationSourceRenderingNode,
         nodeSourceUnitIds,
         normalizedPageKind,
+        pageSourceUnitId,
         presentationCarrier,
         presentationSourceUnitIds,
+        resolvePresentationCarriersForPages,
         semanticCompatibilityPage,
+        stripAssignedPresentationCarriers,
     };
 });
