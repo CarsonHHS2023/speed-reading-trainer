@@ -11,6 +11,12 @@ def main() -> None:
     index = Path("index.html").read_text(encoding="utf-8")
     debug = Path("reader-node-debug.html").read_text(encoding="utf-8")
     runtime = Path("preview-runtime.js").read_text(encoding="utf-8")
+    presentation = Path("reader-presentation-source-rendering.js").read_text(
+        encoding="utf-8"
+    )
+    presentation_css = Path("reader-presentation-source-rendering.css").read_text(
+        encoding="utf-8"
+    )
 
     preview_position = index.index('<script src="preview-runtime.js"></script>')
     reader_position = index.index('<script src="reader-api.js"></script>')
@@ -33,6 +39,19 @@ def main() -> None:
     # before validating that the Reader v2 document endpoint is observed.
     assert "/api/reader/v2/documents/" in runtime.replace("\\/", "/")
     assert "backendBranch: 'deploy/ocrmypdf-test'" in runtime
+
+    assert "reader-semantic-page.js" in runtime
+    assert "reader-semantic-page-integration.js" in runtime
+    assert "reader-presentation-source-rendering.js" in runtime
+    assert "reader-presentation-source-rendering.css" in runtime
+    assert "installPresentationSourceRendering" in runtime
+
+    assert "presentation_mode === 'source_rendering'" in presentation
+    assert "ocr_route === 'skipped_presentation_image'" in presentation
+    assert "filteredPlaybackNodes" in presentation
+    assert "classificationAudit" in presentation
+    assert "reader-v2-page--presentation-source-rendering" in presentation_css
+    assert "object-fit: contain" in presentation_css
 
     print("preview runtime validation passed")
 
