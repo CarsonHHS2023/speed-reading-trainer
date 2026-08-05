@@ -142,6 +142,66 @@ test('presentation source units and all same-page siblings are removed from spee
   assert.equal(Presentation.installSpeedReadingPatch(fakeAdapter), true);
 });
 
+test('page fragment source units suppress hidden same-page playback nodes', () => {
+  const directFragmentCarrier = presentationNode('cover');
+  delete directFragmentCarrier.source_unit_ids;
+  directFragmentCarrier.metadata.page_fragments = [
+    { source_unit_id: 'pdf-page:000005', text: '' },
+  ];
+
+  const anchoredFragmentCarrier = presentationNode('back_cover');
+  delete anchoredFragmentCarrier.source_unit_ids;
+  anchoredFragmentCarrier.metadata.page_fragments = [
+    {
+      text: '',
+      source_anchor: {
+        kind: 'spatial',
+        source_unit_id: 'pdf-page:000006',
+        normalized_bbox: [0, 0, 1, 1],
+      },
+    },
+  ];
+
+  const directSibling = {
+    node_id: 'fragment-page-heading',
+    node_type: 'heading',
+    text: 'Hidden fragment heading',
+    source_unit_ids: ['pdf-page:000005'],
+    metadata: {},
+  };
+  const anchoredSibling = {
+    node_id: 'fragment-page-paragraph',
+    node_type: 'paragraph',
+    text: 'Hidden fragment paragraph',
+    metadata: {
+      page_fragments: [
+        {
+          source_anchor: { source_unit_id: 'pdf-page:000006' },
+          text: 'Hidden fragment paragraph',
+        },
+      ],
+    },
+  };
+  const unrelated = {
+    node_id: 'ordinary-body',
+    node_type: 'paragraph',
+    text: 'Keep me',
+    source_unit_ids: ['pdf-page:000007'],
+    metadata: {},
+  };
+
+  assert.deepEqual(
+    Presentation.filteredPlaybackNodes([
+      directFragmentCarrier,
+      anchoredFragmentCarrier,
+      directSibling,
+      anchoredSibling,
+      unrelated,
+    ]),
+    [unrelated],
+  );
+});
+
 test('nodes on unrelated source units remain eligible for playback', () => {
   const presentation = presentationNode('cover');
   const unrelated = {
