@@ -28,6 +28,18 @@ def main() -> None:
     debug_bootstrap_position = debug.index('<script>ReaderNodeDebugV2.bootstrap();</script>')
     assert debug_preview_position < debug_reader_position < debug_bootstrap_position
 
+    guard_position = runtime.index("if (!PREVIEW_PATH_PATTERN.test(pathname))")
+    reader_override_position = runtime.index(
+        "root.READER_API_BASE_URL = TEST_API_BASE_URL"
+    )
+    fetch_override_position = runtime.index(
+        "root.fetch = async function previewFetch"
+    )
+    assert guard_position < reader_override_position < fetch_override_position
+    assert "const PREVIEW_PATH_PATTERN" in runtime
+    assert "/preview/pr-" in runtime.replace("\\/", "/")
+    assert "runtime skipped outside PR preview" in runtime
+
     assert TEST_API in runtime
     assert PRODUCTION_API in runtime
     assert "root.READER_API_BASE_URL = TEST_API_BASE_URL" in runtime
