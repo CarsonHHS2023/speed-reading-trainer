@@ -98,11 +98,26 @@ test('classification audit exposes Reader debug fields', () => {
   });
 });
 
-test('presentation pages are removed from speed-reading elements and frames', () => {
+test('presentation source units and all same-page siblings are removed from speed reading', () => {
   const body = {
     node_id: 'body',
     node_type: 'paragraph',
     text: 'Readable body text',
+    source_unit_ids: ['pdf-page:000004'],
+    metadata: {},
+  };
+  const samePageHeading = {
+    node_id: 'same-page-heading',
+    node_type: 'heading',
+    text: 'Hidden title text',
+    source_unit_ids: ['pdf-page:000003'],
+    metadata: {},
+  };
+  const samePageParagraph = {
+    node_id: 'same-page-paragraph',
+    node_type: 'paragraph',
+    text: 'Hidden OCR text',
+    location: { source_unit_id: 'pdf-page:000003' },
     metadata: {},
   };
   const presentation = presentationNode('title_page');
@@ -117,14 +132,30 @@ test('presentation pages are removed from speed-reading elements and frames', ()
 
   assert.equal(Presentation.installSpeedReadingPatch(fakeAdapter), true);
   assert.deepEqual(
-    fakeAdapter.buildReadingElements({}, [presentation, body]),
+    fakeAdapter.buildReadingElements({}, [presentation, samePageHeading, samePageParagraph, body]),
     ['body'],
   );
   assert.deepEqual(
-    fakeAdapter.buildPlaybackFrames({}, [presentation, body]),
+    fakeAdapter.buildPlaybackFrames({}, [presentation, samePageHeading, samePageParagraph, body]),
     { nodeIds: ['body'] },
   );
   assert.equal(Presentation.installSpeedReadingPatch(fakeAdapter), true);
+});
+
+test('nodes on unrelated source units remain eligible for playback', () => {
+  const presentation = presentationNode('cover');
+  const unrelated = {
+    node_id: 'unrelated-body',
+    node_type: 'paragraph',
+    text: 'Keep me',
+    source_unit_ids: ['pdf-page:000004'],
+    metadata: {},
+  };
+
+  assert.deepEqual(
+    Presentation.filteredPlaybackNodes([presentation, unrelated]),
+    [unrelated],
+  );
 });
 
 test('page carrier lookup does not alter ordinary pages', () => {
