@@ -208,18 +208,19 @@
 
     function nodeSourceUnitIds(node) {
         const ids = new Set();
-        const locationId = node?.location?.source_unit_id;
-        if (typeof locationId === 'string' && locationId.trim()) ids.add(locationId.trim());
-        for (const value of node?.source_unit_ids || []) {
+        const addId = (value) => {
             if (typeof value === 'string' && value.trim()) ids.add(value.trim());
-        }
-        for (const anchor of node?.source_anchors || []) {
-            const value = anchor?.source_unit_id;
-            if (typeof value === 'string' && value.trim()) ids.add(value.trim());
-        }
-        const locationAnchorId = node?.location?.source_anchor?.source_unit_id;
-        if (typeof locationAnchorId === 'string' && locationAnchorId.trim()) {
-            ids.add(locationAnchorId.trim());
+        };
+        addId(node?.location?.source_unit_id);
+        for (const value of node?.source_unit_ids || []) addId(value);
+        for (const anchor of node?.source_anchors || []) addId(anchor?.source_unit_id);
+        addId(node?.location?.source_anchor?.source_unit_id);
+        const pageFragments = Array.isArray(node?.metadata?.page_fragments)
+            ? node.metadata.page_fragments
+            : [];
+        for (const fragment of pageFragments) {
+            addId(fragment?.source_unit_id);
+            addId(fragment?.source_anchor?.source_unit_id);
         }
         return ids;
     }
