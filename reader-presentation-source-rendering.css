@@ -1,0 +1,57 @@
+.reader-v2-page--presentation-source-rendering {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.reader-v2-page--presentation-source-rendering .reader-v2-semantic-page-shell {
+    width: min(100%, 1100px);
+    max-height: calc(100vh - 10rem);
+    margin-inline: auto;
+}
+
+.reader-v2-page--presentation-source-rendering .reader-v2-semantic-page-canvas,
+.reader-v2-page--presentation-source-rendering .reader-v2-semantic-page-element--cover-source-rendering,
+.reader-v2-page--presentation-source-rendering .reader-v2-node,
+.reader-v2-page--presentation-source-rendering .reader-v2-asset-slot {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.reader-v2-page--presentation-source-rendering .reader-v2-asset-slot img,
+.reader-v2-page--presentation-source-rendering .reader-v2-asset-slot canvas,
+.reader-v2-page--presentation-source-rendering .reader-v2-asset-slot svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+
+.reader-v2-presentation-audit {
+    box-sizing: border-box;
+    width: min(100%, 1100px);
+    margin: 0.75rem auto 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 0.5rem;
+    font-size: 0.78rem;
+}
+
+.reader-v2-presentation-audit > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.reader-v2-presentation-audit-json {
+    overflow: auto;
+    max-height: 18rem;
+    margin: 0.5rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 0.75rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
