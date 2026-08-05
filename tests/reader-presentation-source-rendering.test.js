@@ -82,6 +82,92 @@ test('presentation page becomes one semantic full-page carrier without changing 
   assert.equal(page.nodes.length, 2);
 });
 
+test('fragment-anchor carrier is reassociated with its physical page before rendering', () => {
+  const carrier = presentationNode('full_page_figure');
+  delete carrier.source_unit_ids;
+  carrier.metadata.page_fragments = [
+    {
+      text: '',
+      source_anchor: {
+        kind: 'spatial',
+        source_unit_id: 'pdf-page:000008',
+        normalized_bbox: [0, 0, 1, 1],
+      },
+    },
+  ];
+  const hiddenText = {
+    node_id: 'hidden-page-text',
+    node_type: 'paragraph',
+    text: 'Do not render this OCR sibling',
+    source_unit_ids: ['pdf-page:000008'],
+    metadata: {},
+  };
+  const physicalPage = {
+    presentation_id: 'semantic-page:pdf-page:000008',
+    kind: 'semantic_full_page',
+    source_order: 7,
+    source_unit_id: 'pdf-page:000008',
+    source_unit: {
+      source_unit_id: 'pdf-page:000008',
+      width: 792,
+      height: 612,
+    },
+    nodes: [hiddenText],
+    elements: [{ node_id: hiddenText.node_id, node: hiddenText }],
+  };
+  const unplacedPage = {
+    presentation_id: 'semantic-page:unplaced',
+    kind: 'semantic_overflow',
+    source_order: Number.MAX_SAFE_INTEGER,
+    source_unit_id: null,
+    source_unit: null,
+    nodes: [carrier],
+    elements: [{ node_id: carrier.node_id, node: carrier }],
+  };
+  const originalState = {
+    mode: 'semantic_full_page',
+    pages: [physicalPage, unplacedPage],
+  };
+
+  class ReaderV2Controller {
+    constructor() {
+      this.nodes = [hiddenText, carrier];
+      this.presentationState = originalState;
+      this.document = null;
+    }
+
+    element() {
+      return null;
+    }
+
+    renderPages() {
+      return this.presentationState;
+    }
+  }
+
+  assert.equal(Presentation.installReaderRenderingPatch(
+    { ReaderV2Controller },
+    { installSemanticPageIntegration() {} },
+  ), true);
+
+  const controller = new ReaderV2Controller();
+  const renderedState = controller.renderPages();
+
+  assert.equal(renderedState.pages.length, 1);
+  const renderedPage = renderedState.pages[0];
+  assert.equal(renderedPage.presentation_id, physicalPage.presentation_id);
+  assert.equal(renderedPage.source_unit_id, physicalPage.source_unit_id);
+  assert.equal(renderedPage.source_order, physicalPage.source_order);
+  assert.deepEqual(renderedPage.source_unit, physicalPage.source_unit);
+  assert.equal(renderedPage.kind, 'semantic_full_page');
+  assert.equal(renderedPage.nodes.length, 1);
+  assert.equal(renderedPage.nodes[0].node_id, carrier.node_id);
+  assert.equal(renderedPage.nodes[0].metadata.presentation_actual_page_kind, 'full_page_figure');
+  assert.equal(renderedPage.nodes[0].metadata.page_kind, 'cover');
+  assert.equal(controller.presentationState, originalState);
+  assert.equal(controller.presentationState.pages.length, 2);
+});
+
 test('classification audit exposes Reader debug fields', () => {
   const audit = Presentation.classificationAudit(presentationNode('full_page_chart'));
   assert.deepEqual(audit, {
