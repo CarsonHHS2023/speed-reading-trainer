@@ -3,6 +3,8 @@
 
     const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
     const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
+    const runtimeScriptUrl = root.document?.currentScript?.src || root.location?.href || '';
+    const runtimeBaseUrl = runtimeScriptUrl ? new URL('.', runtimeScriptUrl) : null;
 
     const state = {
         environment: 'preview',
@@ -58,6 +60,64 @@
         }));
     }
 
+    function previewAssetUrl(filename) {
+        return runtimeBaseUrl ? new URL(filename, runtimeBaseUrl).href : filename;
+    }
+
+    function ensureStylesheet(filename) {
+        const documentObject = root.document;
+        if (!documentObject?.head) return null;
+        const href = previewAssetUrl(filename);
+        const existing = Array.from(documentObject.querySelectorAll('link[rel="stylesheet"]'))
+            .find((link) => link.href === href || link.getAttribute('href') === filename);
+        if (existing) return existing;
+        const link = documentObject.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        link.dataset.previewPresentationSourceRendering = 'true';
+        documentObject.head.appendChild(link);
+        return link;
+    }
+
+    function loadScript(filename, ready) {
+        if (typeof ready === 'function' && ready()) return Promise.resolve();
+        const documentObject = root.document;
+        if (!documentObject?.head) return Promise.reject(new Error('Preview document head is unavailable'));
+        const src = previewAssetUrl(filename);
+        const existing = Array.from(documentObject.scripts || [])
+            .find((script) => script.src === src || script.getAttribute('src') === filename);
+        if (existing) {
+            if (typeof ready === 'function' && ready()) return Promise.resolve();
+            return new Promise((resolve, reject) => {
+                existing.addEventListener('load', resolve, { once: true });
+                existing.addEventListener('error', reject, { once: true });
+            });
+        }
+        return new Promise((resolve, reject) => {
+            const script = documentObject.createElement('script');
+            script.src = src;
+            script.async = false;
+            script.dataset.previewPresentationSourceRendering = 'true';
+            script.addEventListener('load', resolve, { once: true });
+            script.addEventListener('error', () => reject(new Error(`Could not load ${filename}`)), { once: true });
+            documentObject.head.appendChild(script);
+        });
+    }
+
+    async function installPresentationSourceRendering() {
+        ensureStylesheet('reader-presentation-source-rendering.css');
+        await loadScript('reader-semantic-page.js', () => Boolean(root.ReaderSemanticPageV2));
+        await loadScript(
+            'reader-semantic-page-integration.js',
+            () => Boolean(root.ReaderSemanticPageIntegrationV2),
+        );
+        await loadScript(
+            'reader-presentation-source-rendering.js',
+            () => Boolean(root.ReaderPresentationSourceRenderingV2),
+        );
+        root.ReaderPresentationSourceRenderingV2?.install?.(root);
+    }
+
     const nativeFetch = root.fetch && root.fetch.bind(root);
     if (!nativeFetch) throw new Error('Preview runtime requires window.fetch');
 
@@ -84,6 +144,15 @@
         }
         return response;
     };
+
+    if (root.document) {
+        ensureStylesheet('reader-presentation-source-rendering.css');
+        root.addEventListener('load', () => {
+            installPresentationSourceRendering().catch((error) => {
+                console.warn('[preview] presentation source rendering could not be installed', error);
+            });
+        }, { once: true });
+    }
 
     console.info('[preview] frontend connected to test backend', root.SPEED_READING_CONFIG);
 })(typeof window !== 'undefined' ? window : globalThis);
