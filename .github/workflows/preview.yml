@@ -63,14 +63,20 @@ jobs:
           for attempt in $(seq 1 40); do
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
             js="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            presentation="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-presentation.js?v=${PREVIEW_HEAD_SHA}" || true)"
             refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            edge_polish="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-edge-polish.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
               && [[ "${js}" == *"恢复到100%"* ]] \
+              && [[ "${presentation}" == *"reader-semantic-layout-edge-polish.js"* ]] \
+              && [[ "${presentation}" == *"reader-preview-head"* ]] \
               && [[ "${refinement}" == *"BODY_FONT_PX = 18"* ]] \
-              && [[ "${refinement}" == *"pairInlineRows"* ]]; then
+              && [[ "${refinement}" == *"pairInlineRows"* ]] \
+              && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
+              && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
