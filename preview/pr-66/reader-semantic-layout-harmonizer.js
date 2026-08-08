@@ -145,25 +145,55 @@
         return Boolean(targetFrameForPage(page, SemanticPage));
     }
 
+    function centeredVisualBbox(bbox, targetFrame) {
+        const normalized = normalizeBbox(bbox);
+        if (!normalized) return null;
+        const [targetLeft, targetRight] = targetFrame;
+        const [x1, y1, x2, y2] = normalized;
+        const targetWidth = targetRight - targetLeft;
+        const sourceWidth = x2 - x1;
+        const width = Math.min(sourceWidth, targetWidth);
+        if (width < CENTER_VISUAL_MIN_WIDTH && sourceWidth <= targetWidth) return normalized;
+        const left = targetLeft + ((targetWidth - width) / 2);
+        return [left, y1, left + width, y2];
+    }
+
     function canonicalHorizontalBbox(element, targetFrame = DEFAULT_TARGET_FRAME) {
         const bbox = normalizeBbox(element?.normalized_bbox);
         if (!bbox) return null;
         const type = nodeType(element);
         const [targetLeft, targetRight] = targetFrame;
-        const [x1, y1, x2, y2] = bbox;
+        const [, y1, , y2] = bbox;
         if (BODY_TEXT_TYPES.has(type) || type === 'heading' || type === 'caption' || type === 'formula' || type === 'list') {
             return [targetLeft, y1, targetRight, y2];
         }
-        if (VISUAL_FLOW_TYPES.has(type)) {
-            const targetWidth = targetRight - targetLeft;
-            const sourceWidth = x2 - x1;
-            const width = Math.min(sourceWidth, targetWidth);
-            if (width >= CENTER_VISUAL_MIN_WIDTH || sourceWidth > targetWidth) {
-                const left = targetLeft + ((targetWidth - width) / 2);
-                return [left, y1, left + width, y2];
-            }
-        }
+        if (VISUAL_FLOW_TYPES.has(type)) return centeredVisualBbox(bbox, targetFrame);
         return bbox;
+    }
+
+    function formulaUsesTextLayout(slot) {
+        if (!slot) return false;
+        if (slot.dataset?.readerFormulaLayout === 'text') return true;
+        const child = slot.firstElementChild || slot.children?.[0] || null;
+        return Boolean(child?.dataset?.formulaRendering);
+    }
+
+    function runtimeHorizontalBbox(element, slot, targetFrame) {
+        const type = nodeType(element);
+        if (type === 'formula' && !formulaUsesTextLayout(slot)) {
+            return centeredVisualBbox(element?.normalized_bbox, targetFrame);
+        }
+        return canonicalHorizontalBbox(element, targetFrame);
+    }
+
+    function runtimeFlowType(type, slot) {
+        if (type === 'formula') return formulaUsesTextLayout(slot) ? 'formula' : 'figure';
+        return type;
+    }
+
+    function runtimeTextFlow(type, slot) {
+        if (type === 'formula') return formulaUsesTextLayout(slot);
+        return TEXT_FLOW_TYPES.has(type);
     }
 
     function isFlowType(type) {
@@ -190,7 +220,7 @@
             .filter((entry) => normalizeBbox(entry?.bbox) && isFlowType(entry?.type))
             .slice()
             .sort((left, right) => left.bbox[1] - right.bbox[1] || left.index - right.index);
-        if (!sorted.length) return { placements: [], contentBottom: 0 };
+        if (!sorted.length) return { placements: [], contentBottom: 0, requiredHeight: 0 };
 
         const placements = [];
         let previous = null;
@@ -254,17 +284,8 @@
         if (element) element.className = [...classes].join(' ');
     }
 
-    function removeClass(element, className) {
-        if (element?.classList?.remove) {
-            element.classList.remove(className);
-            return;
-        }
-        const classes = String(element?.className || '').split(/\s+/).filter((name) => name && name !== className);
-        if (element) element.className = classes.join(' ');
-    }
-
-    function applyHorizontalLayout(slot, element, targetFrame) {
-        const bbox = canonicalHorizontalBbox(element, targetFrame);
+    function applyHorizontalLayout(slot, element, targetFrame, textFlow) {
+        const bbox = runtimeHorizontalBbox(element, slot, targetFrame);
         if (!slot || !bbox) return bbox;
         const [x1, , x2] = bbox;
         slot.style.left = `${x1 * 100}%`;
@@ -279,8 +300,8 @@
         }
         if (BODY_TEXT_TYPES.has(type) || type === 'list') addClass(slot, 'reader-v2-semantic-page-element--body');
         if (type === 'caption') addClass(slot, 'reader-v2-semantic-page-element--caption');
-        if (TEXT_FLOW_TYPES.has(type)) addClass(slot, 'reader-v2-semantic-page-element--harmonized-text');
-        if (VISUAL_FLOW_TYPES.has(type) && bbox[0] !== element.normalized_bbox[0]) {
+        if (textFlow) addClass(slot, 'reader-v2-semantic-page-element--harmonized-text');
+        if (!textFlow && (VISUAL_FLOW_TYPES.has(type) || type === 'formula') && Math.abs(bbox[0] - element.normalized_bbox[0]) > 1e-9) {
             addClass(slot, 'reader-v2-semantic-page-element--centered-visual');
         }
         return bbox;
@@ -290,7 +311,8 @@
         const candidates = [slot?.scrollHeight, slot?.offsetHeight];
         const child = slot?.firstElementChild || slot?.children?.[0];
         candidates.push(child?.scrollHeight, child?.offsetHeight);
-        const measured = Math.max(...candidates.map(Number).filter(Number.isFinite), 0);
+        const finite = candidates.map(Number).filter(Number.isFinite);
+        const measured = finite.length ? Math.max(...finite) : 0;
         return measured > 0 ? measured : fallback;
     }
 
@@ -319,25 +341,27 @@
             const slot = slots[index];
             const sourceBbox = normalizeBbox(element.normalized_bbox);
             const type = nodeType(element);
-            applyHorizontalLayout(slot, element, targetFrame);
-            if (!isFlowType(type) || PAGE_FURNITURE_TYPES.has(type)) continue;
+            const textFlow = runtimeTextFlow(type, slot);
+            const flowType = runtimeFlowType(type, slot);
+            applyHorizontalLayout(slot, element, targetFrame, textFlow);
+            if (!isFlowType(flowType) || PAGE_FURNITURE_TYPES.has(type)) continue;
 
             const sourceHeight = Math.max(1, (sourceBbox[3] - sourceBbox[1]) * baseHeight);
             let renderedHeight = sourceHeight;
-            if (TEXT_FLOW_TYPES.has(type)) {
+            if (textFlow) {
                 slot.style.height = 'auto';
                 slot.style.overflow = 'visible';
                 renderedHeight = renderedTextHeight(slot, sourceHeight);
             } else {
                 slot.style.height = `${sourceHeight}px`;
             }
-            entries.push({ index, slot, element, type, bbox: sourceBbox, renderedHeight });
+            entries.push({ index, slot, element, type: flowType, bbox: sourceBbox, renderedHeight, textFlow });
         }
 
         const plan = computeFlowPlan(entries, baseHeight);
         for (const placement of plan.placements) {
             placement.slot.style.top = `${Math.round(placement.top * 100) / 100}px`;
-            if (TEXT_FLOW_TYPES.has(placement.type)) placement.slot.style.height = 'auto';
+            if (placement.textFlow) placement.slot.style.height = 'auto';
         }
 
         const requiredHeight = Math.max(baseHeight, plan.requiredHeight || 0);
@@ -349,10 +373,10 @@
     }
 
     function scheduleAfterLayout(root, callback) {
-        const raf = typeof root?.requestAnimationFrame === 'function'
+        const schedule = typeof root?.requestAnimationFrame === 'function'
             ? root.requestAnimationFrame.bind(root)
             : (fn) => (root?.setTimeout || setTimeout)(fn, 0);
-        raf(() => raf(callback));
+        schedule(() => schedule(callback));
     }
 
     function observeSectionResize(root, section, page, SemanticPage) {
@@ -397,9 +421,11 @@
         const segments = [];
         let cursor = 0;
         let textStart = 0;
+
         function pushText(end) {
             if (end > textStart) segments.push({ kind: 'text', text: text.slice(textStart, end) });
         }
+
         while (cursor < text.length) {
             let open = null;
             let close = null;
@@ -417,6 +443,7 @@
                 cursor += 1;
                 continue;
             }
+
             const sourceStart = cursor + open.length;
             let closeIndex = sourceStart;
             while (closeIndex < text.length) {
@@ -432,11 +459,13 @@
                 cursor += open.length;
                 continue;
             }
+
             const source = text.slice(sourceStart, closeIndex).trim();
             if (!source || (open === '$' && /^\d+(?:[.,]\d+)?$/.test(source))) {
                 cursor += open.length;
                 continue;
             }
+
             pushText(cursor);
             const rawEnd = closeIndex + close.length;
             segments.push({
@@ -449,6 +478,7 @@
             cursor = rawEnd;
             textStart = cursor;
         }
+
         pushText(text.length);
         return segments.some((segment) => segment.kind === 'math') ? segments : [{ kind: 'text', text }];
     }
@@ -574,10 +604,12 @@
         TEXT_FLOW_TYPES,
         VISUAL_FLOW_TYPES,
         canonicalHorizontalBbox,
+        centeredVisualBbox,
         compactSourceGap,
         computeFlowPlan,
         ensureStyles,
         flowGapBounds,
+        formulaUsesTextLayout,
         harmonizeSection,
         install,
         nodeType,
@@ -587,6 +619,9 @@
         patchSemanticRenderer,
         positionedElements,
         renderInlineMathInWrapper,
+        runtimeFlowType,
+        runtimeHorizontalBbox,
+        runtimeTextFlow,
         shouldHarmonizePage,
         targetFrameForPage,
     };
