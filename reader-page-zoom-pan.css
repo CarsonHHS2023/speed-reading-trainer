@@ -1,0 +1,17 @@
+.reader-v2-page-semantic_full_page .reader-v2-semantic-page-shell {
+    transform-origin: 0 0;
+}
+
+.reader-v2-page-semantic_full_page.reader-v2-page--zoomed {
+    cursor: grab;
+    user-select: none;
+}
+
+.reader-v2-page-semantic_full_page.reader-v2-page--zoomed .reader-v2-semantic-page-shell {
+    will-change: transform;
+}
+
+.reader-v2-page-semantic_full_page.reader-v2-page--zoom-dragging,
+.reader-v2-page-semantic_full_page.reader-v2-page--zoom-dragging * {
+    cursor: grabbing !important;
+}
