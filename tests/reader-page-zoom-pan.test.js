@@ -11,6 +11,54 @@ const dims = {
   contentHeight: 600,
 };
 
+function fakeElement(className = '') {
+  const node = {
+    className,
+    children: [],
+    dataset: {},
+    style: {},
+    parentNode: null,
+    hidden: false,
+    textContent: '',
+  };
+  const classes = () => new Set(String(node.className || '').split(/\s+/).filter(Boolean));
+  node.classList = {
+    contains(value) { return classes().has(value); },
+    add(value) { const next = classes(); next.add(value); node.className = [...next].join(' '); },
+    remove(value) { const next = classes(); next.delete(value); node.className = [...next].join(' '); },
+  };
+  node.matches = (selector) => selector.startsWith('.') && node.classList.contains(selector.slice(1));
+  node.appendChild = (child) => {
+    if (child.parentNode) {
+      const index = child.parentNode.children.indexOf(child);
+      if (index >= 0) child.parentNode.children.splice(index, 1);
+    }
+    node.children.push(child);
+    child.parentNode = node;
+    return child;
+  };
+  node.insertBefore = (child, reference) => {
+    if (child.parentNode) {
+      const oldIndex = child.parentNode.children.indexOf(child);
+      if (oldIndex >= 0) child.parentNode.children.splice(oldIndex, 1);
+    }
+    const index = node.children.indexOf(reference);
+    node.children.splice(index < 0 ? node.children.length : index, 0, child);
+    child.parentNode = node;
+    return child;
+  };
+  node.querySelector = (selector) => {
+    for (const child of node.children) {
+      if (child.matches?.(selector)) return child;
+      const nested = child.querySelector?.(selector);
+      if (nested) return nested;
+    }
+    return null;
+  };
+  node.setAttribute = () => {};
+  return node;
+}
+
 test('wheel zoom is bounded between 100% and 400%', () => {
   assert.equal(ZoomPan.clampScale(0.25), 1);
   assert.equal(ZoomPan.clampScale(8), 4);
@@ -60,6 +108,31 @@ test('returning to 100% resets pan to the canonical origin', () => {
   );
 });
 
+test('all Reader pages are eligible and legacy-rendered content gets a fallback zoom surface', () => {
+  assert.equal(ZoomPan.PAGE_SELECTOR, '.reader-v2-page');
+  const page = fakeElement('reader-v2-page reader-v2-page-semantic_full_page');
+  page.ownerDocument = { createElement: () => fakeElement() };
+  const label = fakeElement('reader-v2-page-label');
+  const legacyAsset = fakeElement('reader-v2-asset');
+  page.appendChild(label);
+  page.appendChild(legacyAsset);
+
+  const surface = ZoomPan.surfaceForPage(page);
+  assert.ok(surface);
+  assert.equal(surface.className, 'reader-v2-page-zoom-surface');
+  assert.equal(surface.dataset.readerZoomSurface, 'fallback');
+  assert.equal(page.children[0], label);
+  assert.equal(page.children[1], surface);
+  assert.equal(surface.children[0], legacyAsset);
+});
+
+test('semantic shell remains the preferred zoom surface when available', () => {
+  const page = fakeElement('reader-v2-page');
+  const shell = fakeElement('reader-v2-semantic-page-shell');
+  page.appendChild(shell);
+  assert.equal(ZoomPan.surfaceForPage(page), shell);
+});
+
 test('page zoom assets are loaded by the Reader page and included in syntax checks', () => {
   const html = fs.readFileSync('index.html', 'utf8');
   const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -70,9 +143,11 @@ test('page zoom assets are loaded by the Reader page and included in syntax chec
   assert.match(packageJson.scripts.check, /node --check reader-page-zoom-pan\.js/);
 });
 
-test('zoom interaction CSS keeps the semantic page as viewport and exposes grab states', () => {
+test('zoom interaction CSS supports semantic and fallback surfaces plus grab states', () => {
   const css = fs.readFileSync('reader-page-zoom-pan.css', 'utf8');
   assert.match(css, /reader-v2-page--zoomed[^}]*cursor:\s*grab/s);
   assert.match(css, /reader-v2-page--zoom-dragging[^}]*cursor:\s*grabbing\s*!important/s);
   assert.match(css, /reader-v2-semantic-page-shell[^}]*transform-origin:\s*0 0/s);
+  assert.match(css, /reader-v2-page-zoom-surface[^}]*transform-origin:\s*0 0/s);
+  assert.match(css, /reader-v2-page-zoom-badge[^}]*position:\s*absolute/s);
 });
