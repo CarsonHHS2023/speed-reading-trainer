@@ -8,19 +8,16 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const MIN_SCALE = 1;
+    const MIN_SCALE = 0.5;
     const MAX_SCALE = 4;
     const WHEEL_SENSITIVITY = 0.0015;
     const INSTALL_RETRY_MS = 25;
     const INSTALL_TIMEOUT_MS = 10000;
     const PAGE_SELECTOR = '.reader-v2-page';
-    const SEMANTIC_SHELL_SELECTOR = '.reader-v2-semantic-page-shell';
-    const FALLBACK_SURFACE_SELECTOR = '.reader-v2-page-zoom-surface';
-    const LABEL_SELECTOR = '.reader-v2-page-label';
-    const BADGE_CLASS = 'reader-v2-page-zoom-badge';
+    const VIEWPORT_SELECTOR = '.reader-v2-main';
     const EPSILON = 1e-6;
 
-    const stateBySurface = new WeakMap();
+    const stateByPage = new WeakMap();
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value));
@@ -28,70 +25,89 @@
 
     function clampScale(value) {
         const numeric = Number(value);
-        if (!Number.isFinite(numeric)) return MIN_SCALE;
+        if (!Number.isFinite(numeric)) return 1;
         return clamp(numeric, MIN_SCALE, MAX_SCALE);
     }
 
     function initialState() {
-        return { scale: MIN_SCALE, x: 0, y: 0 };
+        return { scale: 1, x: 0, y: 0 };
     }
 
-    function stateForSurface(surface) {
-        if (!surface) return initialState();
-        let state = stateBySurface.get(surface);
+    function stateForPage(page) {
+        if (!page) return initialState();
+        let state = stateByPage.get(page);
         if (!state) {
             state = initialState();
-            stateBySurface.set(surface, state);
+            stateByPage.set(page, state);
         }
         return state;
     }
 
-    // Backward-compatible alias retained for the first Preview test cut.
-    function stateForShell(surface) {
-        return stateForSurface(surface);
+    function pageForTarget(target) {
+        if (!target || typeof target.closest !== 'function') return null;
+        return target.closest(PAGE_SELECTOR);
     }
 
-    function dimensionsFor(page, surface) {
+    function viewportForPage(page) {
+        if (!page || typeof page.closest !== 'function') return null;
+        return page.closest(VIEWPORT_SELECTOR);
+    }
+
+    function dimensionsFor(page, state = stateForPage(page)) {
+        const viewport = viewportForPage(page);
         const pageRect = page?.getBoundingClientRect?.() || {};
-        const surfaceRect = surface?.getBoundingClientRect?.() || {};
-        const baseWidth = Number(
-            surface?.offsetWidth
-            || surface?.clientWidth
-            || surfaceRect.width
-            || page?.clientWidth
-            || pageRect.width
-            || 0
-        );
-        const baseHeight = Number(
-            surface?.offsetHeight
-            || surface?.clientHeight
-            || surfaceRect.height
-            || page?.clientHeight
-            || pageRect.height
-            || 0
-        );
+        const viewportRect = viewport?.getBoundingClientRect?.() || {};
+        const scale = Math.max(EPSILON, clampScale(state?.scale));
+        const pageWidth = Number(page?.offsetWidth || page?.clientWidth || (Number(pageRect.width || 0) / scale) || 0);
+        const pageHeight = Number(page?.offsetHeight || page?.clientHeight || (Number(pageRect.height || 0) / scale) || 0);
+        const viewportWidth = Number(viewport?.clientWidth || viewportRect.width || 0);
+        const viewportHeight = Number(viewport?.clientHeight || viewportRect.height || 0);
+        const currentX = Number(state?.x || 0);
+        const currentY = Number(state?.y || 0);
         return {
-            viewportWidth: Math.max(0, baseWidth),
-            viewportHeight: Math.max(0, baseHeight),
-            contentWidth: Math.max(0, baseWidth),
-            contentHeight: Math.max(0, baseHeight),
+            viewport,
+            viewportWidth: Math.max(0, viewportWidth),
+            viewportHeight: Math.max(0, viewportHeight),
+            pageWidth: Math.max(0, pageWidth),
+            pageHeight: Math.max(0, pageHeight),
+            baseLeft: Number(pageRect.left || 0) - Number(viewportRect.left || 0) - currentX,
+            baseTop: Number(pageRect.top || 0) - Number(viewportRect.top || 0) - currentY,
         };
+    }
+
+    function panBounds(scaleValue, dimensions) {
+        const scale = clampScale(scaleValue);
+        const viewportWidth = Math.max(0, Number(dimensions?.viewportWidth || 0));
+        const viewportHeight = Math.max(0, Number(dimensions?.viewportHeight || 0));
+        const pageWidth = Math.max(0, Number(dimensions?.pageWidth || 0));
+        const pageHeight = Math.max(0, Number(dimensions?.pageHeight || 0));
+        const baseLeft = Number(dimensions?.baseLeft || 0);
+        const baseTop = Number(dimensions?.baseTop || 0);
+        const scaledWidth = pageWidth * scale;
+        const scaledHeight = pageHeight * scale;
+
+        if (scale < 1 - EPSILON) {
+            const centeredX = ((viewportWidth - scaledWidth) / 2) - baseLeft;
+            return { minX: centeredX, maxX: centeredX, minY: 0, maxY: 0 };
+        }
+        if (Math.abs(scale - 1) <= EPSILON) {
+            return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+        }
+
+        const minX = Math.min(0, viewportWidth - scaledWidth - baseLeft);
+        const maxX = Math.max(0, -baseLeft);
+        const minY = Math.min(0, viewportHeight - scaledHeight - baseTop);
+        const maxY = Math.max(0, -baseTop);
+        return { minX, maxX, minY, maxY };
     }
 
     function clampPan(state, dimensions) {
         const scale = clampScale(state?.scale);
-        if (scale <= MIN_SCALE + EPSILON) return { scale: MIN_SCALE, x: 0, y: 0 };
-
-        const viewportWidth = Math.max(0, Number(dimensions?.viewportWidth || 0));
-        const viewportHeight = Math.max(0, Number(dimensions?.viewportHeight || 0));
-        const contentWidth = Math.max(0, Number(dimensions?.contentWidth || viewportWidth));
-        const contentHeight = Math.max(0, Number(dimensions?.contentHeight || viewportHeight));
-        const minimumX = Math.min(0, viewportWidth - (contentWidth * scale));
-        const minimumY = Math.min(0, viewportHeight - (contentHeight * scale));
+        const bounds = panBounds(scale, dimensions);
         return {
             scale,
-            x: clamp(Number(state?.x || 0), minimumX, 0),
-            y: clamp(Number(state?.y || 0), minimumY, 0),
+            x: clamp(Number(state?.x || 0), bounds.minX, bounds.maxX),
+            y: clamp(Number(state?.y || 0), bounds.minY, bounds.maxY),
         };
     }
 
@@ -105,17 +121,21 @@
     function zoomStateAtPoint(state, nextScale, point, dimensions) {
         const current = clampPan(state || initialState(), dimensions);
         const scale = clampScale(nextScale);
-        if (scale <= MIN_SCALE + EPSILON) return initialState();
+        if (Math.abs(scale - 1) <= EPSILON) return initialState();
         if (Math.abs(scale - current.scale) <= EPSILON) return current;
+
+        if (scale < 1) return clampPan({ scale, x: 0, y: 0 }, dimensions);
 
         const pointX = Number(point?.x || 0);
         const pointY = Number(point?.y || 0);
-        const contentX = (pointX - current.x) / current.scale;
-        const contentY = (pointY - current.y) / current.scale;
+        const baseLeft = Number(dimensions?.baseLeft || 0);
+        const baseTop = Number(dimensions?.baseTop || 0);
+        const contentX = (pointX - baseLeft - current.x) / current.scale;
+        const contentY = (pointY - baseTop - current.y) / current.scale;
         return clampPan({
             scale,
-            x: pointX - (contentX * scale),
-            y: pointY - (contentY * scale),
+            x: pointX - baseLeft - (contentX * scale),
+            y: pointY - baseTop - (contentY * scale),
         }, dimensions);
     }
 
@@ -127,44 +147,10 @@
         return delta;
     }
 
-    function pageForTarget(target) {
-        if (!target || typeof target.closest !== 'function') return null;
-        return target.closest(PAGE_SELECTOR);
-    }
-
-    function childElements(page) {
-        return Array.from(page?.children || []);
-    }
-
-    function createFallbackSurface(page) {
-        if (!page?.ownerDocument?.createElement || typeof page.insertBefore !== 'function') return null;
-        const existing = page.querySelector?.(FALLBACK_SURFACE_SELECTOR);
-        if (existing) return existing;
-
-        const content = childElements(page).filter((child) => (
-            !child?.matches?.(LABEL_SELECTOR)
-            && !child?.classList?.contains(BADGE_CLASS)
-        ));
-        if (!content.length) return null;
-
-        const surface = page.ownerDocument.createElement('div');
-        surface.className = 'reader-v2-page-zoom-surface';
-        surface.dataset.readerZoomSurface = 'fallback';
-        page.insertBefore(surface, content[0]);
-        for (const child of content) surface.appendChild(child);
-        return surface;
-    }
-
-    function surfaceForPage(page) {
-        if (!page || typeof page.querySelector !== 'function') return null;
-        return page.querySelector(SEMANTIC_SHELL_SELECTOR)
-            || page.querySelector(FALLBACK_SURFACE_SELECTOR)
-            || createFallbackSurface(page);
-    }
-
-    // Backward-compatible alias: it now returns either the semantic shell or a fallback surface.
-    function shellForPage(page) {
-        return surfaceForPage(page);
+    function shrinkLayoutOffset(pageHeight, scaleValue) {
+        const scale = clampScale(scaleValue);
+        if (scale >= 1) return 0;
+        return -Math.max(0, Number(pageHeight || 0)) * (1 - scale);
     }
 
     function addClass(element, className) {
@@ -175,65 +161,38 @@
         if (element?.classList?.remove) element.classList.remove(className);
     }
 
-    function ensureBadge(page) {
-        if (!page?.ownerDocument?.createElement) return null;
-        const existing = childElements(page).find((child) => child?.classList?.contains(BADGE_CLASS));
-        if (existing) return existing;
-        const badge = page.ownerDocument.createElement('div');
-        badge.className = BADGE_CLASS;
-        badge.setAttribute?.('aria-hidden', 'true');
-        badge.hidden = true;
-        page.appendChild(badge);
-        return badge;
-    }
-
-    function updateBadge(page, scale) {
-        const badge = ensureBadge(page);
-        if (!badge) return;
-        if (scale <= MIN_SCALE + EPSILON) {
-            badge.hidden = true;
-            badge.textContent = '';
-            return;
-        }
-        badge.hidden = false;
-        badge.textContent = `${Math.round(scale * 100)}%`;
-    }
-
-    function applyState(page, surface, nextState) {
-        if (!page || !surface) return initialState();
-        const state = {
+    function applyState(page, nextState) {
+        if (!page) return initialState();
+        const dimensions = dimensionsFor(page, stateForPage(page));
+        let state = clampPan({
             scale: clampScale(nextState?.scale),
             x: Number(nextState?.x || 0),
             y: Number(nextState?.y || 0),
-        };
-        addClass(page, 'reader-v2-page--zoom-capable');
-        if (state.scale <= MIN_SCALE + EPSILON) {
-            state.scale = MIN_SCALE;
-            state.x = 0;
-            state.y = 0;
-            surface.style.transform = '';
-            surface.style.transformOrigin = '';
-            delete page.dataset.readerZoomScale;
-            removeClass(page, 'reader-v2-page--zoomed');
-        } else {
-            surface.style.transformOrigin = '0 0';
-            surface.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`;
-            page.dataset.readerZoomScale = state.scale.toFixed(3);
-            addClass(page, 'reader-v2-page--zoomed');
-        }
-        updateBadge(page, state.scale);
-        stateBySurface.set(surface, state);
-        return state;
-    }
+        }, dimensions);
 
-    function pointerPointForSurface(event, surface, state) {
-        const rect = surface?.getBoundingClientRect?.() || {};
-        const baseLeft = Number(rect.left || 0) - Number(state?.x || 0);
-        const baseTop = Number(rect.top || 0) - Number(state?.y || 0);
-        return {
-            x: Number(event?.clientX || 0) - baseLeft,
-            y: Number(event?.clientY || 0) - baseTop,
-        };
+        if (Math.abs(state.scale - 1) <= EPSILON) state = initialState();
+
+        page.style.transformOrigin = '0 0';
+        page.style.transform = state.scale === 1
+            ? ''
+            : `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`;
+        const layoutOffset = shrinkLayoutOffset(dimensions.pageHeight, state.scale);
+        page.style.marginBottom = layoutOffset ? `${layoutOffset}px` : '';
+        page.dataset.readerZoomScale = state.scale.toFixed(3);
+
+        if (state.scale > 1 + EPSILON) {
+            addClass(page, 'reader-v2-page--zoomed-in');
+            removeClass(page, 'reader-v2-page--zoomed-out');
+        } else if (state.scale < 1 - EPSILON) {
+            addClass(page, 'reader-v2-page--zoomed-out');
+            removeClass(page, 'reader-v2-page--zoomed-in');
+        } else {
+            removeClass(page, 'reader-v2-page--zoomed-in');
+            removeClass(page, 'reader-v2-page--zoomed-out');
+        }
+        addClass(page, 'reader-v2-page--zoom-capable');
+        stateByPage.set(page, state);
+        return state;
     }
 
     function install(rootObject) {
@@ -247,34 +206,33 @@
         container.addEventListener('wheel', (event) => {
             const page = pageForTarget(event.target);
             if (!page) return;
-            const surface = surfaceForPage(page);
-            if (!surface) return;
-
-            const dimensions = dimensionsFor(page, surface);
-            const state = stateForSurface(surface);
+            const state = stateForPage(page);
+            const dimensions = dimensionsFor(page, state);
             const delta = normalizeWheelDelta(event, dimensions.viewportHeight);
             const nextScale = scaleFromWheelDelta(state.scale, delta);
             if (Math.abs(nextScale - state.scale) <= EPSILON) return;
 
             event.preventDefault();
-            const point = pointerPointForSurface(event, surface, state);
-            applyState(page, surface, zoomStateAtPoint(state, nextScale, point, dimensions));
+            const viewport = dimensions.viewport || viewportForPage(page);
+            const viewportRect = viewport?.getBoundingClientRect?.() || {};
+            const point = {
+                x: Number(event.clientX) - Number(viewportRect.left || 0),
+                y: Number(event.clientY) - Number(viewportRect.top || 0),
+            };
+            applyState(page, zoomStateAtPoint(state, nextScale, point, dimensions));
         }, { passive: false });
 
         container.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
             const page = pageForTarget(event.target);
             if (!page) return;
-            const surface = surfaceForPage(page);
-            if (!surface) return;
-            const state = clampPan(stateForSurface(surface), dimensionsFor(page, surface));
-            if (state.scale <= MIN_SCALE + EPSILON) return;
+            const state = clampPan(stateForPage(page), dimensionsFor(page, stateForPage(page)));
+            if (state.scale <= 1 + EPSILON) return;
 
             event.preventDefault();
             drag = {
                 pointerId: event.pointerId,
                 page,
-                surface,
                 startClientX: Number(event.clientX),
                 startClientY: Number(event.clientY),
                 startX: state.x,
@@ -282,18 +240,19 @@
                 scale: state.scale,
             };
             addClass(page, 'reader-v2-page--zoom-dragging');
-            try { surface.setPointerCapture?.(event.pointerId); } catch (_) { /* optional */ }
+            try { page.setPointerCapture?.(event.pointerId); } catch (_) { /* optional */ }
         });
 
         container.addEventListener('pointermove', (event) => {
             if (!drag || event.pointerId !== drag.pointerId) return;
             event.preventDefault();
+            const dimensions = dimensionsFor(drag.page, stateForPage(drag.page));
             const next = clampPan({
                 scale: drag.scale,
                 x: drag.startX + (Number(event.clientX) - drag.startClientX),
                 y: drag.startY + (Number(event.clientY) - drag.startClientY),
-            }, dimensionsFor(drag.page, drag.surface));
-            applyState(drag.page, drag.surface, next);
+            }, dimensions);
+            applyState(drag.page, next);
         });
 
         function finishDrag(event) {
@@ -301,7 +260,7 @@
             const active = drag;
             drag = null;
             removeClass(active.page, 'reader-v2-page--zoom-dragging');
-            try { active.surface.releasePointerCapture?.(active.pointerId); } catch (_) { /* optional */ }
+            try { active.page.releasePointerCapture?.(active.pointerId); } catch (_) { /* optional */ }
         }
 
         container.addEventListener('pointerup', finishDrag);
@@ -309,7 +268,7 @@
         container.addEventListener('lostpointercapture', finishDrag);
         container.addEventListener('dragstart', (event) => {
             const page = pageForTarget(event.target);
-            if (page?.classList?.contains('reader-v2-page--zoomed')) event.preventDefault();
+            if (page?.classList?.contains('reader-v2-page--zoomed-in')) event.preventDefault();
         });
 
         Object.defineProperty(container, '__readerPageZoomPanInstalled', {
@@ -333,35 +292,28 @@
     }
 
     return {
-        BADGE_CLASS,
-        FALLBACK_SURFACE_SELECTOR,
         INSTALL_RETRY_MS,
         INSTALL_TIMEOUT_MS,
-        LABEL_SELECTOR,
         MAX_SCALE,
         MIN_SCALE,
         PAGE_SELECTOR,
-        SEMANTIC_SHELL_SELECTOR,
-        SHELL_SELECTOR: SEMANTIC_SHELL_SELECTOR,
+        VIEWPORT_SELECTOR,
         WHEEL_SENSITIVITY,
         applyState,
         clamp,
         clampPan,
         clampScale,
-        createFallbackSurface,
         dimensionsFor,
         initialState,
         install,
         normalizeWheelDelta,
         pageForTarget,
-        pointerPointForSurface,
+        panBounds,
         scaleFromWheelDelta,
         scheduleInstall,
-        shellForPage,
-        stateForShell,
-        stateForSurface,
-        surfaceForPage,
-        updateBadge,
+        shrinkLayoutOffset,
+        stateForPage,
+        viewportForPage,
         zoomStateAtPoint,
     };
 });

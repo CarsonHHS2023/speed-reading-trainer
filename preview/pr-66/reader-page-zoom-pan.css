@@ -1,5 +1,8 @@
-.reader-v2-page-zoom-surface,
-.reader-v2-semantic-page-shell {
+.reader-v2-main {
+    overflow-x: hidden;
+}
+
+.reader-v2-page {
     transform-origin: 0 0;
 }
 
@@ -7,41 +10,18 @@
     position: relative;
 }
 
-.reader-v2-page--zoomed {
-    overflow: hidden;
+.reader-v2-page--zoomed-in {
+    z-index: 30;
     cursor: grab;
     user-select: none;
+    will-change: transform;
 }
 
-.reader-v2-page--zoomed .reader-v2-page-zoom-surface,
-.reader-v2-page--zoomed .reader-v2-semantic-page-shell {
+.reader-v2-page--zoomed-out {
     will-change: transform;
 }
 
 .reader-v2-page--zoom-dragging,
 .reader-v2-page--zoom-dragging * {
     cursor: grabbing !important;
-}
-
-.reader-v2-page-zoom-surface {
-    box-sizing: border-box;
-    width: 100%;
-}
-
-.reader-v2-page-zoom-badge {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 50;
-    padding: 3px 7px;
-    border-radius: 999px;
-    background: rgba(17, 24, 39, .78);
-    color: #fff;
-    font: 600 11px/1.3 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    pointer-events: none;
-    user-select: none;
-}
-
-.reader-v2-page-zoom-badge[hidden] {
-    display: none !important;
 }
