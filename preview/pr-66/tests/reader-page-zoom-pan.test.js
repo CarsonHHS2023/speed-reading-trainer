@@ -5,98 +5,66 @@ const fs = require('node:fs');
 const ZoomPan = require('../reader-page-zoom-pan.js');
 
 const dims = {
-  viewportWidth: 800,
-  viewportHeight: 600,
-  contentWidth: 800,
-  contentHeight: 600,
+  viewportWidth: 1200,
+  viewportHeight: 800,
+  pageWidth: 900,
+  pageHeight: 1000,
+  baseLeft: 150,
+  baseTop: 100,
 };
 
-function fakeElement(className = '') {
-  const node = {
-    className,
-    children: [],
-    dataset: {},
-    style: {},
-    parentNode: null,
-    hidden: false,
-    textContent: '',
-  };
-  const classes = () => new Set(String(node.className || '').split(/\s+/).filter(Boolean));
-  node.classList = {
-    contains(value) { return classes().has(value); },
-    add(value) { const next = classes(); next.add(value); node.className = [...next].join(' '); },
-    remove(value) { const next = classes(); next.delete(value); node.className = [...next].join(' '); },
-  };
-  node.matches = (selector) => selector.startsWith('.') && node.classList.contains(selector.slice(1));
-  node.appendChild = (child) => {
-    if (child.parentNode) {
-      const index = child.parentNode.children.indexOf(child);
-      if (index >= 0) child.parentNode.children.splice(index, 1);
-    }
-    node.children.push(child);
-    child.parentNode = node;
-    return child;
-  };
-  node.insertBefore = (child, reference) => {
-    if (child.parentNode) {
-      const oldIndex = child.parentNode.children.indexOf(child);
-      if (oldIndex >= 0) child.parentNode.children.splice(oldIndex, 1);
-    }
-    const index = node.children.indexOf(reference);
-    node.children.splice(index < 0 ? node.children.length : index, 0, child);
-    child.parentNode = node;
-    return child;
-  };
-  node.querySelector = (selector) => {
-    for (const child of node.children) {
-      if (child.matches?.(selector)) return child;
-      const nested = child.querySelector?.(selector);
-      if (nested) return nested;
-    }
-    return null;
-  };
-  node.setAttribute = () => {};
-  return node;
-}
-
-test('wheel zoom is bounded between 100% and 400%', () => {
-  assert.equal(ZoomPan.clampScale(0.25), 1);
+test('wheel zoom is bounded between 50% and 400%', () => {
+  assert.equal(ZoomPan.clampScale(0.25), 0.5);
   assert.equal(ZoomPan.clampScale(8), 4);
   assert.ok(ZoomPan.scaleFromWheelDelta(1, -120) > 1);
-  assert.ok(ZoomPan.scaleFromWheelDelta(2, 120) < 2);
+  assert.ok(ZoomPan.scaleFromWheelDelta(1, 120) < 1);
   assert.equal(ZoomPan.scaleFromWheelDelta(4, -5000), 4);
-  assert.equal(ZoomPan.scaleFromWheelDelta(1, 5000), 1);
+  assert.equal(ZoomPan.scaleFromWheelDelta(0.5, 5000), 0.5);
 });
 
-test('zoom keeps the pointer-anchored content point stationary', () => {
+test('zoomed-out whole page is centered in the Reader main viewport', () => {
+  assert.deepEqual(
+    ZoomPan.clampPan({ scale: 0.5, x: 0, y: 0 }, dims),
+    { scale: 0.5, x: 225, y: 0 },
+  );
+  assert.equal(ZoomPan.shrinkLayoutOffset(1000, 0.5), -500);
+  assert.equal(ZoomPan.shrinkLayoutOffset(1000, 1), 0);
+  assert.equal(ZoomPan.shrinkLayoutOffset(1000, 2), 0);
+});
+
+test('zoom keeps the pointer-anchored content point stationary when enlarging', () => {
   const next = ZoomPan.zoomStateAtPoint(
     { scale: 1, x: 0, y: 0 },
     2,
     { x: 400, y: 300 },
     dims,
   );
-  assert.deepEqual(next, { scale: 2, x: -400, y: -300 });
+  assert.deepEqual(next, { scale: 2, x: -250, y: -200 });
 
-  const beforeContentX = (400 - 0) / 1;
-  const beforeContentY = (300 - 0) / 1;
-  const afterContentX = (400 - next.x) / next.scale;
-  const afterContentY = (300 - next.y) / next.scale;
+  const beforeContentX = (400 - dims.baseLeft) / 1;
+  const beforeContentY = (300 - dims.baseTop) / 1;
+  const afterContentX = (400 - dims.baseLeft - next.x) / next.scale;
+  const afterContentY = (300 - dims.baseTop - next.y) / next.scale;
   assert.equal(afterContentX, beforeContentX);
   assert.equal(afterContentY, beforeContentY);
 });
 
-test('pan is clamped so a zoomed page cannot be dragged completely out of view', () => {
+test('enlarged page pans against the whole red Reader viewport rather than its own green frame', () => {
+  assert.deepEqual(
+    ZoomPan.panBounds(2, dims),
+    { minX: -750, maxX: 0, minY: -1300, maxY: 0 },
+  );
   assert.deepEqual(
     ZoomPan.clampPan({ scale: 2, x: 500, y: 500 }, dims),
     { scale: 2, x: 0, y: 0 },
   );
   assert.deepEqual(
     ZoomPan.clampPan({ scale: 2, x: -5000, y: -5000 }, dims),
-    { scale: 2, x: -800, y: -600 },
+    { scale: 2, x: -750, y: -1300 },
   );
 });
 
-test('returning to 100% resets pan to the canonical origin', () => {
+test('returning to 100% restores the canonical page frame and position', () => {
   assert.deepEqual(
     ZoomPan.zoomStateAtPoint(
       { scale: 2, x: -300, y: -200 },
@@ -108,29 +76,9 @@ test('returning to 100% resets pan to the canonical origin', () => {
   );
 });
 
-test('all Reader pages are eligible and legacy-rendered content gets a fallback zoom surface', () => {
+test('all Reader page frames are eligible and the main panel is the viewport', () => {
   assert.equal(ZoomPan.PAGE_SELECTOR, '.reader-v2-page');
-  const page = fakeElement('reader-v2-page reader-v2-page-semantic_full_page');
-  page.ownerDocument = { createElement: () => fakeElement() };
-  const label = fakeElement('reader-v2-page-label');
-  const legacyAsset = fakeElement('reader-v2-asset');
-  page.appendChild(label);
-  page.appendChild(legacyAsset);
-
-  const surface = ZoomPan.surfaceForPage(page);
-  assert.ok(surface);
-  assert.equal(surface.className, 'reader-v2-page-zoom-surface');
-  assert.equal(surface.dataset.readerZoomSurface, 'fallback');
-  assert.equal(page.children[0], label);
-  assert.equal(page.children[1], surface);
-  assert.equal(surface.children[0], legacyAsset);
-});
-
-test('semantic shell remains the preferred zoom surface when available', () => {
-  const page = fakeElement('reader-v2-page');
-  const shell = fakeElement('reader-v2-semantic-page-shell');
-  page.appendChild(shell);
-  assert.equal(ZoomPan.surfaceForPage(page), shell);
+  assert.equal(ZoomPan.VIEWPORT_SELECTOR, '.reader-v2-main');
 });
 
 test('page zoom assets are loaded by the Reader page and included in syntax checks', () => {
@@ -143,11 +91,11 @@ test('page zoom assets are loaded by the Reader page and included in syntax chec
   assert.match(packageJson.scripts.check, /node --check reader-page-zoom-pan\.js/);
 });
 
-test('zoom interaction CSS supports semantic and fallback surfaces plus grab states', () => {
+test('zoom interaction CSS transforms the complete page frame and keeps the red Reader panel as viewport', () => {
   const css = fs.readFileSync('reader-page-zoom-pan.css', 'utf8');
-  assert.match(css, /reader-v2-page--zoomed[^}]*cursor:\s*grab/s);
+  assert.match(css, /\.reader-v2-main\s*\{[^}]*overflow-x:\s*hidden/s);
+  assert.match(css, /\.reader-v2-page\s*\{[^}]*transform-origin:\s*0 0/s);
+  assert.match(css, /reader-v2-page--zoomed-in[^}]*cursor:\s*grab/s);
   assert.match(css, /reader-v2-page--zoom-dragging[^}]*cursor:\s*grabbing\s*!important/s);
-  assert.match(css, /reader-v2-semantic-page-shell[^}]*transform-origin:\s*0 0/s);
-  assert.match(css, /reader-v2-page-zoom-surface[^}]*transform-origin:\s*0 0/s);
-  assert.match(css, /reader-v2-page-zoom-badge[^}]*position:\s*absolute/s);
+  assert.doesNotMatch(css, /reader-v2-page-zoom-surface/);
 });
