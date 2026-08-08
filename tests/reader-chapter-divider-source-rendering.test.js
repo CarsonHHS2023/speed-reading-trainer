@@ -46,6 +46,30 @@ test('recognizes explicit full-page presentation source roles and rejects ordina
   })), false);
 });
 
+test('recovers source-rendering asset_refs only for authoritative skipped presentation images', () => {
+  const projected = carrier('back_cover', {
+    asset_refs: ['back-cover-source'],
+    metadata: {
+      page_kind: 'back_cover',
+      presentation_mode: 'source_rendering',
+      ocr_route: 'skipped_presentation_image',
+    },
+  });
+  assert.equal(SourceRendering.sourceRenderingAssetId(projected), 'back-cover-source');
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(projected), true);
+
+  const ordinary = carrier('back_cover', {
+    asset_refs: ['ordinary-figure'],
+    metadata: {
+      page_kind: 'back_cover',
+      presentation_mode: 'source_rendering',
+      ocr_route: 'ordinary_ocr',
+    },
+  });
+  assert.equal(SourceRendering.sourceRenderingAssetId(ordinary), '');
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(ordinary), false);
+});
+
 test('keeps the chapter-divider compatibility alias scoped to chapter dividers', () => {
   assert.equal(SourceRendering.isChapterDividerSourceRenderingNode(carrier('chapter_divider')), true);
   assert.equal(SourceRendering.isChapterDividerSourceRenderingNode(carrier('title_page')), false);
@@ -97,6 +121,35 @@ test('finds a presentation carrier by physical page identity even when it is not
   };
 
   assert.equal(SourceRendering.sourceRenderingCarrier(page, [sourceCarrier]), sourceCarrier);
+});
+
+test('finds back-cover source carrier in semantic page elements when page.nodes omits it', () => {
+  const projectedCarrier = carrier('back_cover', {
+    asset_refs: ['back-cover-source'],
+    metadata: {
+      page_kind: 'back_cover',
+      presentation_mode: 'source_rendering',
+      ocr_route: 'skipped_presentation_image',
+    },
+  });
+  const page = {
+    presentation_id: 'semantic-page:back-cover',
+    source_unit_id: 'pdf-page:000011',
+    source_order: 10,
+    nodes: [{ node_id: 'back-cover-text', node_type: 'paragraph', text: 'OCR sibling' }],
+    elements: [
+      { element_id: 'back-cover-rendering', node_id: projectedCarrier.node_id, node: projectedCarrier },
+      { element_id: 'ocr-text', node_id: 'back-cover-text' },
+    ],
+  };
+
+  assert.equal(SourceRendering.sourceRenderingCarrier(page, []), projectedCarrier);
+  const result = SourceRendering.sourceRenderingCompatibilityPage(page, projectedCarrier);
+  assert.equal(result.presentation_actual_page_kind, 'back_cover');
+  assert.equal(result.nodes.length, 1);
+  assert.equal(result.elements.length, 0);
+  assert.deepEqual(result.nodes[0].asset_refs, ['back-cover-source']);
+  assert.equal(result.nodes[0].metadata.source_rendering_asset_id, 'back-cover-source');
 });
 
 test('installed wrapper feeds all supported presentation pages through Cover layout and restores canonical state', () => {
