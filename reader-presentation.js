@@ -289,6 +289,11 @@
 
     ensureStylesheet('reader-semantic-page.css');
     loadScriptOnce('reader-semantic-page.js', () => Boolean(root.ReaderSemanticPageV2))
+        .then(() => loadScriptOnce(
+            'reader-semantic-layout-harmonizer.js',
+            () => Boolean(root.ReaderSemanticLayoutHarmonizerV2),
+        ))
+        .then(() => root.ReaderSemanticLayoutHarmonizerV2.install({ root }))
         .then(() => waitForReady(() => Boolean(root.ReaderUIV2?.ReaderV2Controller)))
         .then(() => loadScriptOnce(
             'reader-semantic-page-integration.js',
