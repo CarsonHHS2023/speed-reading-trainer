@@ -33,6 +33,8 @@ jobs:
               "reader-page-zoom-pan.css",
               "reader-page-zoom-pan.js",
               "reader-debug-toolbar.js",
+              "reader-presentation.js",
+              "reader-semantic-layout-refinement.js",
           ):
               text = text.replace(asset, f"{asset}?v={sha}")
           marker = f'<meta name="reader-preview-head" content="{sha}">' 
@@ -61,10 +63,14 @@ jobs:
           for attempt in $(seq 1 40); do
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
             js="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
-              && [[ "${js}" == *"恢复到100%"* ]]; then
+              && [[ "${js}" == *"恢复到100%"* ]] \
+              && [[ "${refinement}" == *"BODY_FONT_PX = 18"* ]] \
+              && [[ "${refinement}" == *"pairInlineRows"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
