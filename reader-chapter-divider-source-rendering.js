@@ -2,13 +2,21 @@
     const api = factory();
     if (typeof module === 'object' && module.exports) module.exports = api;
     if (root) {
+        // Keep the historical global/file name for loader compatibility. The module now
+        // handles every explicit non-cover full-page source-rendering presentation role.
         root.ReaderChapterDividerSourceRenderingV2 = api;
         if (root.document) api.scheduleInstall(root);
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const PAGE_KIND = 'chapter_divider';
+    const FULL_PAGE_SOURCE_KINDS = new Set([
+        'title_page',
+        'back_cover',
+        'chapter_divider',
+        'full_page_figure',
+        'full_page_chart',
+    ]);
     const PRESENTATION_MODE = 'source_rendering';
     const INSTALL_RETRY_MS = 25;
     const INSTALL_TIMEOUT_MS = 10000;
@@ -22,11 +30,17 @@
         ).trim().toLowerCase();
     }
 
-    function isChapterDividerSourceRenderingNode(node) {
+    function isFullPageSourceRenderingNode(node) {
         const metadata = node?.metadata || {};
-        return normalizedPageKind(node) === PAGE_KIND
+        return FULL_PAGE_SOURCE_KINDS.has(normalizedPageKind(node))
             && metadata.presentation_mode === PRESENTATION_MODE
             && Boolean(String(metadata.source_rendering_asset_id || '').trim());
+    }
+
+    // Backward-compatible alias retained for existing tests/callers from the first Preview cut.
+    function isChapterDividerSourceRenderingNode(node) {
+        return normalizedPageKind(node) === 'chapter_divider'
+            && isFullPageSourceRenderingNode(node);
     }
 
     function nodeSourceUnitIds(node) {
@@ -50,25 +64,32 @@
         return typeof value === 'string' && value.trim() ? value.trim() : null;
     }
 
-    function chapterDividerCarrier(page, documentNodes = []) {
-        const direct = (page?.nodes || []).find(isChapterDividerSourceRenderingNode);
+    function sourceRenderingCarrier(page, documentNodes = []) {
+        const direct = (page?.nodes || []).find(isFullPageSourceRenderingNode);
         if (direct) return direct;
         const sourceUnitId = pageSourceUnitId(page);
         if (!sourceUnitId) return null;
         return (documentNodes || []).find((node) => (
-            isChapterDividerSourceRenderingNode(node)
+            isFullPageSourceRenderingNode(node)
             && nodeSourceUnitIds(node).has(sourceUnitId)
         )) || null;
     }
 
-    function chapterDividerCompatibilityPage(page, carrier) {
-        if (!page || !carrier || !isChapterDividerSourceRenderingNode(carrier)) return page;
+    function chapterDividerCarrier(page, documentNodes = []) {
+        const carrier = sourceRenderingCarrier(page, documentNodes);
+        return carrier && normalizedPageKind(carrier) === 'chapter_divider' ? carrier : null;
+    }
+
+    function sourceRenderingCompatibilityPage(page, carrier) {
+        if (!page || !carrier || !isFullPageSourceRenderingNode(carrier)) return page;
+        const pageKind = normalizedPageKind(carrier);
         const assetId = String(carrier.metadata.source_rendering_asset_id).trim();
         const compatibilityCarrier = {
             ...carrier,
             metadata: {
                 ...(carrier.metadata || {}),
-                presentation_actual_page_kind: PAGE_KIND,
+                presentation_actual_page_kind: pageKind,
+                // Reuse the production Cover renderer without changing canonical metadata.
                 page_kind: 'cover',
                 presentation_mode: PRESENTATION_MODE,
             },
@@ -77,11 +98,17 @@
         return {
             ...page,
             page_kind: 'cover',
-            presentation_actual_page_kind: PAGE_KIND,
+            presentation_actual_page_kind: pageKind,
             presentation_mode: PRESENTATION_MODE,
             nodes: [compatibilityCarrier],
+            // Let the existing Cover integration derive exactly one [0,0,1,1] source asset.
             elements: [],
         };
+    }
+
+    function chapterDividerCompatibilityPage(page, carrier) {
+        if (!carrier || normalizedPageKind(carrier) !== 'chapter_divider') return page;
+        return sourceRenderingCompatibilityPage(page, carrier);
     }
 
     function addClass(element, className) {
@@ -95,18 +122,20 @@
         element.className = [...classes].join(' ');
     }
 
-    function decorateRenderedPage(controller, page) {
+    function decorateRenderedPage(controller, page, pageKind = null) {
         const container = controller?.element?.('readerV2Pages');
         const presentationId = String(page?.presentation_id || '');
-        if (!container || !presentationId) return;
+        const resolvedKind = String(pageKind || page?.presentation_actual_page_kind || '').trim().toLowerCase();
+        if (!container || !presentationId || !FULL_PAGE_SOURCE_KINDS.has(resolvedKind)) return;
         const children = Array.from(container.children || []);
         const section = children.find((child) => (
             String(child?.dataset?.presentationId || '') === presentationId
         ));
         if (!section) return;
-        addClass(section, 'reader-v2-page--chapter-divider-source-rendering');
-        section.dataset.pageKind = PAGE_KIND;
-        section.dataset.presentationActualPageKind = PAGE_KIND;
+        addClass(section, 'reader-v2-page--presentation-source-rendering');
+        addClass(section, `reader-v2-page--${resolvedKind}-source-rendering`);
+        section.dataset.pageKind = resolvedKind;
+        section.dataset.presentationActualPageKind = resolvedKind;
     }
 
     function install(rootObject) {
@@ -116,12 +145,12 @@
         if (!prototype || !integration?.installSemanticPageIntegration) return false;
 
         integration.installSemanticPageIntegration();
-        if (prototype.__chapterDividerSourceRenderingInstalled) return true;
+        if (prototype.__presentationSourceFullPageInstalled) return true;
 
         const legacyRenderPages = prototype.renderPages;
         if (typeof legacyRenderPages !== 'function') return false;
 
-        prototype.renderPages = function renderPagesWithFullPageChapterDivider() {
+        prototype.renderPages = function renderPagesWithFullPagePresentationSources() {
             const originalState = this.presentationState;
             const originalPages = originalState?.pages || [];
             const transformed = [];
@@ -129,13 +158,14 @@
             let changed = false;
 
             for (const page of originalPages) {
-                const carrier = chapterDividerCarrier(page, this.nodes || []);
+                const carrier = sourceRenderingCarrier(page, this.nodes || []);
                 if (!carrier) {
                     transformed.push(page);
                     continue;
                 }
-                transformed.push(chapterDividerCompatibilityPage(page, carrier));
-                decorated.push(page);
+                const pageKind = normalizedPageKind(carrier);
+                transformed.push(sourceRenderingCompatibilityPage(page, carrier));
+                decorated.push({ page, pageKind });
                 changed = true;
             }
 
@@ -144,14 +174,14 @@
             this.presentationState = { ...originalState, pages: transformed };
             try {
                 const result = legacyRenderPages.call(this);
-                for (const page of decorated) decorateRenderedPage(this, page);
+                for (const item of decorated) decorateRenderedPage(this, item.page, item.pageKind);
                 return result;
             } finally {
                 this.presentationState = originalState;
             }
         };
 
-        Object.defineProperty(prototype, '__chapterDividerSourceRenderingInstalled', {
+        Object.defineProperty(prototype, '__presentationSourceFullPageInstalled', {
             configurable: false,
             enumerable: false,
             writable: false,
@@ -172,18 +202,21 @@
     }
 
     return {
+        FULL_PAGE_SOURCE_KINDS,
         INSTALL_RETRY_MS,
         INSTALL_TIMEOUT_MS,
-        PAGE_KIND,
         PRESENTATION_MODE,
         chapterDividerCarrier,
         chapterDividerCompatibilityPage,
         decorateRenderedPage,
         install,
         isChapterDividerSourceRenderingNode,
+        isFullPageSourceRenderingNode,
         nodeSourceUnitIds,
         normalizedPageKind,
         pageSourceUnitId,
         scheduleInstall,
+        sourceRenderingCarrier,
+        sourceRenderingCompatibilityPage,
     };
 });
