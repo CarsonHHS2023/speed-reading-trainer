@@ -87,21 +87,40 @@
     height: 28px;
     min-width: 28px;
     padding: 0;
-    border: 1px solid rgba(120, 125, 145, .34);
+    border: 1px solid rgba(255, 255, 255, .30);
     border-radius: 6px;
-    background: rgba(255, 255, 255, .9);
-    color: inherit;
+    background: rgba(255, 255, 255, .16);
+    color: rgba(255, 255, 255, .96);
     cursor: pointer;
     line-height: 1;
 }
 
+.reader-booklist-playback-controls button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, .26);
+}
+
 .reader-booklist-playback-controls button:disabled {
-    opacity: .38;
+    opacity: 1;
+    border-color: rgba(255, 255, 255, .10);
+    background: rgba(255, 255, 255, .05);
+    color: rgba(255, 255, 255, .32);
     cursor: default;
 }
 
 .reader-booklist-playback-controls .reading-toggle-btn {
     margin: 0;
+}
+
+.reader-booklist-playback-controls .reading-toggle-btn:not(:disabled) {
+    border-color: rgba(255, 255, 255, .52);
+    background: rgba(255, 255, 255, .30);
+    color: #fff;
+}
+
+.reader-booklist-playback-controls .reading-toggle-btn.active:not(:disabled) {
+    border-color: rgba(255, 190, 190, .68);
+    background: rgba(255, 105, 105, .42);
+    color: #fff;
 }
 
 .speed-reading-v2-toolbar-compat {
@@ -113,9 +132,16 @@
 }
 
 body.dark-mode .reader-booklist-playback-controls button {
-    border-color: rgba(255, 255, 255, .18);
-    background: rgba(48, 48, 48, .9);
-    color: #eee;
+    border-color: rgba(255, 255, 255, .24);
+    background: rgba(255, 255, 255, .12);
+    color: rgba(255, 255, 255, .94);
+}
+
+body.dark-mode .reader-booklist-playback-controls button:disabled {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .04);
+    color: rgba(255, 255, 255, .28);
 }
 
 .reader-debug-tool-button:disabled {
