@@ -2,17 +2,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const ChapterDivider = require('../reader-chapter-divider-source-rendering.js');
+const SourceRendering = require('../reader-chapter-divider-source-rendering.js');
 
-function carrier(overrides = {}) {
+const FULL_PAGE_KINDS = [
+  'title_page',
+  'back_cover',
+  'chapter_divider',
+  'full_page_figure',
+  'full_page_chart',
+];
+
+function carrier(pageKind = 'chapter_divider', overrides = {}) {
   return {
-    node_id: 'chapter-divider-1',
+    node_id: `${pageKind}-1`,
     node_type: 'heading',
-    text: '上篇',
+    text: pageKind,
     source_unit_ids: ['pdf-page:000008'],
     asset_refs: ['legacy-asset'],
     metadata: {
-      page_kind: 'chapter_divider',
+      page_kind: pageKind,
       presentation_mode: 'source_rendering',
       source_rendering_asset_id: 'source-page-asset',
     },
@@ -20,46 +28,61 @@ function carrier(overrides = {}) {
   };
 }
 
-test('recognizes only explicit chapter-divider source rendering carriers', () => {
-  assert.equal(ChapterDivider.isChapterDividerSourceRenderingNode(carrier()), true);
-  assert.equal(ChapterDivider.isChapterDividerSourceRenderingNode(carrier({
-    metadata: { page_kind: 'cover', presentation_mode: 'source_rendering', source_rendering_asset_id: 'a' },
+test('recognizes explicit full-page presentation source roles and rejects ordinary figures', () => {
+  for (const pageKind of FULL_PAGE_KINDS) {
+    assert.equal(
+      SourceRendering.isFullPageSourceRenderingNode(carrier(pageKind)),
+      true,
+      pageKind,
+    );
+  }
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(carrier('figure')), false);
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(carrier('paragraph')), false);
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(carrier('title_page', {
+    metadata: { page_kind: 'title_page', presentation_mode: 'semantic', source_rendering_asset_id: 'a' },
   })), false);
-  assert.equal(ChapterDivider.isChapterDividerSourceRenderingNode(carrier({
-    metadata: { page_kind: 'chapter_divider', presentation_mode: 'semantic', source_rendering_asset_id: 'a' },
+  assert.equal(SourceRendering.isFullPageSourceRenderingNode(carrier('back_cover', {
+    metadata: { page_kind: 'back_cover', presentation_mode: 'source_rendering', source_rendering_asset_id: '' },
   })), false);
 });
 
-test('converts chapter divider to the existing cover full-page renderer without losing actual page kind', () => {
-  const sourceCarrier = carrier();
-  const page = {
-    presentation_id: 'semantic-page:pdf-page:000008',
-    kind: 'semantic_full_page',
-    source_unit_id: 'pdf-page:000008',
-    source_order: 7,
-    nodes: [sourceCarrier, { node_id: 'extra-text', node_type: 'paragraph', text: 'duplicate OCR text' }],
-    elements: [{ node_id: 'chapter-divider-1' }, { node_id: 'extra-text' }],
-  };
-
-  const result = ChapterDivider.chapterDividerCompatibilityPage(page, sourceCarrier);
-
-  assert.equal(result.page_kind, 'cover');
-  assert.equal(result.presentation_actual_page_kind, 'chapter_divider');
-  assert.equal(result.presentation_mode, 'source_rendering');
-  assert.equal(result.nodes.length, 1);
-  assert.equal(result.elements.length, 0);
-  assert.equal(result.nodes[0].metadata.page_kind, 'cover');
-  assert.equal(result.nodes[0].metadata.presentation_actual_page_kind, 'chapter_divider');
-  assert.deepEqual(result.nodes[0].asset_refs, ['source-page-asset']);
-  assert.equal(page.nodes.length, 2);
-  assert.equal(sourceCarrier.metadata.page_kind, 'chapter_divider');
+test('keeps the chapter-divider compatibility alias scoped to chapter dividers', () => {
+  assert.equal(SourceRendering.isChapterDividerSourceRenderingNode(carrier('chapter_divider')), true);
+  assert.equal(SourceRendering.isChapterDividerSourceRenderingNode(carrier('title_page')), false);
 });
 
-test('finds a chapter divider carrier by physical page identity even when it is not in page.nodes', () => {
-  const sourceCarrier = carrier({
+test('converts every supported page kind to the existing Cover full-page renderer while preserving actual kind', () => {
+  for (const pageKind of FULL_PAGE_KINDS) {
+    const sourceCarrier = carrier(pageKind);
+    const page = {
+      presentation_id: `semantic-page:${pageKind}`,
+      kind: 'semantic_full_page',
+      source_unit_id: 'pdf-page:000008',
+      source_order: 7,
+      nodes: [sourceCarrier, { node_id: 'extra-text', node_type: 'paragraph', text: 'duplicate OCR text' }],
+      elements: [{ node_id: sourceCarrier.node_id }, { node_id: 'extra-text' }],
+    };
+
+    const result = SourceRendering.sourceRenderingCompatibilityPage(page, sourceCarrier);
+
+    assert.equal(result.page_kind, 'cover', pageKind);
+    assert.equal(result.presentation_actual_page_kind, pageKind, pageKind);
+    assert.equal(result.presentation_mode, 'source_rendering', pageKind);
+    assert.equal(result.nodes.length, 1, pageKind);
+    assert.equal(result.elements.length, 0, pageKind);
+    assert.equal(result.nodes[0].metadata.page_kind, 'cover', pageKind);
+    assert.equal(result.nodes[0].metadata.presentation_actual_page_kind, pageKind, pageKind);
+    assert.deepEqual(result.nodes[0].asset_refs, ['source-page-asset'], pageKind);
+    assert.equal(page.nodes.length, 2, pageKind);
+    assert.equal(sourceCarrier.metadata.page_kind, pageKind, pageKind);
+  }
+});
+
+test('finds a presentation carrier by physical page identity even when it is not in page.nodes', () => {
+  const sourceCarrier = carrier('title_page', {
     source_unit_ids: [],
     metadata: {
-      page_kind: 'chapter_divider',
+      page_kind: 'title_page',
       presentation_mode: 'source_rendering',
       source_rendering_asset_id: 'source-page-asset',
       page_fragments: [{
@@ -73,10 +96,10 @@ test('finds a chapter divider carrier by physical page identity even when it is 
     nodes: [],
   };
 
-  assert.equal(ChapterDivider.chapterDividerCarrier(page, [sourceCarrier]), sourceCarrier);
+  assert.equal(SourceRendering.sourceRenderingCarrier(page, [sourceCarrier]), sourceCarrier);
 });
 
-test('installed wrapper feeds chapter divider through full-page compatibility and restores canonical state', () => {
+test('installed wrapper feeds all supported presentation pages through Cover layout and restores canonical state', () => {
   function Controller() {}
   let observedState = null;
   Controller.prototype.renderPages = function legacyRenderPages() {
@@ -88,16 +111,53 @@ test('installed wrapper feeds chapter divider through full-page compatibility an
     ReaderUIV2: { ReaderV2Controller: Controller },
     ReaderSemanticPageIntegrationV2: { installSemanticPageIntegration() {} },
   };
-  assert.equal(ChapterDivider.install(root), true);
+  assert.equal(SourceRendering.install(root), true);
+
+  const originalPages = FULL_PAGE_KINDS.map((pageKind, index) => ({
+    presentation_id: `semantic-page:${pageKind}`,
+    kind: 'semantic_full_page',
+    source_unit_id: `pdf-page:${String(index + 1).padStart(6, '0')}`,
+    nodes: [carrier(pageKind, { source_unit_ids: [`pdf-page:${String(index + 1).padStart(6, '0')}`] })],
+    elements: [{ node_id: `${pageKind}-1` }],
+  }));
+  const originalState = { mode: 'semantic_full_page', pages: originalPages };
+  const controller = new Controller();
+  controller.nodes = originalPages.flatMap((page) => page.nodes);
+  controller.presentationState = originalState;
+  controller.element = () => null;
+
+  assert.equal(controller.renderPages(), 'rendered');
+  assert.notEqual(observedState, originalState);
+  for (let index = 0; index < FULL_PAGE_KINDS.length; index += 1) {
+    assert.equal(observedState.pages[index].nodes[0].metadata.page_kind, 'cover');
+    assert.equal(
+      observedState.pages[index].nodes[0].metadata.presentation_actual_page_kind,
+      FULL_PAGE_KINDS[index],
+    );
+  }
+  assert.equal(controller.presentationState, originalState);
+});
+
+test('ordinary semantic pages are left untouched', () => {
+  function Controller() {}
+  let observedState = null;
+  Controller.prototype.renderPages = function legacyRenderPages() {
+    observedState = this.presentationState;
+    return 'rendered';
+  };
+  const root = {
+    ReaderUIV2: { ReaderV2Controller: Controller },
+    ReaderSemanticPageIntegrationV2: { installSemanticPageIntegration() {} },
+  };
+  SourceRendering.install(root);
 
   const originalState = {
     mode: 'semantic_full_page',
     pages: [{
-      presentation_id: 'semantic-page:pdf-page:000008',
-      kind: 'semantic_full_page',
-      source_unit_id: 'pdf-page:000008',
-      nodes: [carrier()],
-      elements: [{ node_id: 'chapter-divider-1' }],
+      presentation_id: 'semantic-page:body',
+      source_unit_id: 'pdf-page:000010',
+      nodes: [carrier('figure', { source_unit_ids: ['pdf-page:000010'] })],
+      elements: [],
     }],
   };
   const controller = new Controller();
@@ -105,14 +165,11 @@ test('installed wrapper feeds chapter divider through full-page compatibility an
   controller.presentationState = originalState;
   controller.element = () => null;
 
-  assert.equal(controller.renderPages(), 'rendered');
-  assert.notEqual(observedState, originalState);
-  assert.equal(observedState.pages[0].nodes[0].metadata.page_kind, 'cover');
-  assert.equal(observedState.pages[0].nodes[0].metadata.presentation_actual_page_kind, 'chapter_divider');
-  assert.equal(controller.presentationState, originalState);
+  controller.renderPages();
+  assert.equal(observedState, originalState);
 });
 
-test('main page loads chapter-divider source rendering and syntax check includes it', () => {
+test('main page loads the presentation source-rendering compatibility module and syntax check includes it', () => {
   const html = fs.readFileSync('index.html', 'utf8');
   const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
   assert.match(html, /reader-chapter-divider-source-rendering\.js/);
