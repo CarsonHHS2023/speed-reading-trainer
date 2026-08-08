@@ -130,7 +130,6 @@
         return result;
     }
 
-    // Compatibility alias retained for callers/tests that still use the old name.
     function derivePhysicalPages(sourceUnits, nodes) {
         return deriveSemanticFullPages(sourceUnits, nodes).map((page) => ({
             ...page,
@@ -239,12 +238,17 @@
     if (root.__readerSemanticFullPageBootstrapStarted) return;
     root.__readerSemanticFullPageBootstrapStarted = true;
 
+    function previewAssetSrc(src) {
+        const sha = document.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content');
+        return sha ? `${src}?v=${encodeURIComponent(sha)}` : src;
+    }
+
     function ensureStylesheet(href) {
         const selector = `link[data-reader-semantic-page-css="${href}"]`;
         if (document.querySelector(selector)) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = href;
+        link.href = previewAssetSrc(href);
         link.dataset.readerSemanticPageCss = href;
         document.head.appendChild(link);
     }
@@ -260,7 +264,7 @@
         }
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = src;
+            script.src = previewAssetSrc(src);
             script.async = false;
             script.dataset.readerSemanticPageSrc = src;
             script.addEventListener('load', resolve, { once: true });
@@ -294,6 +298,16 @@
             () => Boolean(root.ReaderSemanticLayoutHarmonizerV2),
         ))
         .then(() => root.ReaderSemanticLayoutHarmonizerV2.install({ root }))
+        .then(() => loadScriptOnce(
+            'reader-semantic-layout-refinement.js',
+            () => Boolean(root.ReaderSemanticLayoutRefinementV2),
+        ))
+        .then(() => root.ReaderSemanticLayoutRefinementV2.install({ root }))
+        .then(() => loadScriptOnce(
+            'reader-semantic-layout-edge-polish.js',
+            () => Boolean(root.ReaderSemanticLayoutEdgePolishV2),
+        ))
+        .then(() => root.ReaderSemanticLayoutEdgePolishV2.install({ root }))
         .then(() => waitForReady(() => Boolean(root.ReaderUIV2?.ReaderV2Controller)))
         .then(() => loadScriptOnce(
             'reader-semantic-page-integration.js',
@@ -301,7 +315,6 @@
         ))
         .then(() => root.ReaderSemanticPageIntegrationV2.installSemanticPageIntegration())
         .catch((error) => {
-            // Keep legacy Reader rendering available if the optional semantic page assets fail.
             if (root.console?.warn) root.console.warn('Semantic full-page Reader bootstrap failed', error);
         });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
