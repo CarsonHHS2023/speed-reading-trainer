@@ -15,9 +15,13 @@
     const INSTALL_TIMEOUT_MS = 10000;
     const PAGE_SELECTOR = '.reader-v2-page';
     const VIEWPORT_SELECTOR = '.reader-v2-main';
+    const RAIL_SELECTOR = '#readerStudyToolsRail';
+    const RAIL_TABS_SELECTOR = '.reader-study-tools-tabs';
+    const INDICATOR_CLASS = 'reader-page-zoom-indicator';
     const EPSILON = 1e-6;
 
     const stateByPage = new WeakMap();
+    let activeScale = 1;
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value));
@@ -53,21 +57,73 @@
         return page.closest(VIEWPORT_SELECTOR);
     }
 
-    function dimensionsFor(page, state = stateForPage(page)) {
+    function railForPage(page) {
+        const panel = page?.closest?.('.reading-panel');
+        return panel?.querySelector?.(RAIL_SELECTOR)
+            || page?.ownerDocument?.querySelector?.(RAIL_SELECTOR)
+            || null;
+    }
+
+    function finiteNumber(value, fallback = 0) {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+    }
+
+    function rectEdges(rect) {
+        const left = finiteNumber(rect?.left, 0);
+        const top = finiteNumber(rect?.top, 0);
+        const width = Math.max(0, finiteNumber(rect?.width, finiteNumber(rect?.right, left) - left));
+        const height = Math.max(0, finiteNumber(rect?.height, finiteNumber(rect?.bottom, top) - top));
+        const right = Number.isFinite(Number(rect?.right)) ? Number(rect.right) : left + width;
+        const bottom = Number.isFinite(Number(rect?.bottom)) ? Number(rect.bottom) : top + height;
+        return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    }
+
+    function clipViewportRect(viewportRect, railRect) {
+        const viewport = rectEdges(viewportRect);
+        if (!railRect) return viewport;
+        const rail = rectEdges(railRect);
+        const overlapsVertically = rail.bottom > viewport.top && rail.top < viewport.bottom;
+        const railStartsInsideViewport = rail.left > viewport.left && rail.left < viewport.right;
+        const right = overlapsVertically && railStartsInsideViewport
+            ? Math.min(viewport.right, rail.left)
+            : viewport.right;
+        return {
+            ...viewport,
+            right,
+            width: Math.max(0, right - viewport.left),
+        };
+    }
+
+    function effectiveViewportForPage(page) {
         const viewport = viewportForPage(page);
-        const pageRect = page?.getBoundingClientRect?.() || {};
+        const rail = railForPage(page);
         const viewportRect = viewport?.getBoundingClientRect?.() || {};
+        const railRect = rail?.getBoundingClientRect?.() || null;
+        return {
+            viewport,
+            rail,
+            rect: clipViewportRect(viewportRect, railRect),
+        };
+    }
+
+    function dimensionsFor(page, state = stateForPage(page)) {
+        const effectiveViewport = effectiveViewportForPage(page);
+        const viewport = effectiveViewport.viewport;
+        const viewportRect = effectiveViewport.rect;
+        const pageRect = page?.getBoundingClientRect?.() || {};
         const scale = Math.max(EPSILON, clampScale(state?.scale));
         const pageWidth = Number(page?.offsetWidth || page?.clientWidth || (Number(pageRect.width || 0) / scale) || 0);
         const pageHeight = Number(page?.offsetHeight || page?.clientHeight || (Number(pageRect.height || 0) / scale) || 0);
-        const viewportWidth = Number(viewport?.clientWidth || viewportRect.width || 0);
-        const viewportHeight = Number(viewport?.clientHeight || viewportRect.height || 0);
         const currentX = Number(state?.x || 0);
         const currentY = Number(state?.y || 0);
         return {
             viewport,
-            viewportWidth: Math.max(0, viewportWidth),
-            viewportHeight: Math.max(0, viewportHeight),
+            rail: effectiveViewport.rail,
+            viewportLeft: viewportRect.left,
+            viewportTop: viewportRect.top,
+            viewportWidth: Math.max(0, viewportRect.width),
+            viewportHeight: Math.max(0, viewportRect.height),
             pageWidth: Math.max(0, pageWidth),
             pageHeight: Math.max(0, pageHeight),
             baseLeft: Number(pageRect.left || 0) - Number(viewportRect.left || 0) - currentX,
@@ -153,6 +209,49 @@
         return -Math.max(0, Number(pageHeight || 0)) * (1 - scale);
     }
 
+    function formatScalePercent(scaleValue) {
+        return `${Math.round(clampScale(scaleValue) * 100)}%`;
+    }
+
+    function ensureZoomIndicator(documentObject) {
+        const rail = documentObject?.querySelector?.(RAIL_SELECTOR);
+        const tabs = rail?.querySelector?.(RAIL_TABS_SELECTOR);
+        if (!tabs) return null;
+        let indicator = tabs.querySelector?.(`.${INDICATOR_CLASS}`);
+        if (!indicator) {
+            indicator = documentObject.createElement('div');
+            indicator.className = INDICATOR_CLASS;
+            indicator.setAttribute('role', 'status');
+            indicator.setAttribute('aria-live', 'polite');
+            indicator.setAttribute('aria-label', '页面缩放');
+            indicator.title = '页面缩放';
+            tabs.appendChild(indicator);
+        }
+        indicator.textContent = formatScalePercent(activeScale);
+        return indicator;
+    }
+
+    function updateZoomIndicator(documentObject, scaleValue) {
+        activeScale = clampScale(scaleValue);
+        const indicator = ensureZoomIndicator(documentObject);
+        if (indicator) indicator.textContent = formatScalePercent(activeScale);
+        return indicator;
+    }
+
+    function scheduleIndicatorMount(rootObject) {
+        const documentObject = rootObject?.document;
+        if (!documentObject || documentObject.__readerZoomIndicatorMountScheduled) return false;
+        documentObject.__readerZoomIndicatorMountScheduled = true;
+        const started = Date.now();
+        function attempt() {
+            if (ensureZoomIndicator(documentObject)) return true;
+            if (Date.now() - started >= INSTALL_TIMEOUT_MS) return false;
+            rootObject?.setTimeout?.(attempt, INSTALL_RETRY_MS);
+            return false;
+        }
+        return attempt();
+    }
+
     function addClass(element, className) {
         if (element?.classList?.add) element.classList.add(className);
     }
@@ -192,6 +291,7 @@
         }
         addClass(page, 'reader-v2-page--zoom-capable');
         stateByPage.set(page, state);
+        updateZoomIndicator(page.ownerDocument, state.scale);
         return state;
     }
 
@@ -199,7 +299,10 @@
         const documentObject = rootObject?.document;
         const container = documentObject?.getElementById?.('readerV2Pages');
         if (!container?.addEventListener) return false;
-        if (container.__readerPageZoomPanInstalled) return true;
+        if (container.__readerPageZoomPanInstalled) {
+            scheduleIndicatorMount(rootObject);
+            return true;
+        }
 
         let drag = null;
 
@@ -213,11 +316,9 @@
             if (Math.abs(nextScale - state.scale) <= EPSILON) return;
 
             event.preventDefault();
-            const viewport = dimensions.viewport || viewportForPage(page);
-            const viewportRect = viewport?.getBoundingClientRect?.() || {};
             const point = {
-                x: Number(event.clientX) - Number(viewportRect.left || 0),
-                y: Number(event.clientY) - Number(viewportRect.top || 0),
+                x: Number(event.clientX) - Number(dimensions.viewportLeft || 0),
+                y: Number(event.clientY) - Number(dimensions.viewportTop || 0),
             };
             applyState(page, zoomStateAtPoint(state, nextScale, point, dimensions));
         }, { passive: false });
@@ -271,12 +372,22 @@
             if (page?.classList?.contains('reader-v2-page--zoomed-in')) event.preventDefault();
         });
 
+        documentObject.addEventListener?.('reader-study-tools-layout-change', () => {
+            ensureZoomIndicator(documentObject);
+            const pages = container.querySelectorAll?.(PAGE_SELECTOR) || [];
+            for (const page of pages) {
+                const state = stateForPage(page);
+                if (Math.abs(state.scale - 1) > EPSILON) applyState(page, state);
+            }
+        });
+
         Object.defineProperty(container, '__readerPageZoomPanInstalled', {
             configurable: false,
             enumerable: false,
             writable: false,
             value: true,
         });
+        scheduleIndicatorMount(rootObject);
         return true;
     }
 
@@ -292,27 +403,37 @@
     }
 
     return {
+        INDICATOR_CLASS,
         INSTALL_RETRY_MS,
         INSTALL_TIMEOUT_MS,
         MAX_SCALE,
         MIN_SCALE,
         PAGE_SELECTOR,
+        RAIL_SELECTOR,
+        RAIL_TABS_SELECTOR,
         VIEWPORT_SELECTOR,
         WHEEL_SENSITIVITY,
         applyState,
         clamp,
         clampPan,
         clampScale,
+        clipViewportRect,
         dimensionsFor,
+        effectiveViewportForPage,
+        ensureZoomIndicator,
+        formatScalePercent,
         initialState,
         install,
         normalizeWheelDelta,
         pageForTarget,
         panBounds,
+        railForPage,
         scaleFromWheelDelta,
+        scheduleIndicatorMount,
         scheduleInstall,
         shrinkLayoutOffset,
         stateForPage,
+        updateZoomIndicator,
         viewportForPage,
         zoomStateAtPoint,
     };
