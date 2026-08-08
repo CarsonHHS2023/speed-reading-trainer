@@ -22,6 +22,46 @@ test('wheel zoom is bounded between 50% and 400%', () => {
   assert.equal(ZoomPan.scaleFromWheelDelta(0.5, 5000), 0.5);
 });
 
+test('toolbar zoom indicator always exposes the current percentage', () => {
+  assert.equal(ZoomPan.formatScalePercent(0.5), '50%');
+  assert.equal(ZoomPan.formatScalePercent(1), '100%');
+  assert.equal(ZoomPan.formatScalePercent(1.234), '123%');
+  assert.equal(ZoomPan.formatScalePercent(4), '400%');
+  assert.equal(ZoomPan.RAIL_SELECTOR, '#readerStudyToolsRail');
+  assert.equal(ZoomPan.INDICATOR_CLASS, 'reader-page-zoom-indicator');
+});
+
+test('study toolbar is excluded from the effective zoom viewport', () => {
+  const viewport = {
+    left: 100,
+    top: 0,
+    right: 1100,
+    bottom: 800,
+    width: 1000,
+    height: 800,
+  };
+  const rail = {
+    left: 1054,
+    top: 0,
+    right: 1100,
+    bottom: 800,
+    width: 46,
+    height: 800,
+  };
+  assert.deepEqual(
+    ZoomPan.clipViewportRect(viewport, rail),
+    {
+      left: 100,
+      top: 0,
+      right: 1054,
+      bottom: 800,
+      width: 954,
+      height: 800,
+    },
+  );
+  assert.equal(ZoomPan.clipViewportRect(viewport, null).width, 1000);
+});
+
 test('zoomed-out whole page is centered in the Reader main viewport', () => {
   assert.deepEqual(
     ZoomPan.clampPan({ scale: 0.5, x: 0, y: 0 }, dims),
@@ -49,7 +89,7 @@ test('zoom keeps the pointer-anchored content point stationary when enlarging', 
   assert.equal(afterContentY, beforeContentY);
 });
 
-test('enlarged page pans against the whole red Reader viewport rather than its own green frame', () => {
+test('enlarged page pans against the available Reader viewport rather than its own page frame', () => {
   assert.deepEqual(
     ZoomPan.panBounds(2, dims),
     { minX: -750, maxX: 0, minY: -1300, maxY: 0 },
@@ -76,7 +116,7 @@ test('returning to 100% restores the canonical page frame and position', () => {
   );
 });
 
-test('all Reader page frames are eligible and the main panel is the viewport', () => {
+test('all Reader page frames are eligible and Reader main remains the base viewport', () => {
   assert.equal(ZoomPan.PAGE_SELECTOR, '.reader-v2-page');
   assert.equal(ZoomPan.VIEWPORT_SELECTOR, '.reader-v2-main');
 });
@@ -91,11 +131,15 @@ test('page zoom assets are loaded by the Reader page and included in syntax chec
   assert.match(packageJson.scripts.check, /node --check reader-page-zoom-pan\.js/);
 });
 
-test('zoom interaction CSS transforms the complete page frame and keeps the red Reader panel as viewport', () => {
+test('zoom CSS reserves the study rail, keeps zoomed pages below toolbars, and mounts percentage in the rail', () => {
   const css = fs.readFileSync('reader-page-zoom-pan.css', 'utf8');
   assert.match(css, /\.reader-v2-main\s*\{[^}]*overflow-x:\s*hidden/s);
+  assert.match(css, /#readerV2Display \.reader-v2-main\s*\{[^}]*margin-inline-end:\s*var\(--study-tools-rail-width/s);
+  assert.match(css, /data-study-tools-expanded="1"[^}]*reader-v2-main[^}]*margin-inline-end:\s*calc/s);
   assert.match(css, /\.reader-v2-page\s*\{[^}]*transform-origin:\s*0 0/s);
+  assert.match(css, /reader-v2-page--zoomed-in[^}]*z-index:\s*15/s);
   assert.match(css, /reader-v2-page--zoomed-in[^}]*cursor:\s*grab/s);
   assert.match(css, /reader-v2-page--zoom-dragging[^}]*cursor:\s*grabbing\s*!important/s);
-  assert.doesNotMatch(css, /reader-v2-page-zoom-surface/);
+  assert.match(css, /reader-page-zoom-indicator[^}]*position:\s*absolute/s);
+  assert.match(css, /reader-page-zoom-indicator[^}]*top:\s*14px/s);
 });
