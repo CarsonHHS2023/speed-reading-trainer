@@ -18,29 +18,78 @@
         'full_page_chart',
     ]);
     const PRESENTATION_MODE = 'source_rendering';
+    const PRESENTATION_OCR_ROUTE = 'skipped_presentation_image';
     const INSTALL_RETRY_MS = 25;
     const INSTALL_TIMEOUT_MS = 10000;
 
-    function normalizedPageKind(node) {
+    function normalizedPageKind(value) {
         return String(
-            node?.metadata?.presentation_actual_page_kind
-            || node?.metadata?.page_kind
-            || node?.metadata?.page_classification?.page_role
+            value?.metadata?.presentation_actual_page_kind
+            || value?.presentation_actual_page_kind
+            || value?.metadata?.page_kind
+            || value?.page_kind
+            || value?.metadata?.page_classification?.page_role
+            || value?.page_classification?.page_role
+            || value?.source_unit?.metadata?.page_kind
+            || value?.source_unit?.metadata?.page_classification?.page_role
             || '',
         ).trim().toLowerCase();
     }
 
-    function isFullPageSourceRenderingNode(node) {
+    function presentationMode(value) {
+        return String(
+            value?.metadata?.presentation_mode
+            || value?.presentation_mode
+            || value?.source_unit?.metadata?.presentation_mode
+            || '',
+        ).trim().toLowerCase();
+    }
+
+    function presentationOcrRoute(value) {
+        return String(
+            value?.metadata?.ocr_route
+            || value?.ocr_route
+            || value?.source_unit?.metadata?.ocr_route
+            || '',
+        ).trim().toLowerCase();
+    }
+
+    function sourceRenderingAssetId(node) {
         const metadata = node?.metadata || {};
-        return FULL_PAGE_SOURCE_KINDS.has(normalizedPageKind(node))
-            && metadata.presentation_mode === PRESENTATION_MODE
-            && Boolean(String(metadata.source_rendering_asset_id || '').trim());
+        const explicit = String(metadata.source_rendering_asset_id || '').trim();
+        if (explicit) return explicit;
+
+        // The Reader projection can preserve the source-rendering asset in asset_refs even
+        // when source_rendering_asset_id is not copied onto the projected semantic element.
+        // Only recover that asset for an authoritative presentation-image route.
+        if (
+            presentationMode(node) !== PRESENTATION_MODE
+            || presentationOcrRoute(node) !== PRESENTATION_OCR_ROUTE
+        ) return '';
+        return (node?.asset_refs || [])
+            .map((value) => String(value || '').trim())
+            .find(Boolean) || '';
+    }
+
+    function effectivePageKind(node, page = null) {
+        return normalizedPageKind(node) || normalizedPageKind(page);
+    }
+
+    function effectivePresentationMode(node, page = null) {
+        return presentationMode(node) || presentationMode(page);
+    }
+
+    function isFullPageSourceRenderingNode(node, page = null) {
+        const pageKind = effectivePageKind(node, page);
+        return FULL_PAGE_SOURCE_KINDS.has(pageKind)
+            && effectivePresentationMode(node, page) === PRESENTATION_MODE
+            && Boolean(sourceRenderingAssetId(node));
     }
 
     // Backward-compatible alias retained for existing tests/callers from the first Preview cut.
-    function isChapterDividerSourceRenderingNode(node) {
-        return normalizedPageKind(node) === 'chapter_divider'
-            && isFullPageSourceRenderingNode(node);
+    function isChapterDividerSourceRenderingNode(node, page = null) {
+        return effectivePageKind(node, page) === 'chapter_divider'
+            && isFullPageSourceRenderingNode(node, page);
     }
 
     function nodeSourceUnitIds(node) {
@@ -64,26 +113,45 @@
         return typeof value === 'string' && value.trim() ? value.trim() : null;
     }
 
+    function pageElementNodes(page) {
+        const values = [];
+        const seen = new Set();
+        for (const element of page?.elements || []) {
+            const node = element?.node;
+            if (!node) continue;
+            const identity = String(node.node_id || '').trim() || node;
+            if (seen.has(identity)) continue;
+            seen.add(identity);
+            values.push(node);
+        }
+        return values;
+    }
+
     function sourceRenderingCarrier(page, documentNodes = []) {
-        const direct = (page?.nodes || []).find(isFullPageSourceRenderingNode);
+        const directCandidates = [
+            ...(page?.nodes || []),
+            ...pageElementNodes(page),
+        ];
+        const direct = directCandidates.find((node) => isFullPageSourceRenderingNode(node, page));
         if (direct) return direct;
+
         const sourceUnitId = pageSourceUnitId(page);
         if (!sourceUnitId) return null;
         return (documentNodes || []).find((node) => (
-            isFullPageSourceRenderingNode(node)
+            isFullPageSourceRenderingNode(node, page)
             && nodeSourceUnitIds(node).has(sourceUnitId)
         )) || null;
     }
 
     function chapterDividerCarrier(page, documentNodes = []) {
         const carrier = sourceRenderingCarrier(page, documentNodes);
-        return carrier && normalizedPageKind(carrier) === 'chapter_divider' ? carrier : null;
+        return carrier && effectivePageKind(carrier, page) === 'chapter_divider' ? carrier : null;
     }
 
     function sourceRenderingCompatibilityPage(page, carrier) {
-        if (!page || !carrier || !isFullPageSourceRenderingNode(carrier)) return page;
-        const pageKind = normalizedPageKind(carrier);
-        const assetId = String(carrier.metadata.source_rendering_asset_id).trim();
+        if (!page || !carrier || !isFullPageSourceRenderingNode(carrier, page)) return page;
+        const pageKind = effectivePageKind(carrier, page);
+        const assetId = sourceRenderingAssetId(carrier);
         const compatibilityCarrier = {
             ...carrier,
             metadata: {
@@ -92,6 +160,7 @@
                 // Reuse the production Cover renderer without changing canonical metadata.
                 page_kind: 'cover',
                 presentation_mode: PRESENTATION_MODE,
+                source_rendering_asset_id: assetId,
             },
             asset_refs: [assetId],
         };
@@ -107,7 +176,7 @@
     }
 
     function chapterDividerCompatibilityPage(page, carrier) {
-        if (!carrier || normalizedPageKind(carrier) !== 'chapter_divider') return page;
+        if (!carrier || effectivePageKind(carrier, page) !== 'chapter_divider') return page;
         return sourceRenderingCompatibilityPage(page, carrier);
     }
 
@@ -163,7 +232,7 @@
                     transformed.push(page);
                     continue;
                 }
-                const pageKind = normalizedPageKind(carrier);
+                const pageKind = effectivePageKind(carrier, page);
                 transformed.push(sourceRenderingCompatibilityPage(page, carrier));
                 decorated.push({ page, pageKind });
                 changed = true;
@@ -206,16 +275,23 @@
         INSTALL_RETRY_MS,
         INSTALL_TIMEOUT_MS,
         PRESENTATION_MODE,
+        PRESENTATION_OCR_ROUTE,
         chapterDividerCarrier,
         chapterDividerCompatibilityPage,
         decorateRenderedPage,
+        effectivePageKind,
+        effectivePresentationMode,
         install,
         isChapterDividerSourceRenderingNode,
         isFullPageSourceRenderingNode,
         nodeSourceUnitIds,
         normalizedPageKind,
+        pageElementNodes,
         pageSourceUnitId,
+        presentationMode,
+        presentationOcrRoute,
         scheduleInstall,
+        sourceRenderingAssetId,
         sourceRenderingCarrier,
         sourceRenderingCompatibilityPage,
     };
