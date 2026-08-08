@@ -13,11 +13,14 @@
     const WHEEL_SENSITIVITY = 0.0015;
     const INSTALL_RETRY_MS = 25;
     const INSTALL_TIMEOUT_MS = 10000;
-    const PAGE_SELECTOR = '.reader-v2-page-semantic_full_page';
-    const SHELL_SELECTOR = '.reader-v2-semantic-page-shell';
+    const PAGE_SELECTOR = '.reader-v2-page';
+    const SEMANTIC_SHELL_SELECTOR = '.reader-v2-semantic-page-shell';
+    const FALLBACK_SURFACE_SELECTOR = '.reader-v2-page-zoom-surface';
+    const LABEL_SELECTOR = '.reader-v2-page-label';
+    const BADGE_CLASS = 'reader-v2-page-zoom-badge';
     const EPSILON = 1e-6;
 
-    const stateByShell = new WeakMap();
+    const stateBySurface = new WeakMap();
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value));
@@ -33,28 +36,45 @@
         return { scale: MIN_SCALE, x: 0, y: 0 };
     }
 
-    function stateForShell(shell) {
-        if (!shell) return initialState();
-        let state = stateByShell.get(shell);
+    function stateForSurface(surface) {
+        if (!surface) return initialState();
+        let state = stateBySurface.get(surface);
         if (!state) {
             state = initialState();
-            stateByShell.set(shell, state);
+            stateBySurface.set(surface, state);
         }
         return state;
     }
 
-    function dimensionsFor(page, shell) {
+    // Backward-compatible alias retained for the first Preview test cut.
+    function stateForShell(surface) {
+        return stateForSurface(surface);
+    }
+
+    function dimensionsFor(page, surface) {
         const pageRect = page?.getBoundingClientRect?.() || {};
-        const shellRect = shell?.getBoundingClientRect?.() || {};
-        const viewportWidth = Number(page?.clientWidth || pageRect.width || 0);
-        const viewportHeight = Number(page?.clientHeight || pageRect.height || 0);
-        const contentWidth = Number(shell?.offsetWidth || shell?.clientWidth || shellRect.width || viewportWidth || 0);
-        const contentHeight = Number(shell?.offsetHeight || shell?.clientHeight || shellRect.height || viewportHeight || 0);
+        const surfaceRect = surface?.getBoundingClientRect?.() || {};
+        const baseWidth = Number(
+            surface?.offsetWidth
+            || surface?.clientWidth
+            || surfaceRect.width
+            || page?.clientWidth
+            || pageRect.width
+            || 0
+        );
+        const baseHeight = Number(
+            surface?.offsetHeight
+            || surface?.clientHeight
+            || surfaceRect.height
+            || page?.clientHeight
+            || pageRect.height
+            || 0
+        );
         return {
-            viewportWidth: Math.max(0, viewportWidth),
-            viewportHeight: Math.max(0, viewportHeight),
-            contentWidth: Math.max(0, contentWidth),
-            contentHeight: Math.max(0, contentHeight),
+            viewportWidth: Math.max(0, baseWidth),
+            viewportHeight: Math.max(0, baseHeight),
+            contentWidth: Math.max(0, baseWidth),
+            contentHeight: Math.max(0, baseHeight),
         };
     }
 
@@ -112,9 +132,39 @@
         return target.closest(PAGE_SELECTOR);
     }
 
-    function shellForPage(page) {
+    function childElements(page) {
+        return Array.from(page?.children || []);
+    }
+
+    function createFallbackSurface(page) {
+        if (!page?.ownerDocument?.createElement || typeof page.insertBefore !== 'function') return null;
+        const existing = page.querySelector?.(FALLBACK_SURFACE_SELECTOR);
+        if (existing) return existing;
+
+        const content = childElements(page).filter((child) => (
+            !child?.matches?.(LABEL_SELECTOR)
+            && !child?.classList?.contains(BADGE_CLASS)
+        ));
+        if (!content.length) return null;
+
+        const surface = page.ownerDocument.createElement('div');
+        surface.className = 'reader-v2-page-zoom-surface';
+        surface.dataset.readerZoomSurface = 'fallback';
+        page.insertBefore(surface, content[0]);
+        for (const child of content) surface.appendChild(child);
+        return surface;
+    }
+
+    function surfaceForPage(page) {
         if (!page || typeof page.querySelector !== 'function') return null;
-        return page.querySelector(SHELL_SELECTOR);
+        return page.querySelector(SEMANTIC_SHELL_SELECTOR)
+            || page.querySelector(FALLBACK_SURFACE_SELECTOR)
+            || createFallbackSurface(page);
+    }
+
+    // Backward-compatible alias: it now returns either the semantic shell or a fallback surface.
+    function shellForPage(page) {
+        return surfaceForPage(page);
     }
 
     function addClass(element, className) {
@@ -125,29 +175,65 @@
         if (element?.classList?.remove) element.classList.remove(className);
     }
 
-    function applyState(page, shell, nextState) {
-        if (!page || !shell) return initialState();
+    function ensureBadge(page) {
+        if (!page?.ownerDocument?.createElement) return null;
+        const existing = childElements(page).find((child) => child?.classList?.contains(BADGE_CLASS));
+        if (existing) return existing;
+        const badge = page.ownerDocument.createElement('div');
+        badge.className = BADGE_CLASS;
+        badge.setAttribute?.('aria-hidden', 'true');
+        badge.hidden = true;
+        page.appendChild(badge);
+        return badge;
+    }
+
+    function updateBadge(page, scale) {
+        const badge = ensureBadge(page);
+        if (!badge) return;
+        if (scale <= MIN_SCALE + EPSILON) {
+            badge.hidden = true;
+            badge.textContent = '';
+            return;
+        }
+        badge.hidden = false;
+        badge.textContent = `${Math.round(scale * 100)}%`;
+    }
+
+    function applyState(page, surface, nextState) {
+        if (!page || !surface) return initialState();
         const state = {
             scale: clampScale(nextState?.scale),
             x: Number(nextState?.x || 0),
             y: Number(nextState?.y || 0),
         };
+        addClass(page, 'reader-v2-page--zoom-capable');
         if (state.scale <= MIN_SCALE + EPSILON) {
             state.scale = MIN_SCALE;
             state.x = 0;
             state.y = 0;
-            shell.style.transform = '';
-            shell.style.transformOrigin = '';
+            surface.style.transform = '';
+            surface.style.transformOrigin = '';
             delete page.dataset.readerZoomScale;
             removeClass(page, 'reader-v2-page--zoomed');
         } else {
-            shell.style.transformOrigin = '0 0';
-            shell.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`;
+            surface.style.transformOrigin = '0 0';
+            surface.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${state.scale})`;
             page.dataset.readerZoomScale = state.scale.toFixed(3);
             addClass(page, 'reader-v2-page--zoomed');
         }
-        stateByShell.set(shell, state);
+        updateBadge(page, state.scale);
+        stateBySurface.set(surface, state);
         return state;
+    }
+
+    function pointerPointForSurface(event, surface, state) {
+        const rect = surface?.getBoundingClientRect?.() || {};
+        const baseLeft = Number(rect.left || 0) - Number(state?.x || 0);
+        const baseTop = Number(rect.top || 0) - Number(state?.y || 0);
+        return {
+            x: Number(event?.clientX || 0) - baseLeft,
+            y: Number(event?.clientY || 0) - baseTop,
+        };
     }
 
     function install(rootObject) {
@@ -160,37 +246,35 @@
 
         container.addEventListener('wheel', (event) => {
             const page = pageForTarget(event.target);
-            const shell = shellForPage(page);
-            if (!page || !shell) return;
+            if (!page) return;
+            const surface = surfaceForPage(page);
+            if (!surface) return;
 
-            const dimensions = dimensionsFor(page, shell);
-            const state = stateForShell(shell);
+            const dimensions = dimensionsFor(page, surface);
+            const state = stateForSurface(surface);
             const delta = normalizeWheelDelta(event, dimensions.viewportHeight);
             const nextScale = scaleFromWheelDelta(state.scale, delta);
             if (Math.abs(nextScale - state.scale) <= EPSILON) return;
 
             event.preventDefault();
-            const rect = page.getBoundingClientRect();
-            const point = {
-                x: Number(event.clientX) - Number(rect.left || 0),
-                y: Number(event.clientY) - Number(rect.top || 0),
-            };
-            applyState(page, shell, zoomStateAtPoint(state, nextScale, point, dimensions));
+            const point = pointerPointForSurface(event, surface, state);
+            applyState(page, surface, zoomStateAtPoint(state, nextScale, point, dimensions));
         }, { passive: false });
 
         container.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
             const page = pageForTarget(event.target);
-            const shell = shellForPage(page);
-            if (!page || !shell) return;
-            const state = clampPan(stateForShell(shell), dimensionsFor(page, shell));
+            if (!page) return;
+            const surface = surfaceForPage(page);
+            if (!surface) return;
+            const state = clampPan(stateForSurface(surface), dimensionsFor(page, surface));
             if (state.scale <= MIN_SCALE + EPSILON) return;
 
             event.preventDefault();
             drag = {
                 pointerId: event.pointerId,
                 page,
-                shell,
+                surface,
                 startClientX: Number(event.clientX),
                 startClientY: Number(event.clientY),
                 startX: state.x,
@@ -198,7 +282,7 @@
                 scale: state.scale,
             };
             addClass(page, 'reader-v2-page--zoom-dragging');
-            try { shell.setPointerCapture?.(event.pointerId); } catch (_) { /* optional */ }
+            try { surface.setPointerCapture?.(event.pointerId); } catch (_) { /* optional */ }
         });
 
         container.addEventListener('pointermove', (event) => {
@@ -208,8 +292,8 @@
                 scale: drag.scale,
                 x: drag.startX + (Number(event.clientX) - drag.startClientX),
                 y: drag.startY + (Number(event.clientY) - drag.startClientY),
-            }, dimensionsFor(drag.page, drag.shell));
-            applyState(drag.page, drag.shell, next);
+            }, dimensionsFor(drag.page, drag.surface));
+            applyState(drag.page, drag.surface, next);
         });
 
         function finishDrag(event) {
@@ -217,7 +301,7 @@
             const active = drag;
             drag = null;
             removeClass(active.page, 'reader-v2-page--zoom-dragging');
-            try { active.shell.releasePointerCapture?.(active.pointerId); } catch (_) { /* optional */ }
+            try { active.surface.releasePointerCapture?.(active.pointerId); } catch (_) { /* optional */ }
         }
 
         container.addEventListener('pointerup', finishDrag);
@@ -249,26 +333,35 @@
     }
 
     return {
+        BADGE_CLASS,
+        FALLBACK_SURFACE_SELECTOR,
         INSTALL_RETRY_MS,
         INSTALL_TIMEOUT_MS,
+        LABEL_SELECTOR,
         MAX_SCALE,
         MIN_SCALE,
         PAGE_SELECTOR,
-        SHELL_SELECTOR,
+        SEMANTIC_SHELL_SELECTOR,
+        SHELL_SELECTOR: SEMANTIC_SHELL_SELECTOR,
         WHEEL_SENSITIVITY,
         applyState,
         clamp,
         clampPan,
         clampScale,
+        createFallbackSurface,
         dimensionsFor,
         initialState,
         install,
         normalizeWheelDelta,
         pageForTarget,
+        pointerPointForSurface,
         scaleFromWheelDelta,
         scheduleInstall,
         shellForPage,
         stateForShell,
+        stateForSurface,
+        surfaceForPage,
+        updateBadge,
         zoomStateAtPoint,
     };
 });
