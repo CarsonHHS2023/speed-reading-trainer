@@ -43,11 +43,24 @@
         return button;
     }
 
+    function pauseForFrameNavigation(controller) {
+        if (!controller || controller.playback?.state !== 'playing') return false;
+        controller.trainingPaused = true;
+        controller.comprehensionPaused = false;
+        controller.resumePlaybackAfterTrainingPause = true;
+        controller.trainingClock?.pause?.();
+        controller.playback.pause?.();
+        controller.updateTrainingTime?.();
+        return true;
+    }
+
     function moveToBoundary(controller, toEnd = false) {
         const snapshot = controller?.playback?.snapshot?.();
         if (!controller?.isReaderActive?.() || !snapshot?.frame_count) return null;
-        const destination = toEnd ? snapshot.frame_count - 1 : 0;
-        const delta = destination - snapshot.index;
+        pauseForFrameNavigation(controller);
+        const latest = controller.playback?.snapshot?.() || snapshot;
+        const destination = toEnd ? latest.frame_count - 1 : 0;
+        const delta = destination - latest.index;
         if (typeof controller.playback?.moveBy === 'function') return controller.playback.moveBy(delta);
         return controller.playback?.seek?.(toEnd ? 1 : 0) || null;
     }
@@ -114,7 +127,12 @@
             return true;
         }
 
-        if (state === 'playing') return controller.toggleTrainingPause?.() || false;
+        // Playing and natural manual-visual waits are both active training states.
+        // The central control pauses/resumes the training session; the manual
+        // frame's Continue button is the only control that advances that frame.
+        if (state === 'playing' || state === 'manual') {
+            return controller.toggleTrainingPause?.() || false;
+        }
 
         if (state === 'paused') {
             if (controller.trainingPaused) return controller.toggleTrainingPause?.() || false;
@@ -123,35 +141,35 @@
             ensureTrainingClockRunning(controller);
             return controller.playback.resume?.() || false;
         }
-
-        if (state === 'manual') {
-            if (controller.trainingPaused) return controller.toggleTrainingPause?.() || false;
-            return controller.continueManual?.() || false;
-        }
         return false;
     }
 
     function applyPlaybackControlState(controller, snapshot = controller?.playback?.snapshot?.()) {
         if (!controller || !snapshot) return false;
         const playable = Boolean(controller.isReaderActive?.() && snapshot.frame_count > 0);
-        const playing = snapshot.state === 'playing';
+        const manualSessionRunning = snapshot.state === 'manual'
+            && !controller.trainingPaused
+            && controller.trainingClock?.state === 'running';
+        const showPause = snapshot.state === 'playing' || manualSessionRunning;
         const atFirst = !snapshot.frame_count || snapshot.index <= 0;
         const atLast = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
 
         const toggle = controller.element?.('readingToggleBtn');
         if (toggle) {
             toggle.disabled = !playable;
-            toggle.textContent = playing ? '⏸' : '▶';
-            toggle.title = playing ? '暂停速度阅读' : '播放速度阅读';
+            toggle.textContent = showPause ? '⏸' : '▶';
+            toggle.title = showPause ? '暂停速度阅读' : '播放速度阅读';
             toggle.setAttribute?.('aria-label', toggle.title);
-            toggle.classList?.toggle?.('active', playing);
+            toggle.classList?.toggle?.('active', showPause);
         }
 
         const hiddenPlayPause = controller.element?.('speedReadingPause');
         if (hiddenPlayPause) {
             hiddenPlayPause.disabled = !playable;
-            hiddenPlayPause.textContent = playing ? '⏸' : '▶';
-            hiddenPlayPause.title = playing ? '暂停速度阅读' : (snapshot.state === 'manual' ? '继续当前手动帧' : '播放速度阅读');
+            hiddenPlayPause.textContent = showPause ? '⏸' : '▶';
+            hiddenPlayPause.title = showPause
+                ? '暂停训练（暂停计时）'
+                : (snapshot.state === 'manual' ? '继续训练（恢复计时）' : '播放速度阅读');
             hiddenPlayPause.setAttribute?.('aria-label', hiddenPlayPause.title);
         }
 
@@ -247,6 +265,22 @@
             }
         };
 
+        const originalPreviousFrame = Controller.prototype.previousFrame;
+        if (typeof originalPreviousFrame === 'function') {
+            Controller.prototype.previousFrame = function previousFrameWithSessionPause(...args) {
+                pauseForFrameNavigation(this);
+                return originalPreviousFrame.apply(this, args);
+            };
+        }
+
+        const originalNextFrame = Controller.prototype.nextFrame;
+        if (typeof originalNextFrame === 'function') {
+            Controller.prototype.nextFrame = function nextFrameWithSessionPause(...args) {
+                pauseForFrameNavigation(this);
+                return originalNextFrame.apply(this, args);
+            };
+        }
+
         Controller.prototype.firstFrame = function firstPlaybackFrame() {
             return moveToBoundary(this, false);
         };
@@ -328,6 +362,7 @@
         ensureTrainingClockRunning,
         install,
         moveToBoundary,
+        pauseForFrameNavigation,
         playPause,
         resolveResumeIndex,
         upgradeToolbar,
