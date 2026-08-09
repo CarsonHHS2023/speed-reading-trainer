@@ -40,10 +40,10 @@ function titleAwareMeasure(text, nodeType) {
     return Array.from(String(text || '')).length * unit;
 }
 
-function structuredAdapterClone() {
-    const clone = { ...Adapter };
-    assert.equal(StructurePolicy.install({ SpeedReadingAdapter: clone }), true);
-    return clone;
+function productionStructuredAdapter() {
+    assert.equal(Adapter.__structurePolicyInstalled, true);
+    assert.equal(typeof Adapter.prepareStructuredNodes, 'function');
+    return Adapter;
 }
 
 function build(nodes, options = {}) {
@@ -124,7 +124,7 @@ test('fixed-viewpoint structural rows use intrinsic width so canonical TOC entri
 });
 
 test('canonical TOC container restores title typography in fixed and moving Block modes', () => {
-    const adapter = structuredAdapterClone();
+    const adapter = productionStructuredAdapter();
     const toc = node('toc-root', 0, 'toc', '目录');
 
     const fixed = build([toc], {
@@ -155,7 +155,7 @@ test('canonical TOC container restores title typography in fixed and moving Bloc
 });
 
 test('synthetic TOC entries remain list-item typography instead of becoming titles', () => {
-    const adapter = structuredAdapterClone();
+    const adapter = productionStructuredAdapter();
     const result = build([
         node('toc-root', 0, 'toc', '第一章....1\n第二章....2'),
     ], {
