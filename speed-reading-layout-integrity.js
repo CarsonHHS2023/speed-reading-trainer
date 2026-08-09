@@ -33,42 +33,132 @@
         return normalizeType(node?.node_type);
     }
 
+    function canonicalNodeId(node) {
+        return String(node?.node_id || '').trim();
+    }
+
+    function canonicalParentRef(node) {
+        return typeof node?.parent_ref === 'string' ? node.parent_ref.trim() : '';
+    }
+
+    function isSourceRenderingPresentationNode(node) {
+        return normalizeType(node?.metadata?.presentation_mode || node?.presentation_mode) === 'source_rendering';
+    }
+
+    function pushGrouped(map, key, value) {
+        if (!key) return;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(value);
+    }
+
     function canonicalCaptionAssociations(adapter, nodes) {
-        // Reader v2 projects canonical node.parent_id directly to parent_ref and
-        // assigns node.order from the selected semantic-tree preorder. Node ids are
-        // document-wide identities, so do not reinterpret this relationship through
-        // page proximity, text, source-unit location, or any secondary ordering.
-        const visualParents = new Map();
+        // Reader v2 exposes the selected candidate's canonical semantic hierarchy:
+        // parent_ref is node.parent_id and child_refs are its children. Do not infer
+        // caption ownership from proximity, text, page position, or playback order.
+        //
+        // Real recovered documents can represent a visual+caption association in
+        // either of two canonical graph shapes:
+        //   1) caption.parent_ref === visual.node_id (direct visual parent), or
+        //   2) caption and visual share one semantic parent/group.
+        // A visual parent may itself act as a container and contain one more-specific
+        // visual child. In that case the leaf visual is the playback target and the
+        // container visual is suppressed so the same semantic object is not played
+        // twice. Ambiguous groups are intentionally left unbound.
+        const visualById = new Map();
+        const allVisualChildrenByParent = new Map();
+        const semanticVisualChildrenByParent = new Map();
+
         for (const node of nodes || []) {
             const type = resolvedNodeType(adapter, node);
             if (!VISUAL_TYPES_WITH_CAPTION.has(type)) continue;
-            const nodeId = String(node?.node_id || '').trim();
-            if (nodeId) visualParents.set(nodeId, type);
+            const nodeId = canonicalNodeId(node);
+            if (!nodeId) continue;
+            const visual = { node, node_id: nodeId, type };
+            visualById.set(nodeId, visual);
+            const parentRef = canonicalParentRef(node);
+            pushGrouped(allVisualChildrenByParent, parentRef, visual);
+            if (!isSourceRenderingPresentationNode(node)) {
+                pushGrouped(semanticVisualChildrenByParent, parentRef, visual);
+            }
         }
 
         const byParent = new Map();
         const consumedCaptionIds = new Set();
-        for (const node of nodes || []) {
-            if (resolvedNodeType(adapter, node) !== 'caption') continue;
-            const parentRef = typeof node?.parent_ref === 'string' ? node.parent_ref.trim() : '';
-            if (!parentRef || !visualParents.has(parentRef)) continue;
-            const nodeId = String(node?.node_id || '').trim();
-            const text = typeof node?.text === 'string' ? node.text.trim() : '';
-            if (!nodeId || !text) continue;
-            if (!byParent.has(parentRef)) byParent.set(parentRef, []);
-            byParent.get(parentRef).push({
+        const suppressedVisualContainerIds = new Set();
+        const unresolvedCaptionIds = new Set();
+
+        const bindCaption = (caption, target, associationMode) => {
+            const nodeId = canonicalNodeId(caption);
+            const text = typeof caption?.text === 'string' ? caption.text.trim() : '';
+            if (!nodeId || !text || !target?.node_id) return false;
+            if (!byParent.has(target.node_id)) byParent.set(target.node_id, []);
+            byParent.get(target.node_id).push({
                 node_id: nodeId,
                 text,
-                order: Number(node?.order || 0),
-                parent_ref: parentRef,
+                order: Number(caption?.order || 0),
+                parent_ref: canonicalParentRef(caption),
+                target_node_id: target.node_id,
+                association_mode: associationMode,
             });
             consumedCaptionIds.add(nodeId);
+            return true;
+        };
+
+        for (const node of nodes || []) {
+            if (resolvedNodeType(adapter, node) !== 'caption') continue;
+            const captionId = canonicalNodeId(node);
+            const parentRef = canonicalParentRef(node);
+            const text = typeof node?.text === 'string' ? node.text.trim() : '';
+            if (!captionId || !parentRef || !text) continue;
+
+            const directVisualParent = visualById.get(parentRef) || null;
+            const semanticChildren = semanticVisualChildrenByParent.get(parentRef) || [];
+            const allChildren = allVisualChildrenByParent.get(parentRef) || [];
+            let target = null;
+            let associationMode = '';
+
+            if (directVisualParent) {
+                if (semanticChildren.length === 1) {
+                    // Canonical visual container -> unique semantic visual child.
+                    target = semanticChildren[0];
+                    associationMode = 'canonical_visual_parent_unique_child';
+                    suppressedVisualContainerIds.add(directVisualParent.node_id);
+                } else if (semanticChildren.length === 0) {
+                    // Leaf visual parent: the direct relationship is already exact.
+                    target = directVisualParent;
+                    associationMode = 'canonical_direct_visual_parent';
+                }
+            } else {
+                // Shared semantic parent/group. Prefer semantic visual children so a
+                // source-rendered page carrier cannot steal a caption from the actual
+                // Figure/Table node. If there are no semantic visuals, a single
+                // source-rendered visual is still an unambiguous canonical target.
+                const candidates = semanticChildren.length ? semanticChildren : allChildren;
+                if (candidates.length === 1) {
+                    target = candidates[0];
+                    associationMode = 'canonical_shared_parent_unique_visual';
+                }
+            }
+
+            if (!target || !bindCaption(node, target, associationMode)) {
+                unresolvedCaptionIds.add(captionId);
+            }
         }
 
         for (const captions of byParent.values()) {
             captions.sort((a, b) => a.order - b.order || a.node_id.localeCompare(b.node_id));
         }
-        return { byParent, consumedCaptionIds };
+        const suppressedPlaybackNodeIds = new Set([
+            ...consumedCaptionIds,
+            ...suppressedVisualContainerIds,
+        ]);
+        return {
+            byParent,
+            consumedCaptionIds,
+            suppressedVisualContainerIds,
+            suppressedPlaybackNodeIds,
+            unresolvedCaptionIds,
+        };
     }
 
     function lineFrameCapacity(rawCapacity, lineCount) {
@@ -85,16 +175,17 @@
         return fontSize * Math.max(1, Number(ratio) || 1.55);
     }
 
-    function withPlaybackElementPolicy(adapter, consumedCaptionIds, callback) {
+    function withPlaybackElementPolicy(adapter, excludedNodeIds, callback) {
         const originalBuildReadingElements = adapter?.buildReadingElements;
         if (typeof originalBuildReadingElements !== 'function') return callback();
-        const consumed = consumedCaptionIds || new Set();
+        const excluded = excludedNodeIds || new Set();
         adapter.buildReadingElements = function buildReadingElementsWithCanonicalRelations(...args) {
             // Preserve Reader v2's canonical preorder exactly. The only mutation here
-            // is removing captions that are already represented in their parent
-            // visual manual frame.
+            // is removing captions already represented in a visual frame and visual
+            // container nodes whose unique visual child is the canonical playback
+            // surface for that same semantic object.
             return originalBuildReadingElements.apply(this, args).filter((element) => (
-                !consumed.has(String(element?.identity?.node_id || '').trim())
+                !excluded.has(String(element?.identity?.node_id || '').trim())
             ));
         };
         try {
@@ -170,7 +261,7 @@
 
         const nodes = controller.reader.nodes || [];
         const associations = canonicalCaptionAssociations(adapter, nodes);
-        const built = withPlaybackElementPolicy(adapter, associations.consumedCaptionIds, () => (
+        const built = withPlaybackElementPolicy(adapter, associations.suppressedPlaybackNodeIds, () => (
             responsive.buildMeasuredPlaybackFrames(adapter, controller.reader.openResponse, nodes, {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
@@ -190,6 +281,7 @@
             pageLineCapacity,
             horizontalInsetPx: inset,
         };
+        built.captionAssociations = associations;
 
         const punctuation = rootObject?.ReaderPunctuationHangingPolicy;
         if (typeof punctuation?.repairHangingPunctuation === 'function') {
@@ -316,11 +408,15 @@
         attachVisualCaptions,
         buildIntegrityPlaybackFrames,
         canonicalCaptionAssociations,
+        canonicalNodeId,
+        canonicalParentRef,
         install,
         installWithRetry,
+        isSourceRenderingPresentationNode,
         lineFrameCapacity,
         numericLineHeight,
         prependVisualCaptions,
+        pushGrouped,
         relaxTimedTextClipping,
         rendererChainReady,
         resolvedNodeType,
