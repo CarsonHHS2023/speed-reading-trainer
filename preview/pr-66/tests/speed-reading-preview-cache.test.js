@@ -54,6 +54,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /BROAD_SEMANTIC_TYPES/u);
   assert.match(workflow, /preferCanonicalPdfVisualAssetRefs/u);
   assert.match(workflow, /SPEED_READING_EXCLUDED_PRESENTATION_KINDS/u);
+  assert.match(workflow, /Chapter dividers are intentionally NOT excluded/u);
   assert.match(workflow, /sameLogicalTextSource/u);
   assert.match(workflow, /HARD_STRUCTURE_TYPES/u);
   assert.match(workflow, /refreshFrameTiming/u);
@@ -67,6 +68,10 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /displayMode: false/u);
   assert.match(workflow, /rendererChainReady/u);
   assert.match(workflow, /canonicalCaptionAssociations/u);
+  assert.match(workflow, /canonical_shared_parent_unique_visual/u);
+  assert.match(workflow, /canonical_visual_parent_unique_child/u);
+  assert.match(workflow, /suppressedVisualContainerIds/u);
+  assert.match(workflow, /unresolvedCaptionIds/u);
   assert.match(workflow, /lineFrameCapacity/u);
   assert.match(workflow, /applySafeHorizontalInset/u);
   assert.match(workflow, /withPlaybackElementPolicy/u);
