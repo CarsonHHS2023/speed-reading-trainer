@@ -104,7 +104,7 @@ test('ordinary figure/table nodes prefer the durable canonical PDF crop inside t
   assert.deepEqual(prepared[1].asset_refs, ['pdf-visual:canonical-table', 'provider-table:old']);
 });
 
-test('chapter dividers remain manual visual boundaries while cover/title/back-cover carriers stay excluded', () => {
+test('chapter dividers and back covers remain manual visual boundaries while cover/title carriers stay excluded', () => {
   const prepared = Policy.prepareStructuredNodes([
     node('cover', 'figure', '', 0, {
       asset_refs: ['pdf-source-rendering:cover'],
@@ -123,11 +123,54 @@ test('chapter dividers remain manual visual boundaries while cover/title/back-co
       metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'full_page_figure' },
     }),
     node('ordinary', 'figure', '', 4, { asset_refs: ['pdf-visual:ordinary'] }),
+    node('back-cover', 'figure', '', 5, {
+      asset_refs: ['pdf-source-rendering:back-cover'],
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'back_cover' },
+    }),
   ]);
 
-  assert.deepEqual(prepared.map((item) => item.node_id), ['divider', 'full-figure', 'ordinary']);
+  assert.deepEqual(prepared.map((item) => item.node_id), ['divider', 'full-figure', 'ordinary', 'back-cover']);
   assert.deepEqual(prepared[0].asset_refs, ['pdf-source-rendering:divider']);
+  assert.deepEqual(prepared[3].asset_refs, ['pdf-source-rendering:back-cover']);
   assert.equal(Policy.SPEED_READING_EXCLUDED_PRESENTATION_KINDS.has('chapter_divider'), false);
+  assert.equal(Policy.SPEED_READING_EXCLUDED_PRESENTATION_KINDS.has('back_cover'), false);
+});
+
+test('source-rendered manual presentation carriers are restored to physical source order without reordering ordinary semantics', () => {
+  const documentView = {
+    source_units: [
+      { source_unit_id: 'p1', source_order: 0 },
+      { source_unit_id: 'p2', source_order: 1 },
+      { source_unit_id: 'p3', source_order: 2 },
+      { source_unit_id: 'p4', source_order: 3 },
+    ],
+  };
+  const prepared = [
+    node('body-1', 'paragraph', '第一页正文', 1, { location: { node_id: 'body-1', source_unit_id: 'p1' } }),
+    node('body-3', 'paragraph', '第三页正文', 2, { location: { node_id: 'body-3', source_unit_id: 'p3' } }),
+    node('divider', 'figure', '', 99, {
+      location: { node_id: 'divider', source_unit_id: 'p2' },
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'chapter_divider' },
+    }),
+    node('back-cover', 'figure', '', 100, {
+      location: { node_id: 'back-cover', source_unit_id: 'p4' },
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'back_cover' },
+    }),
+  ];
+  const elements = [
+    { identity: { node_id: 'body-1', source_unit_id: 'p1' }, source_order: 0 },
+    { identity: { node_id: 'body-3', source_unit_id: 'p3' }, source_order: 2 },
+    { identity: { node_id: 'divider', source_unit_id: 'p2' }, source_order: 1 },
+    { identity: { node_id: 'back-cover', source_unit_id: 'p4' }, source_order: 3 },
+  ];
+
+  const restored = Policy.restorePresentationCarrierOrder(elements, documentView, prepared);
+  assert.deepEqual(restored.map((item) => item.identity.node_id), [
+    'body-1', 'divider', 'body-3', 'back-cover',
+  ]);
+  assert.deepEqual(restored.filter((item) => !['divider', 'back-cover'].includes(item.identity.node_id)).map((item) => item.identity.node_id), [
+    'body-1', 'body-3',
+  ]);
 });
 
 test('standalone punctuation is attached to the previous text node', () => {
