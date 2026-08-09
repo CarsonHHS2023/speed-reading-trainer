@@ -17,7 +17,7 @@
         algorithm: 'code',
         figure_caption: 'caption', table_caption: 'caption',
         image: 'figure', chart: 'figure',
-        display_formula: 'formula', inline_formula: 'formula',
+        display_formula: 'formula', inline_formula: 'paragraph',
         reference_content: 'reference',
         vision_footnote: 'footnote', page_number: 'number',
     });
@@ -63,6 +63,12 @@
         const semanticType = semanticTypeForNode(node);
         const semanticCanonical = canonicalType(semanticType);
 
+        // Inline-vs-display formula is presentation metadata, not a text heuristic.
+        // Preserve inline formulas in the normal timed text stream even when the
+        // canonical semantic type is the broader "formula" type.
+        if (providerType === 'inline_formula') {
+            return { rawType: providerType, type: 'paragraph', providerType, semanticType };
+        }
         if (FURNITURE_TYPES.has(providerType) || FURNITURE_TYPES.has(providerCanonical)) {
             return { rawType: providerType, type: providerCanonical, providerType, semanticType };
         }
