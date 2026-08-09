@@ -32,6 +32,8 @@ test('an instance-level Debug Toolbar wrapper is still wrapped after the prototy
 
   const controller = Object.create(prototype);
   controller.isReaderActive = () => true;
+  controller.trainingPaused = true;
+  controller.trainingClock = { state: 'paused' };
   controller.element = (id) => {
     if (id === 'readingToggleBtn') return toggle;
     if (id === 'speedReadingPause') return hiddenPlayPause;
@@ -56,8 +58,10 @@ test('an instance-level Debug Toolbar wrapper is still wrapped after the prototy
   assert.equal(toggle.title, '播放速度阅读');
   assert.equal(toggle.classList.contains('active'), false);
 
+  controller.trainingPaused = false;
+  controller.trainingClock.state = 'running';
   controller.updateControls({ state: 'playing', index: 2, frame_count: 8 });
-  assert.equal(toggle.textContent, '⏸', 'real autoplay uses the Pause icon');
+  assert.equal(toggle.textContent, '⏸', 'running training session uses the Pause icon');
   assert.equal(toggle.title, '暂停速度阅读');
   assert.equal(toggle.classList.contains('active'), true);
 });
