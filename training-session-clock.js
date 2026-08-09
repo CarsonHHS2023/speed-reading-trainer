@@ -101,11 +101,13 @@ if (typeof document !== 'undefined') {
         document.head.appendChild(script);
     }
 
-    // Structure policy must be fresh before measured playback is built. Mark the
-    // lifecycle-managed scripts so ReaderResumeLifecycle can wait on the same tag
-    // instead of creating a duplicate loader during startup.
+    // Structure/measurement/punctuation modules must all come from the same
+    // Preview or production commit. Mark lifecycle-managed scripts so
+    // ReaderResumeLifecycle waits on these exact tags instead of loading stale
+    // fixed-version copies during startup.
     appendEnhancementScript('speedReadingStructurePolicyScript', 'speed-reading-structure-policy.js', { lifecycleManaged: true });
     appendEnhancementScript('speedReadingFormulaRenderingScript', 'speed-reading-formula-rendering.js');
     appendEnhancementScript('speedReadingResponsiveLayoutScript', 'speed-reading-responsive-layout.js', { lifecycleManaged: true });
+    appendEnhancementScript('readerPunctuationHangingPolicyScript', 'reader-punctuation-hanging-policy.js', { lifecycleManaged: true });
     appendEnhancementScript('speedReadingLayoutIntegrityScript', 'speed-reading-layout-integrity.js');
 }
