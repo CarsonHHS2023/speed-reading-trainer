@@ -12,6 +12,8 @@
     const INSTALL_MAX_ATTEMPTS = 500;
     const INLINE_ROW_MIN_GAP_PX = 8;
     const HEADER_BODY_GAP_PX = 16;
+    const HEADER_HORIZONTAL_PADDING_PX = 8;
+    const HEADER_PAGE_EDGE = 0.04;
     const FURNITURE_TYPES = new Set(['header', 'footer', 'footnote']);
 
     function clamp(value, minimum, maximum) {
@@ -105,12 +107,119 @@
         return Number.isFinite(value) ? value : null;
     }
 
-    function slotBottomPx(slot, baseHeight) {
-        const offsetTop = Number(slot?.offsetTop);
-        const offsetHeight = Number(slot?.offsetHeight);
-        if (Number.isFinite(offsetTop) && Number.isFinite(offsetHeight) && offsetHeight > 0) {
-            return offsetTop + offsetHeight;
+    function shellAspectRatio(shell) {
+        const inline = Number.parseFloat(String(shell?.style?.aspectRatio || ''));
+        if (Number.isFinite(inline) && inline > 0) return inline;
+        return null;
+    }
+
+    function canonicalFurnitureBaseHeight(section, shell) {
+        const width = Number(shell?.clientWidth || shell?.offsetWidth || 0);
+        const aspect = shellAspectRatio(shell);
+        if (width > 0 && aspect > 0) return width / aspect;
+        const stored = Number(section?.dataset?.readerLayoutBaseHeight);
+        if (stored > 0) return stored;
+        return Number(shell?.clientHeight || shell?.offsetHeight || 900) || 900;
+    }
+
+    function expandedHeaderBbox(value, requiredWidthNormalized, pageEdge = HEADER_PAGE_EDGE) {
+        const bbox = normalizeBbox(value);
+        if (!bbox) return null;
+        const edge = clamp(Number(pageEdge) || 0, 0, 0.20);
+        const available = Math.max(0.02, 1 - (2 * edge));
+        const sourceWidth = bbox[2] - bbox[0];
+        const targetWidth = clamp(
+            Math.max(sourceWidth, Number(requiredWidthNormalized) || sourceWidth),
+            sourceWidth,
+            available,
+        );
+        if (targetWidth <= sourceWidth + 1e-9) return bbox;
+
+        const center = (bbox[0] + bbox[2]) / 2;
+        let left;
+        if (center <= 0.35) {
+            left = bbox[0];
+        } else if (center >= 0.65) {
+            left = bbox[2] - targetWidth;
+        } else {
+            left = center - (targetWidth / 2);
         }
+        left = clamp(left, edge, Math.max(edge, 1 - edge - targetWidth));
+        return [left, bbox[1], left + targetWidth, bbox[3]];
+    }
+
+    function headerMeasuredWidthPx(slot) {
+        const child = slot?.firstElementChild || slot?.children?.[0] || null;
+        const text = child?.querySelector?.('.reader-v2-node-text') || null;
+        const values = [slot?.scrollWidth, child?.scrollWidth, text?.scrollWidth]
+            .map(Number)
+            .filter((value) => Number.isFinite(value) && value > 0);
+        return values.length ? Math.max(...values) : 0;
+    }
+
+    function normalizeHeaderSlot(slot, shell, baseHeight) {
+        const bbox = sourceBbox(slot);
+        const shellWidth = Number(shell?.clientWidth || shell?.offsetWidth || 0);
+        if (!slot || !bbox || !(shellWidth > 0) || !(baseHeight > 0)) return false;
+
+        const child = slot.firstElementChild || slot.children?.[0] || null;
+        const text = child?.querySelector?.('.reader-v2-node-text') || null;
+        slot.style.top = `${Math.round(bbox[1] * baseHeight * 100) / 100}px`;
+        slot.style.left = `${bbox[0] * 100}%`;
+        slot.style.width = `${(bbox[2] - bbox[0]) * 100}%`;
+        slot.style.height = 'auto';
+        slot.style.overflow = 'visible';
+        slot.style.whiteSpace = 'nowrap';
+        if (child?.style) {
+            child.style.height = 'auto';
+            child.style.overflow = 'visible';
+            child.style.whiteSpace = 'nowrap';
+        }
+        if (text?.style) {
+            text.style.whiteSpace = 'nowrap';
+            text.style.overflowWrap = 'normal';
+            text.style.wordBreak = 'keep-all';
+        }
+
+        const requiredPx = headerMeasuredWidthPx(slot) + HEADER_HORIZONTAL_PADDING_PX;
+        const expanded = expandedHeaderBbox(bbox, requiredPx / shellWidth);
+        if (expanded) {
+            slot.style.left = `${expanded[0] * 100}%`;
+            slot.style.width = `${(expanded[2] - expanded[0]) * 100}%`;
+            slot.dataset.readerHeaderHorizontalBbox = expanded.join(',');
+        }
+        slot.dataset.readerHeaderCanonicalTop = '1';
+        slot.dataset.readerHeaderSingleLine = '1';
+        return true;
+    }
+
+    function normalizeHeaders(section) {
+        const shell = findShell(section);
+        const canvas = findCanvas(section);
+        if (!shell || !canvas) return 0;
+        const baseHeight = canonicalFurnitureBaseHeight(section, shell);
+        section.dataset.readerLayoutBaseHeight = String(Math.round(baseHeight * 100) / 100);
+        const headers = Array.from(canvas.children || [])
+            .filter((slot) => slot?.dataset?.readerNodeType === 'header');
+        let normalized = 0;
+        for (const header of headers) {
+            if (normalizeHeaderSlot(header, shell, baseHeight)) normalized += 1;
+        }
+        if (normalized) section.dataset.readerHeaderNormalizedCount = String(normalized);
+        return normalized;
+    }
+
+    function slotBottomPx(slot, baseHeight) {
+        const top = styleTopPx(slot);
+        const offsetHeight = Number(slot?.offsetHeight);
+        const scrollHeight = Number(slot?.scrollHeight);
+        const measuredHeight = Math.max(
+            Number.isFinite(offsetHeight) ? offsetHeight : 0,
+            Number.isFinite(scrollHeight) ? scrollHeight : 0,
+        );
+        if (top !== null && measuredHeight > 0) return top + measuredHeight;
+        const offsetTop = Number(slot?.offsetTop);
+        if (Number.isFinite(offsetTop) && measuredHeight > 0) return offsetTop + measuredHeight;
         const bbox = sourceBbox(slot);
         return bbox ? bbox[3] * baseHeight : 0;
     }
@@ -126,8 +235,7 @@
         const shell = findShell(section);
         const canvas = findCanvas(section);
         if (!shell || !canvas) return 0;
-        const baseHeight = Number(section?.dataset?.readerLayoutBaseHeight)
-            || Number(shell.clientHeight || shell.offsetHeight || 900);
+        const baseHeight = canonicalFurnitureBaseHeight(section, shell);
         const slots = Array.from(canvas.children || []);
         const headers = slots.filter((slot) => slot?.dataset?.readerNodeType === 'header');
         if (!headers.length) return 0;
@@ -146,7 +254,9 @@
             slot.style.top = `${Math.round((top + delta) * 100) / 100}px`;
             slot.dataset.readerHeaderClearance = '1';
         }
-        const currentHeight = Number.parseFloat(String(shell.style.height || '')) || baseHeight;
+        const currentHeight = Number.parseFloat(String(shell.style.height || ''))
+            || Number(section?.dataset?.readerLayoutHeight)
+            || baseHeight;
         if (currentHeight > 0) shell.style.height = `${Math.ceil(currentHeight + delta)}px`;
         section.dataset.readerHeaderClearancePx = String(Math.round(delta * 100) / 100);
         section.dataset.readerLayoutHeight = String(Math.round(currentHeight + delta));
@@ -156,6 +266,7 @@
     function polishSection(section) {
         if (!section || section?.dataset?.readerLayoutRefined !== '1') return false;
         applyInlineRowClearance(section);
+        normalizeHeaders(section);
         applyHeaderClearance(section);
         section.dataset.readerLayoutEdgePolished = '1';
         return true;
@@ -168,6 +279,22 @@
         schedule(() => schedule(() => schedule(callback)));
     }
 
+    function observeResize(root, section) {
+        const ResizeObserverCtor = root?.ResizeObserver;
+        const shell = findShell(section);
+        if (!ResizeObserverCtor || !shell || shell.__readerSemanticEdgePolishObserver) return false;
+        let lastWidth = Number(shell.clientWidth || shell.offsetWidth || 0);
+        const observer = new ResizeObserverCtor(() => {
+            const width = Number(shell.clientWidth || shell.offsetWidth || 0);
+            if (!width || Math.abs(width - lastWidth) < 1) return;
+            lastWidth = width;
+            scheduleAfterLayout(root, () => polishSection(section));
+        });
+        observer.observe(shell);
+        shell.__readerSemanticEdgePolishObserver = observer;
+        return true;
+    }
+
     function patchSemanticRenderer(root) {
         const SemanticPage = root?.ReaderSemanticPageV2;
         if (!SemanticPage?.renderSemanticPage || !SemanticPage.__readerLayoutRefinementInstalled) return false;
@@ -175,7 +302,12 @@
         const original = SemanticPage.renderSemanticPage;
         SemanticPage.renderSemanticPage = function renderSemanticPageWithEdgePolish(options = {}) {
             const section = original.call(this, options);
-            if (section) scheduleAfterLayout(root, () => polishSection(section));
+            if (section) {
+                scheduleAfterLayout(root, () => {
+                    polishSection(section);
+                    observeResize(root, section);
+                });
+            }
             return section;
         };
         SemanticPage.__readerLayoutEdgePolishInstalled = true;
@@ -204,13 +336,20 @@
 
     return {
         HEADER_BODY_GAP_PX,
+        HEADER_HORIZONTAL_PADDING_PX,
+        HEADER_PAGE_EDGE,
         INLINE_ROW_MIN_GAP_PX,
         applyHeaderClearance,
         applyInlineRowClearance,
+        canonicalFurnitureBaseHeight,
         computeInlineRowBboxes,
+        expandedHeaderBbox,
+        headerMeasuredWidthPx,
         headerShiftDelta,
         install,
         normalizeBbox,
+        normalizeHeaderSlot,
+        normalizeHeaders,
         patchSemanticRenderer,
         polishSection,
         sourceBbox,
