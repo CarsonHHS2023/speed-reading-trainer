@@ -24,9 +24,16 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   const workflow = fs.readFileSync('.github/workflows/preview.yml', 'utf8');
 
   assert.match(clock, /meta\[name="reader-preview-head"\]/u);
-  assert.match(clock, /speed-reading-formula-rendering\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
-  assert.match(clock, /speed-reading-responsive-layout\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
-  assert.match(clock, /speed-reading-layout-integrity\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
+  assert.match(clock, /PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
+  assert.match(clock, /const assetVersion = previewHead \|\| PRODUCTION_ASSET_VERSION/u);
+  assert.match(clock, /const versionedSrc = \(src\) => `\$\{src\}\?v=\$\{encodeURIComponent\(assetVersion\)\}`/u);
+  assert.match(clock, /speed-reading-structure-policy\.js/u);
+  assert.match(clock, /speed-reading-formula-rendering\.js/u);
+  assert.match(clock, /speed-reading-responsive-layout\.js/u);
+  assert.match(clock, /speed-reading-layout-integrity\.js/u);
+  assert.match(clock, /script\.dataset\.readerEnhancement = src/u);
+  assert.match(clock, /script\.dataset\.loaded = '1'/u);
+
   assert.match(workflow, /"training-session-clock\.js"/u);
   assert.match(workflow, /"reader-resume-lifecycle\.js"/u);
   assert.match(workflow, /training-session-clock\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
@@ -35,6 +42,8 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /speed-reading-responsive-layout\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-formula-rendering\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-layout-integrity\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
+  assert.match(workflow, /PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
+  assert.match(workflow, /dataset\.readerEnhancement/u);
   assert.match(workflow, /inline_formula: 'paragraph'/u);
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
   assert.match(workflow, /splitMeasuredLineIntoBlocks/u);
