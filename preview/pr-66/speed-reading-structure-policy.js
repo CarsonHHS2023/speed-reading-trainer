@@ -13,12 +13,13 @@
     const PROVIDER_STRUCTURAL_TYPES = new Set([
         'title', 'heading', 'caption', 'figure', 'table', 'formula', 'code', 'reference', 'list', 'list_item',
     ]);
-    // Cover/title/back-cover pages are navigation/presentation furniture for speed
-    // reading. Chapter dividers are intentionally NOT excluded: they are meaningful
-    // visual boundaries and play as manual source-rendered visual frames in canonical
-    // Reader order, just like full-page figures/charts.
+    // Cover/title pages are navigation/presentation furniture for speed reading.
+    // Chapter dividers are intentionally NOT excluded: they are meaningful visual
+    // boundaries and play as manual source-rendered visual frames in physical source
+    // order, just like full-page figures/charts. Back covers are also meaningful
+    // terminal manual visuals and remain playable at their original final page.
     const SPEED_READING_EXCLUDED_PRESENTATION_KINDS = new Set([
-        'cover', 'title_page', 'back_cover',
+        'cover', 'title_page',
     ]);
     const PDF_VISUAL_ASSET_PREFIX = 'pdf-visual:';
     const TYPE_ALIASES = Object.freeze({
@@ -137,6 +138,81 @@
             && SPEED_READING_EXCLUDED_PRESENTATION_KINDS.has(presentationKindForNode(node));
     }
 
+    function isPlayableSpeedReadingPresentationCarrier(node) {
+        return presentationModeForNode(node) === 'source_rendering'
+            && !SPEED_READING_EXCLUDED_PRESENTATION_KINDS.has(presentationKindForNode(node));
+    }
+
+    function sourceOrderMap(documentView) {
+        const map = new Map();
+        for (const unit of documentView?.source_units || []) {
+            const sourceUnitId = String(unit?.source_unit_id || '').trim();
+            const sourceOrder = Number(unit?.source_order);
+            if (sourceUnitId && Number.isFinite(sourceOrder)) map.set(sourceUnitId, sourceOrder);
+        }
+        return map;
+    }
+
+    function elementSourceOrder(element, sourceOrders) {
+        const explicit = element?.source_order;
+        if (explicit !== null && explicit !== undefined && explicit !== '') {
+            const value = Number(explicit);
+            if (Number.isFinite(value)) return value;
+        }
+        const sourceUnitId = String(element?.identity?.source_unit_id || '').trim();
+        return sourceUnitId && sourceOrders.has(sourceUnitId) ? sourceOrders.get(sourceUnitId) : null;
+    }
+
+    function restorePresentationCarrierOrder(elements, documentView, preparedNodes) {
+        const nodeById = new Map((preparedNodes || []).map((node) => [String(node?.node_id || ''), node]));
+        const sourceOrders = sourceOrderMap(documentView);
+        const ordinary = [];
+        const carriers = [];
+
+        for (let index = 0; index < (elements || []).length; index += 1) {
+            const element = elements[index];
+            const nodeId = String(element?.identity?.node_id || '');
+            const source = nodeById.get(nodeId) || null;
+            const entry = {
+                element,
+                originalIndex: index,
+                sourceOrder: elementSourceOrder(element, sourceOrders),
+                nodeOrder: Number(source?.order),
+            };
+            if (source && isPlayableSpeedReadingPresentationCarrier(source)) carriers.push(entry);
+            else ordinary.push(entry);
+        }
+        if (!carriers.length) return [...(elements || [])];
+
+        carriers.sort((a, b) => {
+            const aHasSource = Number.isFinite(a.sourceOrder);
+            const bHasSource = Number.isFinite(b.sourceOrder);
+            if (aHasSource && bHasSource && a.sourceOrder !== b.sourceOrder) return a.sourceOrder - b.sourceOrder;
+            if (aHasSource !== bHasSource) return aHasSource ? -1 : 1;
+            const ao = Number.isFinite(a.nodeOrder) ? a.nodeOrder : a.originalIndex;
+            const bo = Number.isFinite(b.nodeOrder) ? b.nodeOrder : b.originalIndex;
+            return ao - bo || a.originalIndex - b.originalIndex;
+        });
+
+        const restored = ordinary.map((entry) => entry.element);
+        for (const carrier of carriers) {
+            if (!Number.isFinite(carrier.sourceOrder)) {
+                restored.splice(Math.min(carrier.originalIndex, restored.length), 0, carrier.element);
+                continue;
+            }
+            let insertAt = restored.length;
+            for (let index = 0; index < restored.length; index += 1) {
+                const sourceOrder = elementSourceOrder(restored[index], sourceOrders);
+                if (Number.isFinite(sourceOrder) && sourceOrder > carrier.sourceOrder) {
+                    insertAt = index;
+                    break;
+                }
+            }
+            restored.splice(insertAt, 0, carrier.element);
+        }
+        return restored;
+    }
+
     function preferCanonicalPdfVisualAssetRefs(node, resolvedType = canonicalType(node?.node_type)) {
         if (!['figure', 'table'].includes(resolvedType) || !Array.isArray(node?.asset_refs) || node.asset_refs.length < 2) {
             return node;
@@ -184,8 +260,8 @@
     function prepareStructuredNodes(nodes) {
         const output = [];
         for (const node of nodes || []) {
-            // Cover/title/back-cover source-rendered pages are navigation surfaces,
-            // not ordinary speed-reading content. Chapter dividers and full-page
+            // Cover/title source-rendered pages are navigation surfaces rather than
+            // speed-reading content. Chapter dividers, back covers, and full-page
             // figures/charts intentionally remain playable manual visual frames.
             if (isSpeedReadingPresentationCarrier(node)) continue;
 
@@ -249,7 +325,7 @@
         adapter.buildReadingElements = function buildPolicyReadingElements(documentView, nodes) {
             const prepared = prepareStructuredNodes(nodes);
             const preparedById = new Map(prepared.map((node) => [String(node.node_id), node]));
-            return originalBuildReadingElements(documentView, prepared).map((element) => {
+            const elements = originalBuildReadingElements(documentView, prepared).map((element) => {
                 const source = preparedById.get(String(element?.identity?.node_id));
                 return {
                     ...element,
@@ -257,6 +333,7 @@
                     raw_node_type: source?.raw_node_type || null,
                 };
             });
+            return restorePresentationCarrierOrder(elements, documentView, prepared);
         };
 
         adapter.buildPlaybackFrames = function buildPolicyPlaybackFrames(documentView, nodes, options) {
@@ -285,9 +362,10 @@
     return {
         BROAD_SEMANTIC_TYPES, FURNITURE_TYPES, PDF_VISUAL_ASSET_PREFIX, PROVIDER_STRUCTURAL_TYPES,
         SPEED_READING_EXCLUDED_PRESENTATION_KINDS, TOC_TYPES, TYPE_ALIASES,
-        canonicalType, diagnoseNodes, install, isSpeedReadingPresentationCarrier,
-        normalizeType, normalizedHeadingLevel, prepareStructuredNodes, preferCanonicalPdfVisualAssetRefs,
-        presentationKindForNode, presentationModeForNode, providerTypeForNode, rawTypeForNode,
-        resolvedTypeForNode, semanticTypeForNode, splitStructuredNodes: prepareStructuredNodes, splitTocText,
+        canonicalType, diagnoseNodes, elementSourceOrder, install, isPlayableSpeedReadingPresentationCarrier,
+        isSpeedReadingPresentationCarrier, normalizeType, normalizedHeadingLevel, prepareStructuredNodes,
+        preferCanonicalPdfVisualAssetRefs, presentationKindForNode, presentationModeForNode,
+        providerTypeForNode, rawTypeForNode, resolvedTypeForNode, restorePresentationCarrierOrder,
+        semanticTypeForNode, sourceOrderMap, splitStructuredNodes: prepareStructuredNodes, splitTocText,
     };
 });
