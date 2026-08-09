@@ -18,6 +18,11 @@
     const INSTALL_RETRY_LIMIT = 250;
     const VISUAL_TYPES_WITH_CAPTION = new Set(['figure', 'table']);
     const GLYPH_BLEED_PX = 6;
+    const CAPTION_VISUAL_POLICY = 'same_page_spatial_visual_v1_frontend_fallback';
+    const CAPTION_VISUAL_MAX_VERTICAL_GAP = 0.18;
+    const CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP = 0.40;
+    const CAPTION_VISUAL_MAX_CENTER_DELTA = 0.16;
+    const CAPTION_VISUAL_AMBIGUITY_MARGIN = 0.025;
 
     function normalizeType(value) {
         return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
@@ -51,43 +56,130 @@
         map.get(key).push(value);
     }
 
+    function sourceUnitIdForNode(node) {
+        const locationUnit = String(node?.location?.source_unit_id || '').trim();
+        if (locationUnit) return locationUnit;
+        const locationAnchorUnit = String(node?.location?.source_anchor?.source_unit_id || '').trim();
+        if (locationAnchorUnit) return locationAnchorUnit;
+        const ids = Array.isArray(node?.source_unit_ids)
+            ? node.source_unit_ids.map((value) => String(value || '').trim()).filter(Boolean)
+            : [];
+        if (ids.length === 1) return ids[0];
+        const anchors = Array.isArray(node?.source_anchors) ? node.source_anchors : [];
+        const units = [...new Set(anchors.map((anchor) => String(anchor?.source_unit_id || '').trim()).filter(Boolean))];
+        return units.length === 1 ? units[0] : '';
+    }
+
+    function normalizedSpatialAnchor(node) {
+        const candidates = [
+            node?.location?.source_anchor,
+            ...(Array.isArray(node?.source_anchors) ? node.source_anchors : []),
+        ];
+        for (const anchor of candidates) {
+            if (!anchor || normalizeType(anchor.kind) !== 'spatial') continue;
+            const bbox = Array.isArray(anchor.normalized_bbox) ? anchor.normalized_bbox : null;
+            if (!bbox || bbox.length !== 4) continue;
+            const values = bbox.map((value) => Number(value));
+            if (!values.every(Number.isFinite)) continue;
+            const [left, top, right, bottom] = values;
+            if (!(right > left && bottom > top)) continue;
+            return {
+                left, top, right, bottom,
+                source_unit_id: String(anchor.source_unit_id || sourceUnitIdForNode(node) || '').trim(),
+            };
+        }
+        return null;
+    }
+
+    function samePage(caption, visual, { requireKnown = false } = {}) {
+        const captionUnit = sourceUnitIdForNode(caption);
+        const visualUnit = sourceUnitIdForNode(visual);
+        if (!captionUnit || !visualUnit) return !requireKnown;
+        return captionUnit === visualUnit;
+    }
+
+    function captionAllowedVisualTypes(node) {
+        const values = [
+            node?.metadata?.caption_association_target_kind,
+            node?.metadata?.provider_block_label,
+            node?.metadata?.block_label,
+            node?.raw_node_type,
+        ].map(normalizeType).filter(Boolean);
+        if (values.some((value) => value === 'table' || value.startsWith('table_'))) return new Set(['table']);
+        if (values.some((value) => value === 'figure' || value.startsWith('figure_'))) return new Set(['figure']);
+        return new Set(VISUAL_TYPES_WITH_CAPTION);
+    }
+
+    function captionVisualMetrics(captionAnchor, visualAnchor) {
+        if (!captionAnchor || !visualAnchor) return null;
+        if (!captionAnchor.source_unit_id || !visualAnchor.source_unit_id) return null;
+        if (captionAnchor.source_unit_id !== visualAnchor.source_unit_id) return null;
+
+        let verticalGap = 0;
+        if (captionAnchor.bottom < visualAnchor.top) verticalGap = visualAnchor.top - captionAnchor.bottom;
+        else if (visualAnchor.bottom < captionAnchor.top) verticalGap = captionAnchor.top - visualAnchor.bottom;
+        if (verticalGap > CAPTION_VISUAL_MAX_VERTICAL_GAP) return null;
+
+        const overlap = Math.max(0, Math.min(captionAnchor.right, visualAnchor.right) - Math.max(captionAnchor.left, visualAnchor.left));
+        const smallerWidth = Math.min(
+            captionAnchor.right - captionAnchor.left,
+            visualAnchor.right - visualAnchor.left,
+        );
+        const horizontalOverlap = smallerWidth > 0 ? overlap / smallerWidth : 0;
+        const captionCenter = (captionAnchor.left + captionAnchor.right) / 2;
+        const visualCenter = (visualAnchor.left + visualAnchor.right) / 2;
+        const centerDelta = Math.abs(captionCenter - visualCenter);
+        if (
+            horizontalOverlap < CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP
+            && centerDelta > CAPTION_VISUAL_MAX_CENTER_DELTA
+        ) return null;
+
+        return {
+            score: verticalGap + (centerDelta * 0.35) + ((1 - Math.min(1, horizontalOverlap)) * 0.05),
+            vertical_gap: verticalGap,
+            horizontal_overlap: horizontalOverlap,
+            center_delta: centerDelta,
+        };
+    }
+
     function canonicalCaptionAssociations(adapter, nodes) {
-        // Reader v2 exposes the selected candidate's canonical semantic hierarchy:
-        // parent_ref is node.parent_id and child_refs are its children. Do not infer
-        // caption ownership from proximity, text, page position, or playback order.
+        // Caption ownership is caption-driven. Never assign a caption merely because
+        // a visual exists or is the only visual under a semantic parent. A visual with
+        // no caption evidence remains titleless.
         //
-        // Real recovered documents can represent a visual+caption association in
-        // either of two canonical graph shapes:
-        //   1) caption.parent_ref === visual.node_id (direct visual parent), or
-        //   2) caption and visual share one semantic parent/group.
-        // A visual parent may itself act as a container and contain one more-specific
-        // visual child. In that case the leaf visual is the playback target and the
-        // container visual is suppressed so the same semantic object is not played
-        // twice. Ambiguous groups are intentionally left unbound.
+        // Evidence priority:
+        //   1) exact Reader-v2 graph relation (caption.parent_ref / visual.child_refs),
+        //      rejected only when both nodes identify different physical source units;
+        //   2) bounded same-page spatial fallback mirroring backend
+        //      same_page_spatial_visual_v1: nearby above/below bbox, horizontal
+        //      alignment, allowed Figure/Table kind, ambiguity guard. Reader order is
+        //      only a secondary tie-breaker after spatial score.
+        // Shared parent_ref narrows a spatial candidate pool when available, but is
+        // never sufficient evidence by itself. Cross-page fallback is impossible.
         const visualById = new Map();
-        const allVisualChildrenByParent = new Map();
-        const semanticVisualChildrenByParent = new Map();
+        const visuals = [];
+        const captions = [];
 
         for (const node of nodes || []) {
             const type = resolvedNodeType(adapter, node);
-            if (!VISUAL_TYPES_WITH_CAPTION.has(type)) continue;
             const nodeId = canonicalNodeId(node);
             if (!nodeId) continue;
-            const visual = { node, node_id: nodeId, type };
-            visualById.set(nodeId, visual);
-            const parentRef = canonicalParentRef(node);
-            pushGrouped(allVisualChildrenByParent, parentRef, visual);
-            if (!isSourceRenderingPresentationNode(node)) {
-                pushGrouped(semanticVisualChildrenByParent, parentRef, visual);
+            if (VISUAL_TYPES_WITH_CAPTION.has(type)) {
+                const visual = { node, node_id: nodeId, type };
+                visualById.set(nodeId, visual);
+                visuals.push(visual);
+            } else if (type === 'caption') {
+                const text = typeof node?.text === 'string' ? node.text.trim() : '';
+                if (text) captions.push(node);
             }
         }
 
         const byParent = new Map();
         const consumedCaptionIds = new Set();
-        const suppressedVisualContainerIds = new Set();
         const unresolvedCaptionIds = new Set();
+        const fallbackBoundVisualIds = new Set();
 
-        const bindCaption = (caption, target, associationMode) => {
+        const bindCaption = (caption, target, associationMode, metrics = null) => {
             const nodeId = canonicalNodeId(caption);
             const text = typeof caption?.text === 'string' ? caption.text.trim() : '';
             if (!nodeId || !text || !target?.node_id) return false;
@@ -99,65 +191,116 @@
                 parent_ref: canonicalParentRef(caption),
                 target_node_id: target.node_id,
                 association_mode: associationMode,
+                ...(metrics ? { association_metrics: { ...metrics } } : {}),
             });
             consumedCaptionIds.add(nodeId);
             return true;
         };
 
-        for (const node of nodes || []) {
-            if (resolvedNodeType(adapter, node) !== 'caption') continue;
-            const captionId = canonicalNodeId(node);
-            const parentRef = canonicalParentRef(node);
-            const text = typeof node?.text === 'string' ? node.text.trim() : '';
-            if (!captionId || !parentRef || !text) continue;
+        // Pass 1: preserve precise canonical graph relations. A visual child_refs
+        // entry is treated as equivalent evidence to caption.parent_ref.
+        for (const caption of captions) {
+            const captionId = canonicalNodeId(caption);
+            const parentRef = canonicalParentRef(caption);
+            const directParent = visualById.get(parentRef) || null;
+            let explicitTarget = null;
 
-            const directVisualParent = visualById.get(parentRef) || null;
-            const semanticChildren = semanticVisualChildrenByParent.get(parentRef) || [];
-            const allChildren = allVisualChildrenByParent.get(parentRef) || [];
-            let target = null;
-            let associationMode = '';
-
-            if (directVisualParent) {
-                if (semanticChildren.length === 1) {
-                    // Canonical visual container -> unique semantic visual child.
-                    target = semanticChildren[0];
-                    associationMode = 'canonical_visual_parent_unique_child';
-                    suppressedVisualContainerIds.add(directVisualParent.node_id);
-                } else if (semanticChildren.length === 0) {
-                    // Leaf visual parent: the direct relationship is already exact.
-                    target = directVisualParent;
-                    associationMode = 'canonical_direct_visual_parent';
-                }
+            if (directParent && samePage(caption, directParent.node)) {
+                explicitTarget = directParent;
             } else {
-                // Shared semantic parent/group. Prefer semantic visual children so a
-                // source-rendered page carrier cannot steal a caption from the actual
-                // Figure/Table node. If there are no semantic visuals, a single
-                // source-rendered visual is still an unambiguous canonical target.
-                const candidates = semanticChildren.length ? semanticChildren : allChildren;
-                if (candidates.length === 1) {
-                    target = candidates[0];
-                    associationMode = 'canonical_shared_parent_unique_visual';
-                }
+                const reciprocal = visuals.filter((visual) => (
+                    Array.isArray(visual.node?.child_refs)
+                    && visual.node.child_refs.map((value) => String(value || '').trim()).includes(captionId)
+                    && samePage(caption, visual.node)
+                ));
+                if (reciprocal.length === 1) explicitTarget = reciprocal[0];
             }
 
-            if (!target || !bindCaption(node, target, associationMode)) {
+            if (explicitTarget) bindCaption(caption, explicitTarget, 'canonical_direct_visual_relation');
+        }
+
+        // Pass 2: compatibility for older/degraded candidates whose association was
+        // not persisted. Start from each still-unbound caption and look only at
+        // nearby visuals on the same physical source unit. Presentation page carriers
+        // are excluded so a full-page image cannot absorb a body Figure/Table caption.
+        for (const caption of captions) {
+            const captionId = canonicalNodeId(caption);
+            if (consumedCaptionIds.has(captionId)) continue;
+            const captionAnchor = normalizedSpatialAnchor(caption);
+            if (!captionAnchor?.source_unit_id) {
+                unresolvedCaptionIds.add(captionId);
+                continue;
+            }
+
+            const allowedTypes = captionAllowedVisualTypes(caption);
+            const parentRef = canonicalParentRef(caption);
+            const candidates = [];
+            for (const visual of visuals) {
+                if (!allowedTypes.has(visual.type)) continue;
+                if (isSourceRenderingPresentationNode(visual.node)) continue;
+                if (fallbackBoundVisualIds.has(visual.node_id) || byParent.has(visual.node_id)) continue;
+                if (!samePage(caption, visual.node, { requireKnown: true })) continue;
+                const visualAnchor = normalizedSpatialAnchor(visual.node);
+                const metrics = captionVisualMetrics(captionAnchor, visualAnchor);
+                if (!metrics) continue;
+                candidates.push({
+                    visual,
+                    metrics,
+                    same_parent: Boolean(parentRef && canonicalParentRef(visual.node) === parentRef),
+                    order_delta: Math.abs(Number(caption?.order || 0) - Number(visual.node?.order || 0)),
+                });
+            }
+
+            const sameParentCandidates = candidates.filter((candidate) => candidate.same_parent);
+            const pool = sameParentCandidates.length ? sameParentCandidates : candidates;
+            pool.sort((a, b) => (
+                a.metrics.score - b.metrics.score
+                || a.order_delta - b.order_delta
+                || Number(a.visual.node?.order || 0) - Number(b.visual.node?.order || 0)
+                || a.visual.node_id.localeCompare(b.visual.node_id)
+            ));
+
+            if (!pool.length) {
+                unresolvedCaptionIds.add(captionId);
+                continue;
+            }
+            if (
+                pool.length > 1
+                && pool[1].metrics.score - pool[0].metrics.score < CAPTION_VISUAL_AMBIGUITY_MARGIN
+            ) {
+                unresolvedCaptionIds.add(captionId);
+                continue;
+            }
+
+            const best = pool[0];
+            if (bindCaption(caption, best.visual, CAPTION_VISUAL_POLICY, {
+                vertical_gap: best.metrics.vertical_gap,
+                horizontal_overlap: best.metrics.horizontal_overlap,
+                center_delta: best.metrics.center_delta,
+                order_delta: best.order_delta,
+                shared_parent: best.same_parent,
+            })) {
+                fallbackBoundVisualIds.add(best.visual.node_id);
+            } else {
                 unresolvedCaptionIds.add(captionId);
             }
         }
 
-        for (const captions of byParent.values()) {
-            captions.sort((a, b) => a.order - b.order || a.node_id.localeCompare(b.node_id));
+        for (const caption of captions) {
+            const captionId = canonicalNodeId(caption);
+            if (!consumedCaptionIds.has(captionId)) unresolvedCaptionIds.add(captionId);
         }
-        const suppressedPlaybackNodeIds = new Set([
-            ...consumedCaptionIds,
-            ...suppressedVisualContainerIds,
-        ]);
+        for (const attached of byParent.values()) {
+            attached.sort((a, b) => a.order - b.order || a.node_id.localeCompare(b.node_id));
+        }
+
         return {
             byParent,
             consumedCaptionIds,
-            suppressedVisualContainerIds,
-            suppressedPlaybackNodeIds,
+            suppressedVisualContainerIds: new Set(),
+            suppressedPlaybackNodeIds: new Set(consumedCaptionIds),
             unresolvedCaptionIds,
+            fallbackBoundVisualIds,
         };
     }
 
@@ -180,10 +323,9 @@
         if (typeof originalBuildReadingElements !== 'function') return callback();
         const excluded = excludedNodeIds || new Set();
         adapter.buildReadingElements = function buildReadingElementsWithCanonicalRelations(...args) {
-            // Preserve Reader v2's canonical preorder exactly. The only mutation here
-            // is removing captions already represented in a visual frame and visual
-            // container nodes whose unique visual child is the canonical playback
-            // surface for that same semantic object.
+            // Preserve Reader v2's canonical preorder exactly. Only captions with a
+            // confirmed association are removed from timed flow; visuals are never
+            // suppressed merely to manufacture or repair caption ownership.
             return originalBuildReadingElements.apply(this, args).filter((element) => (
                 !excluded.has(String(element?.identity?.node_id || '').trim())
             ));
@@ -204,11 +346,11 @@
         for (const frame of frames || []) {
             if (frame?.kind !== 'manual' || !VISUAL_TYPES_WITH_CAPTION.has(normalizeType(frame?.node_type))) continue;
             const nodeId = String(frame?.identity?.node_id || '').trim();
-            const captions = byParent.get(nodeId);
-            if (!captions?.length) continue;
-            frame.captions = captions.map((caption) => ({ ...caption }));
-            frame.caption_text = captions.map((caption) => caption.text).join('\n');
-            frame.caption_node_ids = captions.map((caption) => caption.node_id);
+            const captionsForFrame = byParent.get(nodeId);
+            if (!captionsForFrame?.length) continue;
+            frame.captions = captionsForFrame.map((caption) => ({ ...caption }));
+            frame.caption_text = captionsForFrame.map((caption) => caption.text).join('\n');
+            frame.caption_node_ids = captionsForFrame.map((caption) => caption.node_id);
         }
         return frames;
     }
@@ -400,6 +542,11 @@
     }
 
     return {
+        CAPTION_VISUAL_AMBIGUITY_MARGIN,
+        CAPTION_VISUAL_MAX_CENTER_DELTA,
+        CAPTION_VISUAL_MAX_VERTICAL_GAP,
+        CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP,
+        CAPTION_VISUAL_POLICY,
         GLYPH_BLEED_PX,
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
@@ -410,17 +557,22 @@
         canonicalCaptionAssociations,
         canonicalNodeId,
         canonicalParentRef,
+        captionAllowedVisualTypes,
+        captionVisualMetrics,
         install,
         installWithRetry,
         isSourceRenderingPresentationNode,
         lineFrameCapacity,
+        normalizedSpatialAnchor,
         numericLineHeight,
         prependVisualCaptions,
         pushGrouped,
         relaxTimedTextClipping,
         rendererChainReady,
         resolvedNodeType,
+        samePage,
         setImportant,
+        sourceUnitIdForNode,
         withAssociatedCaptionsSuppressed,
         withPlaybackElementPolicy,
     };
