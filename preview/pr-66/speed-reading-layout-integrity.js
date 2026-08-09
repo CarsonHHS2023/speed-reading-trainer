@@ -152,10 +152,10 @@
         //      rejected only when both nodes identify different physical source units;
         //   2) bounded same-page spatial fallback mirroring backend
         //      same_page_spatial_visual_v1: nearby above/below bbox, horizontal
-        //      alignment, allowed Figure/Table kind, ambiguity guard. Reader order is
-        //      only a secondary tie-breaker after spatial score.
-        // Shared parent_ref narrows a spatial candidate pool when available, but is
-        // never sufficient evidence by itself. Cross-page fallback is impossible.
+        //      alignment, allowed Figure/Table kind, ambiguity guard. Reader order and
+        //      shared parent are diagnostics/tie metadata only; they never override a
+        //      clearly better spatial match or resolve a spatially ambiguous pair.
+        // Cross-page fallback is impossible.
         const visualById = new Map();
         const visuals = [];
         const captions = [];
@@ -251,28 +251,27 @@
                 });
             }
 
-            const sameParentCandidates = candidates.filter((candidate) => candidate.same_parent);
-            const pool = sameParentCandidates.length ? sameParentCandidates : candidates;
-            pool.sort((a, b) => (
+            candidates.sort((a, b) => (
                 a.metrics.score - b.metrics.score
                 || a.order_delta - b.order_delta
+                || Number(b.same_parent) - Number(a.same_parent)
                 || Number(a.visual.node?.order || 0) - Number(b.visual.node?.order || 0)
                 || a.visual.node_id.localeCompare(b.visual.node_id)
             ));
 
-            if (!pool.length) {
+            if (!candidates.length) {
                 unresolvedCaptionIds.add(captionId);
                 continue;
             }
             if (
-                pool.length > 1
-                && pool[1].metrics.score - pool[0].metrics.score < CAPTION_VISUAL_AMBIGUITY_MARGIN
+                candidates.length > 1
+                && candidates[1].metrics.score - candidates[0].metrics.score < CAPTION_VISUAL_AMBIGUITY_MARGIN
             ) {
                 unresolvedCaptionIds.add(captionId);
                 continue;
             }
 
-            const best = pool[0];
+            const best = candidates[0];
             if (bindCaption(caption, best.visual, CAPTION_VISUAL_POLICY, {
                 vertical_gap: best.metrics.vertical_gap,
                 horizontal_overlap: best.metrics.horizontal_overlap,
