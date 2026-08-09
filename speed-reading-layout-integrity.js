@@ -22,7 +22,7 @@
     const CAPTION_VISUAL_MAX_VERTICAL_GAP = 0.18;
     const CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP = 0.40;
     const CAPTION_VISUAL_MAX_CENTER_DELTA = 0.16;
-    const CAPTION_VISUAL_AMIGUITY_MARGIN = 0.025;
+    const CAPTION_VISUAL_AMBIGUITY_MARGIN = 0.025;
 
     function normalizeType(value) {
         return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
@@ -265,7 +265,7 @@
             }
             if (
                 candidates.length > 1
-                && candidates[1].metrics.score - candidates[0].metrics.score < CAPTION_VISUAL_AMIGUITY_MARGIN
+                && candidates[1].metrics.score - candidates[0].metrics.score < CAPTION_VISUAL_AMBIGUITY_MARGIN
             ) {
                 unresolvedCaptionIds.add(captionId);
                 continue;
@@ -594,7 +594,7 @@
     }
 
     return {
-        CAPTION_VISUAL_AMBIGUITY_MARGIN: CAPTION_VISUAL_AMIGUITY_MARGIN,
+        CAPTION_VISUAL_AMBIGUITY_MARGIN,
         CAPTION_VISUAL_MAX_CENTER_DELTA,
         CAPTION_VISUAL_MAX_VERTICAL_GAP,
         CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP,
