@@ -149,12 +149,12 @@ test('manual display-formula frame uses shared ReaderFormula KaTeX display rende
   assert.equal(target.children[1].className, 'reader-playback-continue');
 });
 
-test('Preview loader cache-busts formula rendering before responsive layout', () => {
+test('versioned enhancement loader places formula rendering before responsive layout', () => {
   const source = fs.readFileSync('training-session-clock.js', 'utf8');
   const formula = source.indexOf('speed-reading-formula-rendering.js');
   const responsive = source.indexOf('speed-reading-responsive-layout.js');
   assert.ok(formula >= 0 && responsive > formula);
-  assert.match(source, /speed-reading-formula-rendering\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
-  assert.match(source, /formulaScript\.async = false/u);
+  assert.match(source, /const versionedSrc = \(src\) => `\$\{src\}\?v=\$\{encodeURIComponent\(assetVersion\)\}`/u);
+  assert.match(source, /script\.src = versionedSrc\(src\)/u);
   assert.match(source, /script\.async = false/u);
 });
