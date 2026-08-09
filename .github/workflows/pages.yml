@@ -19,6 +19,35 @@ jobs:
       - name: Check out main
         uses: actions/checkout@v4
 
+      - name: Prepare cache-busted production entrypoint
+        env:
+          PRODUCTION_HEAD_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          sha = os.environ["PRODUCTION_HEAD_SHA"]
+          path = Path("index.html")
+          text = path.read_text(encoding="utf-8")
+          for asset in (
+              "reader-page-zoom-pan.css",
+              "reader-page-zoom-pan.js",
+              "reader-debug-toolbar.js",
+              "reader-presentation.js",
+              "reader-semantic-layout-refinement.js",
+              "training-session-clock.js",
+              "reader-resume-lifecycle.js",
+          ):
+              text = re.sub(
+                  rf"{re.escape(asset)}(?:\?v=[^\"']+)?",
+                  f"{asset}?v={sha}",
+                  text,
+              )
+          path.write_text(text, encoding="utf-8")
+          PY
+
       - name: Deploy frontend to GitHub Pages root
         uses: peaceiris/actions-gh-pages@v3
         with:
