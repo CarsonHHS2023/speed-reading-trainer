@@ -131,7 +131,7 @@ function fakeElement(id = '', classes = []) {
   return element;
 }
 
-test('playback controls merge beside Book List and the old top toolbar disappears', () => {
+test('complete playback controls merge beside Book List and the old top toolbar disappears', () => {
   const header = fakeElement('', ['booklist-header']);
   const rail = fakeElement('readerStudyToolsRail', ['reader-study-tools-rail']);
   const tabs = fakeElement('', ['reader-study-tools-tabs']);
@@ -141,16 +141,19 @@ test('playback controls merge beside Book List and the old top toolbar disappear
   readingPanel.appendChild(toolbar);
   const toggle = fakeElement('readingToggleBtn', ['reading-toggle-btn']);
   header.appendChild(toggle);
+  const first = fakeElement('speedReadingFirst');
   const prev = fakeElement('speedReadingPrev');
   const pause = fakeElement('speedReadingPause');
   const next = fakeElement('speedReadingNext');
+  const last = fakeElement('speedReadingLast');
   const stop = fakeElement('speedReadingStop');
   const debug = fakeElement('speedReadingDebug');
-  for (const child of [prev, pause, next, stop, debug]) toolbar.appendChild(child);
+  for (const child of [first, prev, pause, next, last, stop, debug]) toolbar.appendChild(child);
 
   const byId = new Map([
     ['speedReadingV2Toolbar', toolbar], ['readingToggleBtn', toggle],
-    ['speedReadingPrev', prev], ['speedReadingPause', pause], ['speedReadingNext', next],
+    ['speedReadingFirst', first], ['speedReadingPrev', prev], ['speedReadingPause', pause],
+    ['speedReadingNext', next], ['speedReadingLast', last],
     ['speedReadingStop', stop], ['speedReadingDebug', debug],
   ]);
   const documentObject = {
@@ -168,7 +171,8 @@ test('playback controls merge beside Book List and the old top toolbar disappear
   const group = header.querySelector('.reader-booklist-playback-controls');
   assert.ok(group);
   assert.deepEqual(group.children.map((child) => child.id), [
-    'speedReadingPrev', 'speedReadingPause', 'speedReadingNext', 'readingToggleBtn',
+    'speedReadingFirst', 'speedReadingPrev', 'readingToggleBtn',
+    'speedReadingNext', 'speedReadingLast', 'speedReadingStop',
   ]);
   assert.equal(tabs.children.includes(debug), true);
   assert.equal(debug.classList.contains('reader-study-tool-tab'), true);
@@ -176,7 +180,8 @@ test('playback controls merge beside Book List and the old top toolbar disappear
   assert.equal(readingPanel.children[0].id, 'speedReadingV2Toolbar');
   assert.equal(readingPanel.children[0].hidden, true);
   assert.equal(readingPanel.children[0].className, 'speed-reading-v2-toolbar-compat');
-  assert.equal(stop.parentNode, toolbar);
+  assert.equal(pause.parentNode, toolbar, 'legacy hidden pause control is not duplicated in the Book List group');
+  assert.equal(stop.parentNode, group, 'dedicated Stop is visible in the complete control group');
   assert.equal(toolbar.parentNode, null);
 });
 
@@ -210,9 +215,10 @@ test('zoom percentage tooltip and click reset every rendered page to canonical 1
   assert.equal(indicatorScale, 1);
 });
 
-test('toolbar layout constants preserve the existing playback state-machine controls', () => {
+test('toolbar layout constants define the complete six-button playback set', () => {
   assert.deepEqual(DebugToolbar.MOVED_PLAYBACK_CONTROL_IDS, [
-    'speedReadingPrev', 'speedReadingPause', 'speedReadingNext',
+    'speedReadingFirst', 'speedReadingPrev', 'readingToggleBtn',
+    'speedReadingNext', 'speedReadingLast', 'speedReadingStop',
   ]);
   assert.equal(DebugToolbar.READING_TOGGLE_ID, 'readingToggleBtn');
   assert.equal(DebugToolbar.BUTTON_ID, 'speedReadingDebug');
