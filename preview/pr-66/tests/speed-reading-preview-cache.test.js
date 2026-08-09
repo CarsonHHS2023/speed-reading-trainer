@@ -32,6 +32,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(clock, /speed-reading-structure-policy\.js/u);
   assert.match(clock, /speed-reading-formula-rendering\.js/u);
   assert.match(clock, /speed-reading-responsive-layout\.js/u);
+  assert.match(clock, /reader-punctuation-hanging-policy\.js/u);
   assert.match(clock, /speed-reading-layout-integrity\.js/u);
   assert.match(clock, /script\.dataset\.readerEnhancement = src/u);
   assert.match(clock, /script\.dataset\.loaded = '1'/u);
@@ -42,6 +43,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /reader-resume-lifecycle\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-structure-policy\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-responsive-layout\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
+  assert.match(workflow, /reader-punctuation-hanging-policy\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-formula-rendering\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-layout-integrity\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
@@ -49,6 +51,12 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /dataset\.readerEnhancement/u);
   assert.match(workflow, /inline_formula: 'paragraph'/u);
   assert.match(workflow, /table_title: 'caption'/u);
+  assert.match(workflow, /BROAD_SEMANTIC_TYPES/u);
+  assert.match(workflow, /preferCanonicalPdfVisualAssetRefs/u);
+  assert.match(workflow, /SPEED_READING_EXCLUDED_PRESENTATION_KINDS/u);
+  assert.match(workflow, /sameLogicalTextSource/u);
+  assert.match(workflow, /HARD_STRUCTURE_TYPES/u);
+  assert.match(workflow, /refreshFrameTiming/u);
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
   assert.match(workflow, /splitMeasuredLineIntoBlocks/u);
   assert.match(workflow, /pageLineCapacity/u);
