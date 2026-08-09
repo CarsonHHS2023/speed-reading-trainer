@@ -77,6 +77,7 @@ jobs:
             lifecycle="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}" || true)"
             structure_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-structure-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
             speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            punctuation_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-punctuation-hanging-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
             formula_rendering="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-formula-rendering.js?v=${PREVIEW_HEAD_SHA}" || true)"
             layout_integrity="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-layout-integrity.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
@@ -102,6 +103,7 @@ jobs:
               && [[ "${training_clock}" == *"speed-reading-structure-policy.js"* ]] \
               && [[ "${training_clock}" == *"speed-reading-formula-rendering.js"* ]] \
               && [[ "${training_clock}" == *"speed-reading-responsive-layout.js"* ]] \
+              && [[ "${training_clock}" == *"reader-punctuation-hanging-policy.js"* ]] \
               && [[ "${training_clock}" == *"speed-reading-layout-integrity.js"* ]] \
               && [[ "${training_clock}" == *"dataset.readerEnhancement"* ]] \
               && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
@@ -110,9 +112,15 @@ jobs:
               && [[ "${structure_policy}" == *"inline_formula: 'paragraph'"* ]] \
               && [[ "${structure_policy}" == *"providerType === 'inline_formula'"* ]] \
               && [[ "${structure_policy}" == *"table_title: 'caption'"* ]] \
+              && [[ "${structure_policy}" == *"BROAD_SEMANTIC_TYPES"* ]] \
+              && [[ "${structure_policy}" == *"preferCanonicalPdfVisualAssetRefs"* ]] \
+              && [[ "${structure_policy}" == *"SPEED_READING_EXCLUDED_PRESENTATION_KINDS"* ]] \
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
               && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
+              && [[ "${punctuation_policy}" == *"sameLogicalTextSource"* ]] \
+              && [[ "${punctuation_policy}" == *"HARD_STRUCTURE_TYPES"* ]] \
+              && [[ "${punctuation_policy}" == *"refreshFrameTiming"* ]] \
               && [[ "${formula_rendering}" == *"INLINE_FORMULA_KIND = 'inline_formula'"* ]] \
               && [[ "${formula_rendering}" == *"displayMode: false"* ]] \
               && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
