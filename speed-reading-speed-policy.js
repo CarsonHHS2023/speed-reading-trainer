@@ -23,6 +23,20 @@
     const VIEWPOINT_MODE_LABEL = '视点模式：';
     const FIXED_VIEWPOINT_LABEL = '固定式';
     const MOVING_VIEWPOINT_LABEL = '移动式';
+    const LAYOUT_SETTING_PAIRS = Object.freeze({
+        widthSlider: 'widthInput',
+        widthInput: 'widthSlider',
+        linesSlider: 'linesInput',
+        linesInput: 'linesSlider',
+        fontSlider: 'fontInput',
+        fontInput: 'fontSlider',
+    });
+    const LAYOUT_SPEED_CONTROL_IDS = Object.freeze([
+        'widthSlider', 'widthInput',
+        'linesSlider', 'linesInput',
+        'fontSlider', 'fontInput', 'fontWeight',
+        'displayMode',
+    ]);
 
     function clampWidthPercent(value) {
         const numeric = Number(value);
@@ -187,22 +201,55 @@
         return { ...context, ...controls };
     }
 
+    function syncPairedLayoutControl(controller, sourceId) {
+        const pairedId = LAYOUT_SETTING_PAIRS[sourceId];
+        if (!pairedId) return false;
+        const source = controller?.element?.(sourceId);
+        const paired = controller?.element?.(pairedId);
+        if (!source || !paired) return false;
+        paired.value = String(source.value ?? '');
+        return true;
+    }
+
+    function bindDynamicSpeedControls(controller, rootObject) {
+        if (!controller || controller.__speedReadingDynamicSpeedControlsBound) return false;
+        controller.__speedReadingDynamicSpeedControlsBound = true;
+        for (const id of LAYOUT_SPEED_CONTROL_IDS) {
+            const control = controller.element?.(id);
+            if (!control?.addEventListener) continue;
+            const recalculate = () => {
+                syncPairedLayoutControl(controller, id);
+                updateSpeedLimit(controller, rootObject);
+            };
+            // Capture phase intentionally synchronizes slider/input pairs before
+            // Reader v2 or legacy app handlers rebuild frames from the same event.
+            control.addEventListener('input', recalculate, true);
+            control.addEventListener('change', recalculate, true);
+        }
+        return true;
+    }
+
     function install(rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
-        const Controller = rootObject?.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController;
+        const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
+        const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         const prototype = Controller?.prototype;
         if (!prototype || !prototype.__speedReadingLayoutIntegrityInstalled) return false;
-        if (prototype.__speedReadingSpeedPolicyInstalled) return true;
-        const originalRefreshFrames = prototype.refreshFrames;
-        if (typeof originalRefreshFrames !== 'function') return false;
 
-        prototype.refreshFrames = function refreshFramesWithDynamicSpeedLimit(options = {}) {
-            updateSpeedLimit(this, rootObject);
-            return originalRefreshFrames.call(this, options);
-        };
-        prototype.__speedReadingSpeedPolicyInstalled = true;
+        if (!prototype.__speedReadingSpeedPolicyInstalled) {
+            const originalRefreshFrames = prototype.refreshFrames;
+            if (typeof originalRefreshFrames !== 'function') return false;
+            prototype.refreshFrames = function refreshFramesWithDynamicSpeedLimit(options = {}) {
+                updateSpeedLimit(this, rootObject);
+                return originalRefreshFrames.call(this, options);
+            };
+            prototype.__speedReadingSpeedPolicyInstalled = true;
+        }
 
-        const controller = rootObject?.ReaderSpeedPlaybackUI?.getDefaultController?.();
-        if (controller) updateSpeedLimit(controller, rootObject);
+        const controller = PlaybackUI?.getDefaultController?.();
+        if (controller) {
+            bindDynamicSpeedControls(controller, rootObject);
+            updateSpeedLimit(controller, rootObject);
+        }
         return true;
     }
 
@@ -219,11 +266,14 @@
         FIXED_VIEWPOINT_LABEL,
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
+        LAYOUT_SETTING_PAIRS,
+        LAYOUT_SPEED_CONTROL_IDS,
         MIN_SPEED_PER_MINUTE,
         MOVING_VIEWPOINT_LABEL,
         SPEED_UNIT_LABEL,
         VIEWPOINT_MODE_LABEL,
         applySpeedRangeControls,
+        bindDynamicSpeedControls,
         configureSettingsLabels,
         frameLineCapacity,
         install,
@@ -231,6 +281,7 @@
         maximumSpeedPerMinute,
         numericLineHeight,
         speedLayoutContext,
+        syncPairedLayoutControl,
         updateSpeedLimit,
     };
 });
