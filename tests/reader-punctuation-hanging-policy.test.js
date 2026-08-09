@@ -11,15 +11,15 @@ function identity(nodeId) {
   return { node_id: nodeId, source_unit_id: 'page-1' };
 }
 
-test('carried character and closing punctuation are restored only within the same logical text source', () => {
+test('only leading closing punctuation is restored to the preceding line', () => {
   const paragraph = identity('paragraph-1');
   const frames = [{
     kind: 'timed_text',
     lines: [
-      { text: '金融市场本无大', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
-      { text: '师。后面的正文', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+      { text: '金融市场本无大师', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+      { text: '。后面的正文', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
     ],
-    text: '金融市场本无大\n师。后面的正文',
+    text: '金融市场本无大师\n。后面的正文',
     reading_units: 0,
     duration_ms: 0,
   }];
@@ -31,6 +31,42 @@ test('carried character and closing punctuation are restored only within the sam
     '后面的正文',
   ]);
   assert.equal(frames[0].text, '金融市场本无大师。\n后面的正文');
+});
+
+test('a valid next-line character plus closing bracket is never moved backward', () => {
+  const paragraph = identity('paragraph-value');
+  const frames = [{
+    kind: 'timed_text',
+    lines: [
+      { text: '基本信念和行为规范（价值', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+      { text: '观）企业文化的后续内容', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+    ],
+    text: '基本信念和行为规范（价值\n观）企业文化的后续内容',
+  }];
+
+  Policy.repairHangingPunctuation(frames, adapter, 600);
+  assert.deepEqual(frames[0].lines.map((line) => line.text), [
+    '基本信念和行为规范（价值',
+    '观）企业文化的后续内容',
+  ]);
+});
+
+test('a valid next-line character plus comma is never moved backward', () => {
+  const paragraph = identity('paragraph-level');
+  const frames = [{
+    kind: 'timed_text',
+    lines: [
+      { text: '大约每年可以提高一个西格玛水', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+      { text: '平，直到达到4.7西格玛水平', node_type: 'paragraph', identity: paragraph, source_spans: [paragraph] },
+    ],
+    text: '大约每年可以提高一个西格玛水\n平，直到达到4.7西格玛水平',
+  }];
+
+  Policy.repairHangingPunctuation(frames, adapter, 600);
+  assert.deepEqual(frames[0].lines.map((line) => line.text), [
+    '大约每年可以提高一个西格玛水',
+    '平，直到达到4.7西格玛水平',
+  ]);
 });
 
 test('TOC/list structural rows never donate their item prefix to the preceding row', () => {
@@ -59,29 +95,29 @@ test('different paragraph nodes are a hard logical boundary for punctuation repa
     kind: 'timed_text',
     lines: [
       { text: '第一段结尾', node_type: 'paragraph', identity: identity('p1') },
-      { text: '师。第二段正文', node_type: 'paragraph', identity: identity('p2') },
+      { text: '。第二段正文', node_type: 'paragraph', identity: identity('p2') },
     ],
-    text: '第一段结尾\n师。第二段正文',
+    text: '第一段结尾\n。第二段正文',
   }];
 
   Policy.repairHangingPunctuation(frames, adapter, 600);
-  assert.deepEqual(frames[0].lines.map((line) => line.text), ['第一段结尾', '师。第二段正文']);
+  assert.deepEqual(frames[0].lines.map((line) => line.text), ['第一段结尾', '。第二段正文']);
 });
 
-test('same-node repair across timed frames refreshes the previous frame text and timing', () => {
+test('same-node punctuation-only repair across timed frames refreshes the previous frame text and timing', () => {
   const paragraph = identity('paragraph-cross-frame');
   const frames = [
     {
       kind: 'timed_text',
-      lines: [{ text: '金融市场本无大', node_type: 'paragraph', identity: paragraph }],
-      text: '金融市场本无大',
+      lines: [{ text: '金融市场本无大师', node_type: 'paragraph', identity: paragraph }],
+      text: '金融市场本无大师',
       reading_units: 0,
       duration_ms: 0,
     },
     {
       kind: 'timed_text',
-      lines: [{ text: '师。后面的正文', node_type: 'paragraph', identity: paragraph }],
-      text: '师。后面的正文',
+      lines: [{ text: '。后面的正文', node_type: 'paragraph', identity: paragraph }],
+      text: '。后面的正文',
       reading_units: 0,
       duration_ms: 0,
     },
@@ -93,7 +129,7 @@ test('same-node repair across timed frames refreshes the previous frame text and
   assert.equal(frames[0].duration_ms, Array.from(frames[0].text).length * 10);
 });
 
-test('ordinary next-line text without carried punctuation is unchanged', () => {
+test('ordinary next-line text without leading punctuation is unchanged', () => {
   const paragraph = identity('paragraph-2');
   const frames = [{
     kind: 'timed_text',
