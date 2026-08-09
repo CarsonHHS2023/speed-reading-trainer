@@ -16,9 +16,19 @@
         }
     }
 
-    function versionedAsset(src) {
+    function previewHeadVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        return String(
+            documentObject?.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '',
+        ).trim();
+    }
+
+    function assetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        return previewHeadVersion(documentObject) || ASSET_VERSION;
+    }
+
+    function versionedAsset(src, documentObject = typeof document !== 'undefined' ? document : null) {
         const separator = String(src).includes('?') ? '&' : '?';
-        return `${src}${separator}v=${encodeURIComponent(ASSET_VERSION)}`;
+        return `${src}${separator}v=${encodeURIComponent(assetVersion(documentObject))}`;
     }
 
     function refreshStylesheet() {
@@ -298,6 +308,7 @@
         BOOKSHELF_CACHE_KEY,
         BookshelfEndpointError,
         DEFAULT_API_BASE_URL,
+        assetVersion,
         diagnoseBookshelfFailure,
         endpointDiagnosticFromError,
         endpointDiagnosticLabel,
@@ -308,6 +319,7 @@
         installEnhancements,
         loadScript,
         normalizeBaseUrl,
+        previewHeadVersion,
         probeEndpoint,
         readCachedBooks,
         refreshStylesheet,
