@@ -68,9 +68,22 @@
 });
 
 if (typeof document !== 'undefined') {
-    const PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1';
+    const FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1';
+
+    function currentScriptAssetVersion(documentObject) {
+        const src = documentObject?.currentScript?.src || '';
+        if (!src) return '';
+        try {
+            return new URL(src, documentObject.baseURI || globalThis.location?.href || undefined).searchParams.get('v') || '';
+        } catch (_error) {
+            const match = String(src).match(/[?&]v=([^&#]+)/u);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+    }
+
     const previewHead = document.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '';
-    const assetVersion = previewHead || PRODUCTION_ASSET_VERSION;
+    const entrypointVersion = currentScriptAssetVersion(document);
+    const assetVersion = previewHead || entrypointVersion || FALLBACK_ASSET_VERSION;
     const versionedSrc = (src) => `${src}?v=${encodeURIComponent(assetVersion)}`;
 
     function appendEnhancementScript(id, src, options = {}) {
