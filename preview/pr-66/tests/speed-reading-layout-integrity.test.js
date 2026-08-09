@@ -28,26 +28,34 @@ test('line mode keeps complete configured groups across virtual-page boundaries 
   assert.equal(Integrity.lineFrameCapacity(7, 1), 7);
 });
 
-test('visual captions follow Reader v2 canonical parent_ref globally and never use proximity or source-unit guesses', () => {
+test('direct Reader v2 caption relation binds on the same page and explicit cross-page relations are rejected', () => {
   const adapter = {
     resolvedTypeForNode(node) { return { type: node.node_type }; },
   };
   const nodes = [
     { node_id: 'figure-1', node_type: 'figure', order: 1, location: { source_unit_id: 'page-1' } },
     {
-      node_id: 'caption-1', node_type: 'caption', parent_ref: 'figure-1', text: '图 1-1 正确标题', order: 2,
+      node_id: 'caption-same-page', node_type: 'caption', parent_ref: 'figure-1', text: '图 1-1 正确标题', order: 2,
+      location: { source_unit_id: 'page-1' },
+    },
+    { node_id: 'figure-2', node_type: 'figure', order: 3, location: { source_unit_id: 'page-1' } },
+    {
+      node_id: 'caption-cross-page', node_type: 'caption', parent_ref: 'figure-2', text: '另一页标题', order: 4,
       location: { source_unit_id: 'page-2' },
     },
     {
-      node_id: 'caption-nearby', node_type: 'caption', text: '看起来很近但没有 parent_ref', order: 3,
+      node_id: 'caption-unbound', node_type: 'caption', text: '没有关系也没有坐标证据', order: 5,
       location: { source_unit_id: 'page-1' },
     },
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
   assert.deepEqual(result.byParent.get('figure-1').map((item) => item.text), ['图 1-1 正确标题']);
-  assert.equal(result.consumedCaptionIds.has('caption-1'), true);
-  assert.equal(result.consumedCaptionIds.has('caption-nearby'), false);
+  assert.equal(result.consumedCaptionIds.has('caption-same-page'), true);
+  assert.equal(result.byParent.has('figure-2'), false);
+  assert.equal(result.consumedCaptionIds.has('caption-cross-page'), false);
+  assert.equal(result.unresolvedCaptionIds.has('caption-cross-page'), true);
+  assert.equal(result.consumedCaptionIds.has('caption-unbound'), false);
 });
 
 test('figure and table captions attach only to their explicit canonical parents', () => {
