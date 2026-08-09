@@ -228,10 +228,11 @@ test('manual visual caption renderer keeps caption and visual in the same target
   assert.equal(target.children[1].className, 'reader-playback-asset-slot');
 });
 
-test('training clock exact-head loader includes the layout integrity module after responsive layout', () => {
+test('versioned enhancement loader places layout integrity after responsive layout', () => {
   const source = fs.readFileSync('training-session-clock.js', 'utf8');
   const responsive = source.indexOf('speed-reading-responsive-layout.js');
   const integrity = source.indexOf('speed-reading-layout-integrity.js');
   assert.ok(responsive >= 0 && integrity > responsive);
-  assert.match(source, /speed-reading-layout-integrity\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
+  assert.match(source, /const versionedSrc = \(src\) => `\$\{src\}\?v=\$\{encodeURIComponent\(assetVersion\)\}`/u);
+  assert.match(source, /script\.src = versionedSrc\(src\)/u);
 });
