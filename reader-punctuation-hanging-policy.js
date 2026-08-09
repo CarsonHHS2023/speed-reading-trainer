@@ -5,7 +5,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const CARRIED_CHARACTER_AND_PUNCTUATION = /^([^\s，。；：！？、…—”’）】》〉」』〕］｝])([，。；：！？、…—”’）】》〉」』〕］｝]+)/u;
+    // This policy is deliberately punctuation-only. A previous implementation
+    // matched "one character + closing punctuation" and moved both pieces back to
+    // the preceding line. That corrupts valid wraps such as "观）" or "平，",
+    // where the character legitimately belongs to the new line. Only punctuation
+    // that is itself at the beginning of a line may hang into the preceding line.
+    const LEADING_CLOSING_PUNCTUATION = /^([,.;:!?%\)\]\}，。；：！？％、…—”’）】》〉」』〕］｝]+)/u;
     const HARD_STRUCTURE_TYPES = new Set([
         'title', 'heading', 'list', 'list_item', 'toc', 'toc_item',
         'caption', 'quote', 'code', 'reference',
@@ -65,10 +70,10 @@
                 const line = { ...sourceLine };
                 const text = String(line.text || '');
                 const match = sameLogicalTextSource(previousLine, line)
-                    ? text.match(CARRIED_CHARACTER_AND_PUNCTUATION)
+                    ? text.match(LEADING_CLOSING_PUNCTUATION)
                     : null;
                 if (match) {
-                    previousLine.text = `${String(previousLine.text || '').replace(/\s+$/u, '')}${match[1]}${match[2]}`;
+                    previousLine.text = `${String(previousLine.text || '').replace(/\s+$/u, '')}${match[1]}`;
                     line.text = text.slice(match[0].length).replace(/^\s+/u, '');
                 }
                 if (line.text) {
@@ -79,9 +84,8 @@
             frame.lines = kept;
         }
 
-        // A repair can reach back into the previous timed frame, so recompute all
-        // frame text/timing only after the complete pass rather than leaving stale
-        // text on an already-visited frame.
+        // A punctuation-only repair can still reach back into the previous timed
+        // frame, so recompute all frame text/timing after the complete pass.
         for (const frame of frames || []) refreshFrameTiming(frame, adapter, speedPerMinute);
         return frames;
     }
@@ -106,8 +110,8 @@
     }
 
     return {
-        CARRIED_CHARACTER_AND_PUNCTUATION,
         HARD_STRUCTURE_TYPES,
+        LEADING_CLOSING_PUNCTUATION,
         install,
         isHardStructureLine,
         lineNodeIds,
