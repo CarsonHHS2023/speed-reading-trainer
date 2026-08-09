@@ -185,7 +185,12 @@
     }
 
     function wrapUpdateControls(target) {
-        if (!target || target.__playbackControlStateWrapped || typeof target.updateControls !== 'function') return false;
+        if (!target || typeof target.updateControls !== 'function') return false;
+        // A prototype marker must not make us skip an instance-level wrapper.
+        // ReaderDebugToolbar installs an own updateControls function on the default
+        // controller before this enhancement loads, so prototype and instance each
+        // need their own post-processing wrapper.
+        if (Object.prototype.hasOwnProperty.call(target, '__playbackControlStateWrapped')) return false;
         const original = target.updateControls;
         target.updateControls = function updateControlsWithPlaybackTruth(...args) {
             const result = original.apply(this, args);
@@ -193,7 +198,12 @@
             applyPlaybackControlState(this, snapshot);
             return result;
         };
-        target.__playbackControlStateWrapped = true;
+        Object.defineProperty(target, '__playbackControlStateWrapped', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
         return true;
     }
 
