@@ -7,87 +7,162 @@ const adapter = {
   resolvedTypeForNode(node) { return { type: node.node_type }; },
 };
 
-test('table caption binds to the unique table sibling under the same canonical semantic parent', () => {
+function spatialNode(id, type, page, bbox, order, extra = {}) {
+  return {
+    node_id: id,
+    node_type: type,
+    order,
+    source_unit_ids: [page],
+    source_anchors: [{ kind: 'spatial', source_unit_id: page, normalized_bbox: bbox }],
+    location: {
+      node_id: id,
+      source_unit_id: page,
+      source_anchor: { kind: 'spatial', source_unit_id: page, normalized_bbox: bbox },
+    },
+    ...extra,
+  };
+}
+
+test('exact canonical caption parent remains the strongest evidence when it is not cross-page', () => {
   const nodes = [
-    { node_id: 'group-table', node_type: 'paragraph', order: 37 },
-    {
-      node_id: 'caption-table', node_type: 'caption', parent_ref: 'group-table',
-      text: '表1 复利的作用', order: 38,
-    },
-    {
-      node_id: 'table-1', node_type: 'table', parent_ref: 'group-table',
-      order: 39, asset_refs: ['pdf-visual:table-1'],
-    },
+    spatialNode('figure-1', 'figure', 'pdf-page:000001', [0.2, 0.2, 0.8, 0.7], 1, {
+      child_refs: ['caption-1'],
+    }),
+    spatialNode('caption-1', 'caption', 'pdf-page:000001', [0.3, 0.72, 0.7, 0.76], 2, {
+      parent_ref: 'figure-1', text: '图 1-1',
+    }),
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
-  assert.deepEqual(result.byParent.get('table-1').map((item) => item.text), ['表1 复利的作用']);
-  assert.equal(result.byParent.get('table-1')[0].association_mode, 'canonical_shared_parent_unique_visual');
-  assert.equal(result.consumedCaptionIds.has('caption-table'), true);
-  assert.equal(result.unresolvedCaptionIds.has('caption-table'), false);
+  assert.equal(result.byParent.get('figure-1')[0].association_mode, 'canonical_direct_visual_relation');
+  assert.equal(result.consumedCaptionIds.has('caption-1'), true);
 });
 
-test('caption on a visual container binds to its unique semantic visual child and suppresses the container frame', () => {
+test('page-4 table caption uses same-page spatial evidence instead of unique-shared-parent forcing', () => {
   const nodes = [
-    {
-      node_id: 'visual-container', node_type: 'figure', order: 63,
-      asset_refs: ['provider-image:container'],
-    },
-    {
-      node_id: 'actual-gdp-figure', node_type: 'figure', parent_ref: 'visual-container', order: 64,
-      asset_refs: ['pdf-visual:gdp'],
-    },
-    {
-      node_id: 'caption-gdp', node_type: 'caption', parent_ref: 'visual-container', order: 66,
-      text: '图 1-1 印度 GDP 变化和国际黄金价格变化图',
-    },
+    spatialNode('caption-table', 'caption', 'pdf-page:000004', [
+      0.44851657940663175, 0.6256684491978609, 0.6114019778941245, 0.6421225832990539,
+    ], 38, {
+      parent_ref: 'group-table', text: '表1 复利的作用',
+    }),
+    spatialNode('table-1', 'table', 'pdf-page:000004', [
+      0.16986620127981383, 0.6450020567667627, 0.8888888888888888, 0.8009049773755657,
+    ], 39, {
+      parent_ref: 'group-table', asset_refs: ['pdf-visual:table-1'],
+    }),
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
-  assert.equal(result.byParent.has('visual-container'), false, 'container must not steal the caption');
-  assert.deepEqual(result.byParent.get('actual-gdp-figure').map((item) => item.text), [
-    '图 1-1 印度 GDP 变化和国际黄金价格变化图',
-  ]);
-  assert.equal(result.byParent.get('actual-gdp-figure')[0].association_mode, 'canonical_visual_parent_unique_child');
-  assert.equal(result.suppressedVisualContainerIds.has('visual-container'), true);
-  assert.equal(result.suppressedPlaybackNodeIds.has('visual-container'), true);
-  assert.equal(result.suppressedPlaybackNodeIds.has('caption-gdp'), true);
+  const attached = result.byParent.get('table-1');
+  assert.equal(attached.length, 1);
+  assert.equal(attached[0].text, '表1 复利的作用');
+  assert.equal(attached[0].association_mode, Integrity.CAPTION_VISUAL_POLICY);
+  assert.equal(attached[0].association_metrics.shared_parent, true);
+  assert.ok(attached[0].association_metrics.vertical_gap < 0.01);
 });
 
-test('a source-rendered page carrier cannot steal a caption from the unique semantic visual sibling', () => {
+test('page-7 GDP caption binds to the adjacent real figure and does not give a titleless visual the next caption', () => {
   const nodes = [
-    { node_id: 'group-chart', node_type: 'paragraph', order: 62 },
-    {
-      node_id: 'page-carrier', node_type: 'figure', parent_ref: 'group-chart', order: 63,
-      metadata: { presentation_mode: 'source_rendering', page_kind: 'full_page_chart' },
-      asset_refs: ['pdf-source-rendering:page-7'],
-    },
-    {
-      node_id: 'actual-chart', node_type: 'figure', parent_ref: 'group-chart', order: 64,
-      asset_refs: ['pdf-visual:chart'],
-    },
-    {
-      node_id: 'chart-caption', node_type: 'caption', parent_ref: 'group-chart', order: 66,
-      text: '图 1-1 印度 GDP 变化和国际黄金价格变化图',
-    },
+    spatialNode('titleless-figure', 'figure', 'pdf-page:000007', [0.34, 0.20, 0.66, 0.33], 62, {
+      parent_ref: 'group-chart', asset_refs: ['pdf-visual:titleless'],
+    }),
+    spatialNode('actual-gdp-figure', 'figure', 'pdf-page:000007', [
+      0.10945273631840796, 0.10123239436619719, 0.8893034825870647, 0.8072183098591549,
+    ], 64, {
+      parent_ref: 'group-chart', asset_refs: ['pdf-visual:gdp'],
+    }),
+    spatialNode('caption-gdp', 'caption', 'pdf-page:000007', [
+      0.3756218905472637, 0.8820422535211268, 0.6623134328358209, 0.9119718309859155,
+    ], 66, {
+      parent_ref: 'group-chart', text: '图 1-1 印度 GDP 变化和国际黄金价格变化图',
+    }),
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
-  assert.equal(result.byParent.has('page-carrier'), false);
-  assert.equal(result.byParent.get('actual-chart')[0].node_id, 'chart-caption');
-  assert.equal(result.byParent.get('actual-chart')[0].association_mode, 'canonical_shared_parent_unique_visual');
+  assert.equal(result.byParent.has('titleless-figure'), false, 'a visual without caption evidence must remain titleless');
+  assert.equal(result.byParent.get('actual-gdp-figure')[0].node_id, 'caption-gdp');
+  assert.equal(result.byParent.get('actual-gdp-figure')[0].association_mode, Integrity.CAPTION_VISUAL_POLICY);
 });
 
-test('ambiguous shared-parent visual groups stay unbound instead of using distance text or order guesses', () => {
+test('a unique visual sharing the same parent is not enough when caption and visual are spatially far apart', () => {
   const nodes = [
-    { node_id: 'group', node_type: 'paragraph', order: 1 },
-    { node_id: 'figure-a', node_type: 'figure', parent_ref: 'group', order: 2 },
-    { node_id: 'figure-b', node_type: 'figure', parent_ref: 'group', order: 3 },
-    { node_id: 'caption', node_type: 'caption', parent_ref: 'group', text: '图标题', order: 4 },
+    spatialNode('figure-far', 'figure', 'pdf-page:000003', [0.1, 0.05, 0.9, 0.25], 10, {
+      parent_ref: 'same-group',
+    }),
+    spatialNode('caption-far', 'caption', 'pdf-page:000003', [0.2, 0.80, 0.8, 0.84], 11, {
+      parent_ref: 'same-group', text: '后面的另一个标题',
+    }),
+  ];
+
+  const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
+  assert.equal(result.byParent.size, 0);
+  assert.equal(result.consumedCaptionIds.has('caption-far'), false);
+  assert.equal(result.unresolvedCaptionIds.has('caption-far'), true);
+});
+
+test('caption fallback never crosses physical pages even when coordinates and parent group look compatible', () => {
+  const nodes = [
+    spatialNode('figure-page-1', 'figure', 'pdf-page:000001', [0.2, 0.2, 0.8, 0.7], 1, {
+      parent_ref: 'same-group',
+    }),
+    spatialNode('caption-page-2', 'caption', 'pdf-page:000002', [0.3, 0.71, 0.7, 0.75], 2, {
+      parent_ref: 'same-group', text: '另一页标题',
+    }),
+  ];
+
+  const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
+  assert.equal(result.byParent.size, 0);
+  assert.equal(result.unresolvedCaptionIds.has('caption-page-2'), true);
+});
+
+test('even a direct parent_ref is rejected when both Reader nodes explicitly identify different pages', () => {
+  const nodes = [
+    spatialNode('figure-page-1', 'figure', 'pdf-page:000001', [0.2, 0.2, 0.8, 0.7], 1),
+    spatialNode('caption-page-2', 'caption', 'pdf-page:000002', [0.3, 0.71, 0.7, 0.75], 2, {
+      parent_ref: 'figure-page-1', text: '错误跨页关系',
+    }),
+  ];
+
+  const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
+  assert.equal(result.byParent.size, 0);
+  assert.equal(result.unresolvedCaptionIds.has('caption-page-2'), true);
+});
+
+test('spatially ambiguous same-page visuals stay unbound; Reader order does not break the ambiguity guard', () => {
+  const nodes = [
+    spatialNode('figure-a', 'figure', 'pdf-page:000005', [0.10, 0.30, 0.48, 0.60], 20, {
+      parent_ref: 'group',
+    }),
+    spatialNode('figure-b', 'figure', 'pdf-page:000005', [0.52, 0.30, 0.90, 0.60], 21, {
+      parent_ref: 'group',
+    }),
+    spatialNode('caption', 'caption', 'pdf-page:000005', [0.33, 0.61, 0.67, 0.65], 22, {
+      parent_ref: 'group', text: '无法唯一判断的标题',
+    }),
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
   assert.equal(result.byParent.size, 0);
   assert.equal(result.consumedCaptionIds.has('caption'), false);
   assert.equal(result.unresolvedCaptionIds.has('caption'), true);
+});
+
+test('source-rendered page carriers are not fallback caption targets', () => {
+  const nodes = [
+    spatialNode('page-carrier', 'figure', 'pdf-page:000007', [0, 0, 1, 1], 63, {
+      parent_ref: 'group-chart',
+      metadata: { presentation_mode: 'source_rendering', page_kind: 'full_page_chart' },
+      asset_refs: ['pdf-source-rendering:page-7'],
+    }),
+    spatialNode('actual-chart', 'figure', 'pdf-page:000007', [0.12, 0.10, 0.88, 0.80], 64, {
+      parent_ref: 'group-chart', asset_refs: ['pdf-visual:chart'],
+    }),
+    spatialNode('chart-caption', 'caption', 'pdf-page:000007', [0.35, 0.82, 0.65, 0.86], 66, {
+      parent_ref: 'group-chart', text: '图标题',
+    }),
+  ];
+
+  const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
+  assert.equal(result.byParent.has('page-carrier'), false);
+  assert.equal(result.byParent.get('actual-chart')[0].node_id, 'chart-caption');
 });
