@@ -104,24 +104,30 @@ test('ordinary figure/table nodes prefer the durable canonical PDF crop inside t
   assert.deepEqual(prepared[1].asset_refs, ['pdf-visual:canonical-table', 'provider-table:old']);
 });
 
-test('non-content source-rendered presentation carriers are excluded from speed reading while full-page visuals remain', () => {
+test('chapter dividers remain manual visual boundaries while cover/title/back-cover carriers stay excluded', () => {
   const prepared = Policy.prepareStructuredNodes([
-    node('divider', 'figure', '', 0, {
+    node('cover', 'figure', '', 0, {
+      asset_refs: ['pdf-source-rendering:cover'],
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'cover' },
+    }),
+    node('divider', 'figure', '', 1, {
       asset_refs: ['pdf-source-rendering:divider'],
       metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'chapter_divider' },
     }),
-    node('title-page', 'figure', '', 1, {
+    node('title-page', 'figure', '', 2, {
       asset_refs: ['pdf-source-rendering:title'],
       metadata: { presentation_mode: 'source_rendering', page_kind: 'title_page' },
     }),
-    node('full-figure', 'figure', '', 2, {
+    node('full-figure', 'figure', '', 3, {
       asset_refs: ['pdf-source-rendering:full-figure'],
       metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'full_page_figure' },
     }),
-    node('ordinary', 'figure', '', 3, { asset_refs: ['pdf-visual:ordinary'] }),
+    node('ordinary', 'figure', '', 4, { asset_refs: ['pdf-visual:ordinary'] }),
   ]);
 
-  assert.deepEqual(prepared.map((item) => item.node_id), ['full-figure', 'ordinary']);
+  assert.deepEqual(prepared.map((item) => item.node_id), ['divider', 'full-figure', 'ordinary']);
+  assert.deepEqual(prepared[0].asset_refs, ['pdf-source-rendering:divider']);
+  assert.equal(Policy.SPEED_READING_EXCLUDED_PRESENTATION_KINDS.has('chapter_divider'), false);
 });
 
 test('standalone punctuation is attached to the previous text node', () => {
