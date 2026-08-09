@@ -19,7 +19,6 @@
     const INLINE_ROW_MIN_VERTICAL_OVERLAP = 0.36;
     const INLINE_ROW_HORIZONTAL_TOLERANCE = 0.012;
     const INLINE_ROW_MAX_OFFSET_PX = 10;
-    const VISUAL_CAPTION_GAP_PX = 6;
     const INLINE_ROW_PEER_TYPES = new Set([
         'paragraph', 'list_item', 'quote', 'reference', 'caption', 'figure', 'table', 'formula',
     ]);
@@ -55,14 +54,6 @@
 
     function nodeType(element) {
         return String(element?.node?.node_type || '').toLowerCase();
-    }
-
-    function nodeId(element) {
-        return String(element?.node?.node_id || element?.node_id || '').trim();
-    }
-
-    function parentRef(element) {
-        return String(element?.node?.parent_ref || '').trim();
     }
 
     function bboxWidth(bbox) {
@@ -117,44 +108,8 @@
         );
     }
 
-    function attachCanonicalVisualCaptions(entries) {
-        const list = entries || [];
-        const byNodeId = new Map();
-        for (const entry of list) {
-            entry.visualCaptions = [];
-            entry.visualCaptionParentIndex = null;
-            const id = entry.nodeId || nodeId(entry.element);
-            if (id) byNodeId.set(id, entry);
-        }
-
-        let attached = 0;
-        for (const entry of list) {
-            if (entry.rawType !== 'caption') continue;
-            const ref = entry.parentRef || parentRef(entry.element);
-            if (!ref) continue;
-            const parent = byNodeId.get(ref);
-            if (!parent || !isVisualEntry(parent)) continue;
-            entry.visualCaptionParentIndex = parent.index;
-            parent.visualCaptions.push(entry);
-            if (entry.slot?.classList?.remove) {
-                entry.slot.classList.remove('reader-v2-semantic-page-element--inline-row-member');
-            }
-            if (entry.slot?.dataset) delete entry.slot.dataset.readerInlineRow;
-            attached += 1;
-        }
-
-        for (const entry of list) {
-            entry.visualCaptions.sort((left, right) => (
-                (left.bbox?.[1] ?? 0) - (right.bbox?.[1] ?? 0)
-                || left.index - right.index
-            ));
-        }
-        return attached;
-    }
-
     function canShareInlineRow(left, right) {
         if (!left || !right || left === right) return false;
-        if (left.visualCaptionParentIndex !== null || right.visualCaptionParentIndex !== null) return false;
         if (!INLINE_ROW_PEER_TYPES.has(left.type) || !INLINE_ROW_PEER_TYPES.has(right.type)) return false;
         if (!isSmallVisualEntry(left) && !isSmallVisualEntry(right)) return false;
         if (!horizontallyDisjoint(left.bbox, right.bbox)) return false;
@@ -162,9 +117,7 @@
     }
 
     function pairInlineRows(entries) {
-        const candidates = (entries || []).filter((entry) => (
-            normalizeBbox(entry?.bbox) && entry.visualCaptionParentIndex === null
-        ));
+        const candidates = (entries || []).filter((entry) => normalizeBbox(entry?.bbox));
         const used = new Set();
         const pairs = [];
         for (const entry of candidates) {
@@ -282,10 +235,6 @@
                 type,
                 textFlow,
                 bbox: normalizeBbox(element.normalized_bbox),
-                nodeId: nodeId(element),
-                parentRef: parentRef(element),
-                visualCaptions: [],
-                visualCaptionParentIndex: null,
             });
         }
         return entries;
@@ -307,28 +256,6 @@
         }
     }
 
-    function alignCaptionToParent(parent, caption) {
-        const parentSlot = parent?.slot;
-        const captionSlot = caption?.slot;
-        if (!parentSlot || !captionSlot) return false;
-        if (parentSlot.style?.left) captionSlot.style.left = parentSlot.style.left;
-        if (parentSlot.style?.width) captionSlot.style.width = parentSlot.style.width;
-        captionSlot.style.height = 'auto';
-        captionSlot.style.overflow = 'visible';
-        captionSlot.style.textAlign = 'center';
-        const child = captionSlot.firstElementChild || captionSlot.children?.[0] || null;
-        if (child?.style) {
-            child.style.height = 'auto';
-            child.style.overflow = 'visible';
-            child.style.textAlign = 'center';
-        }
-        const text = child?.querySelector?.('.reader-v2-node-text') || null;
-        if (text?.style) text.style.textAlign = 'center';
-        captionSlot.dataset.readerVisualCaptionParent = parent.nodeId || '';
-        captionSlot.dataset.readerVisualCaptionGrouped = '1';
-        return true;
-    }
-
     function unionBbox(members) {
         const boxes = members.map((member) => normalizeBbox(member.bbox)).filter(Boolean);
         if (!boxes.length) return null;
@@ -347,26 +274,12 @@
         return members[0]?.type || 'paragraph';
     }
 
-    function captionStackLayout(member, baseHeight) {
-        const renderedHeight = measuredHeight(member, baseHeight);
-        let totalHeight = renderedHeight;
-        const captions = [];
-        for (const caption of member.visualCaptions || []) {
-            const captionHeight = measuredHeight(caption, baseHeight);
-            const offset = totalHeight + VISUAL_CAPTION_GAP_PX;
-            captions.push({ caption, offset, renderedHeight: captionHeight });
-            totalHeight = offset + captionHeight;
-        }
-        return { renderedHeight, totalHeight, captions };
-    }
-
     function buildFlowUnits(entries, pairs, baseHeight) {
         const pairedByIndex = new Map();
         pairs.forEach((pair, pairIndex) => pair.forEach((entry) => pairedByIndex.set(entry.index, pairIndex)));
         const consumedPairs = new Set();
         const units = [];
         for (const entry of entries) {
-            if (entry.visualCaptionParentIndex !== null) continue;
             const pairIndex = pairedByIndex.get(entry.index);
             let members;
             if (pairIndex !== undefined) {
@@ -384,14 +297,9 @@
                 const offset = members.length > 1
                     ? clamp((member.bbox[1] - sourceTop) * baseHeight, 0, INLINE_ROW_MAX_OFFSET_PX)
                     : 0;
-                const stack = captionStackLayout(member, baseHeight);
-                height = Math.max(height, offset + stack.totalHeight);
-                return {
-                    member,
-                    offset,
-                    renderedHeight: stack.renderedHeight,
-                    captionLayouts: stack.captions,
-                };
+                const renderedHeight = measuredHeight(member, baseHeight);
+                height = Math.max(height, offset + renderedHeight);
+                return { member, offset, renderedHeight };
             });
             units.push({
                 members,
@@ -423,17 +331,8 @@
                 top = previousBottom + gap;
             }
             for (const layout of unit.memberLayout) {
-                const memberTop = top + layout.offset;
-                layout.member.slot.style.top = `${Math.round(memberTop * 100) / 100}px`;
+                layout.member.slot.style.top = `${Math.round((top + layout.offset) * 100) / 100}px`;
                 if (layout.member.textFlow) layout.member.slot.style.height = 'auto';
-                for (const captionLayout of layout.captionLayouts || []) {
-                    alignCaptionToParent(layout.member, captionLayout.caption);
-                    const captionTop = memberTop + captionLayout.offset;
-                    captionLayout.caption.slot.style.top = `${Math.round(captionTop * 100) / 100}px`;
-                }
-                if ((layout.member.visualCaptions || []).length) {
-                    layout.member.slot.dataset.readerVisualCaptionCount = String(layout.member.visualCaptions.length);
-                }
             }
             previous = unit;
             previousBottom = top + unit.height;
@@ -450,7 +349,6 @@
         const entries = buildEntries(section, page, Harmonizer);
         if (!shell || !entries.length) return false;
         const baseHeight = canonicalBaseHeight(section, shell);
-        const captionCount = attachCanonicalVisualCaptions(entries);
         const pairs = pairInlineRows(entries);
         pairs.forEach((pair, index) => applyInlineRowHorizontalLayout(pair, page, SemanticPage, index + 1));
         const units = buildFlowUnits(entries, pairs, baseHeight);
@@ -460,7 +358,6 @@
         section.dataset.readerLayoutRefined = '1';
         section.dataset.readerBodyFontPx = String(BODY_FONT_PX);
         section.dataset.readerInlineRowCount = String(pairs.length);
-        section.dataset.readerVisualCaptionGroupedCount = String(captionCount);
         section.dataset.readerLayoutHeight = String(Math.round(requiredHeight));
         return true;
     }
@@ -538,15 +435,11 @@
         SMALL_VISUAL_MAX_WIDTH,
         STYLE_ID,
         STYLE_TEXT,
-        VISUAL_CAPTION_GAP_PX,
-        alignCaptionToParent,
         applyFlowUnits,
-        attachCanonicalVisualCaptions,
         bboxHeight,
         bboxWidth,
         buildFlowUnits,
         canShareInlineRow,
-        captionStackLayout,
         ensureStyles,
         formulaUsesTextLayout,
         horizontallyDisjoint,

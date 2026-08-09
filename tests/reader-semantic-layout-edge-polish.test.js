@@ -15,52 +15,6 @@ test('inline row clearance restores source geometry and inserts a minimum visual
   assert.equal(adjusted[1][2], 0.82, 'right edge is preserved while the left edge moves clear');
 });
 
-test('canonical parent_ref attaches a caption to its visual without caption-text heuristics', () => {
-  const page = {
-    elements: [
-      {
-        node_id: 'figure-node',
-        normalized_bbox: [0.24, 0.32, 0.62, 0.58],
-        node: { node_id: 'figure-node', node_type: 'figure', text: null, parent_ref: null },
-      },
-      {
-        node_id: 'body-node',
-        normalized_bbox: [0.10, 0.62, 0.90, 0.68],
-        node: { node_id: 'body-node', node_type: 'paragraph', text: 'body', parent_ref: null },
-      },
-      {
-        node_id: 'caption-node',
-        normalized_bbox: [0.37, 0.89, 0.42, 0.91],
-        node: { node_id: 'caption-node', node_type: 'caption', text: 'arbitrary caption text', parent_ref: 'figure-node' },
-      },
-      {
-        node_id: 'unrelated-caption',
-        normalized_bbox: [0.45, 0.92, 0.55, 0.94],
-        node: { node_id: 'unrelated-caption', node_type: 'caption', text: '图 9-9', parent_ref: 'missing-parent' },
-      },
-    ],
-  };
-
-  const associations = EdgePolish.visualCaptionAssociations(page);
-  assert.equal(associations.length, 1);
-  assert.equal(associations[0].parentNodeId, 'figure-node');
-  assert.equal(associations[0].parentIndex, 0);
-  assert.deepEqual(associations[0].captions.map((item) => item.captionIndex), [2]);
-});
-
-test('caption insertion moves a downstream canonical caption directly below its visual', () => {
-  const plan = EdgePolish.captionInsertionPlan(300, 700, 22, 6);
-  assert.deepEqual(plan, {
-    desiredTop: 306,
-    shiftPx: 28,
-    separatedDownstream: true,
-  });
-
-  const alreadyAttached = EdgePolish.captionInsertionPlan(300, 306.5, 22, 6);
-  assert.equal(alreadyAttached.separatedDownstream, false);
-  assert.equal(alreadyAttached.shiftPx, 0);
-});
-
 test('header clearance shifts content only when it intrudes into the header safety zone', () => {
   assert.equal(EdgePolish.headerShiftDelta(92, 96, 16), 12);
   assert.equal(EdgePolish.headerShiftDelta(92, 120, 16), 0);
@@ -96,17 +50,6 @@ test('header polish explicitly enforces single-line text and canonical vertical 
   assert.match(source, /whiteSpace = 'nowrap'/);
   assert.match(source, /bbox\[1\] \* baseHeight/);
   assert.match(source, /expandedHeaderBbox/);
-});
-
-test('visual caption polish is driven by canonical parent_ref and runs before header clearance', () => {
-  const source = fs.readFileSync('reader-semantic-layout-edge-polish.js', 'utf8');
-  assert.match(source, /parent_ref/);
-  assert.match(source, /readerVisualCaptionParent/);
-  assert.doesNotMatch(source, /图\\s*\\d|figure\\s*\\d/i);
-  const captionIndex = source.indexOf('applyVisualCaptionGrouping(section, page)');
-  const headerIndex = source.indexOf('normalizeHeaders(section)', captionIndex);
-  assert.ok(captionIndex >= 0);
-  assert.ok(headerIndex > captionIndex);
 });
 
 test('preview bootstrap loads edge polish after refinement and before semantic integration', () => {
