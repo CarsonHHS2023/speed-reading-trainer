@@ -24,8 +24,10 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   const workflow = fs.readFileSync('.github/workflows/preview.yml', 'utf8');
 
   assert.match(clock, /meta\[name="reader-preview-head"\]/u);
-  assert.match(clock, /PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
-  assert.match(clock, /const assetVersion = previewHead \|\| PRODUCTION_ASSET_VERSION/u);
+  assert.match(clock, /FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
+  assert.match(clock, /function currentScriptAssetVersion\(documentObject\)/u);
+  assert.match(clock, /const entrypointVersion = currentScriptAssetVersion\(document\)/u);
+  assert.match(clock, /const assetVersion = previewHead \|\| entrypointVersion \|\| FALLBACK_ASSET_VERSION/u);
   assert.match(clock, /const versionedSrc = \(src\) => `\$\{src\}\?v=\$\{encodeURIComponent\(assetVersion\)\}`/u);
   assert.match(clock, /speed-reading-structure-policy\.js/u);
   assert.match(clock, /speed-reading-formula-rendering\.js/u);
@@ -42,7 +44,8 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /speed-reading-responsive-layout\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-formula-rendering\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-layout-integrity\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
-  assert.match(workflow, /PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
+  assert.match(workflow, /FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'/u);
+  assert.match(workflow, /currentScriptAssetVersion/u);
   assert.match(workflow, /dataset\.readerEnhancement/u);
   assert.match(workflow, /inline_formula: 'paragraph'/u);
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
@@ -56,4 +59,14 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /withPlaybackElementPolicy/u);
   assert.match(workflow, /GLYPH_BLEED_PX = 6/u);
   assert.match(workflow, /relaxTimedTextClipping/u);
+});
+
+test('Production Pages binds entrypoint assets to the deployed main commit', () => {
+  const workflow = fs.readFileSync('.github/workflows/pages.yml', 'utf8');
+  assert.match(workflow, /Prepare cache-busted production entrypoint/u);
+  assert.match(workflow, /PRODUCTION_HEAD_SHA: \$\{\{ github\.sha \}\}/u);
+  assert.match(workflow, /"training-session-clock\.js"/u);
+  assert.match(workflow, /"reader-resume-lifecycle\.js"/u);
+  assert.match(workflow, /f"\{asset\}\?v=\{sha\}"/u);
+  assert.match(workflow, /re\.sub/u);
 });
