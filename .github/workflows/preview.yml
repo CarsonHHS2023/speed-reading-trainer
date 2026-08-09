@@ -72,6 +72,7 @@ jobs:
             lifecycle="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}" || true)"
             structure_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-structure-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
             speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            formula_rendering="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-formula-rendering.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
@@ -88,6 +89,7 @@ jobs:
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
               && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
               && [[ "${training_clock}" == *"reader-preview-head"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-formula-rendering.js?v="* ]] \
               && [[ "${training_clock}" == *"speed-reading-responsive-layout.js?v="* ]] \
               && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
               && [[ "${lifecycle}" == *"assetVersion"* ]] \
@@ -96,7 +98,11 @@ jobs:
               && [[ "${structure_policy}" == *"providerType === 'inline_formula'"* ]] \
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
-              && [[ "${speed_layout}" == *"pageLineCapacity"* ]]; then
+              && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
+              && [[ "${formula_rendering}" == *"INLINE_FORMULA_KIND = 'inline_formula'"* ]] \
+              && [[ "${formula_rendering}" == *"displayMode: false"* ]] \
+              && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
+              && [[ "${formula_rendering}" == *"rendererChainReady"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
