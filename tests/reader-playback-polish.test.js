@@ -183,6 +183,8 @@ test('paused frame navigation presents Play rather than Pause/Stop', () => {
     ['speedReadingNext', next], ['speedReadingLast', last],
   ]);
   const controller = {
+    trainingPaused: true,
+    trainingClock: { state: 'paused' },
     isReaderActive: () => true,
     element: (id) => byId.get(id) || null,
   };
@@ -198,10 +200,12 @@ test('paused frame navigation presents Play rather than Pause/Stop', () => {
   assert.equal(next.disabled, false);
 });
 
-test('playing state presents Pause while a dedicated Stop remains separate', () => {
+test('running training session presents Pause while a dedicated Stop remains separate', () => {
   const toggle = fakeButton('readingToggleBtn');
   const hiddenPlayPause = fakeButton('speedReadingPause');
   const controller = {
+    trainingPaused: false,
+    trainingClock: { state: 'running' },
     isReaderActive: () => true,
     element(id) {
       if (id === 'readingToggleBtn') return toggle;
@@ -218,37 +222,48 @@ test('playing state presents Pause while a dedicated Stop remains separate', () 
   assert.equal(hiddenPlayPause.textContent, '⏸');
 });
 
-test('play control resumes autoplay from a frame-navigation pause', () => {
+test('play control resumes training and autoplay from a frame-navigation pause', () => {
   let resumeCalls = 0;
-  let clockStartCalls = 0;
+  let clockResumeCalls = 0;
   const controller = {
     isReaderActive: () => true,
-    trainingPaused: false,
+    trainingPaused: true,
     comprehensionPaused: false,
-    resumePlaybackAfterTrainingPause: false,
+    resumePlaybackAfterTrainingPause: true,
     trainingClock: {
-      state: 'idle',
-      start() { this.state = 'running'; clockStartCalls += 1; },
+      state: 'paused',
+      resume() { this.state = 'running'; clockResumeCalls += 1; return true; },
     },
-    startTrainingTicker() {},
     playback: {
       state: 'paused',
       frames: [{}, {}, {}],
       resume() { this.state = 'playing'; resumeCalls += 1; return true; },
+    },
+    toggleTrainingPause() {
+      this.trainingPaused = false;
+      this.trainingClock.resume();
+      const shouldResume = this.resumePlaybackAfterTrainingPause;
+      this.resumePlaybackAfterTrainingPause = false;
+      if (shouldResume) return this.playback.resume();
+      return true;
     },
   };
 
   assert.equal(Polish.playPause(controller), true);
   assert.equal(resumeCalls, 1);
   assert.equal(controller.playback.state, 'playing');
-  assert.equal(clockStartCalls, 1);
+  assert.equal(clockResumeCalls, 1);
+  assert.equal(controller.trainingClock.state, 'running');
 });
 
 test('first/last navigation uses frame stepping semantics and does not continue autoplay', () => {
   const calls = [];
   const controller = {
     isReaderActive: () => true,
+    trainingPaused: true,
+    trainingClock: { state: 'paused' },
     playback: {
+      frames: new Array(10).fill({}),
       snapshot: () => ({ state: 'paused', index: 4, frame_count: 10 }),
       moveBy(delta) { calls.push(delta); return delta; },
     },
