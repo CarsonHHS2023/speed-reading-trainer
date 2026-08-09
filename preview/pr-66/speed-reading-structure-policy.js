@@ -11,7 +11,7 @@
     const TOC_TYPES = new Set(['toc', 'toc_item', 'content', 'table_of_contents', 'list', 'list_item']);
     const TYPE_ALIASES = Object.freeze({
         doc_title: 'title', document_title: 'title',
-        paragraph_title: 'heading', figure_title: 'caption',
+        paragraph_title: 'heading', figure_title: 'caption', table_title: 'caption',
         text: 'paragraph', abstract: 'paragraph',
         content: 'list_item', toc: 'list_item', toc_item: 'list_item', table_of_contents: 'list_item',
         algorithm: 'code',
