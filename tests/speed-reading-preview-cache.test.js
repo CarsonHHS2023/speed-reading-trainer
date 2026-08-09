@@ -44,8 +44,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /canonicalCaptionAssociations/u);
   assert.match(workflow, /lineFrameCapacity/u);
   assert.match(workflow, /applySafeHorizontalInset/u);
-  assert.match(workflow, /scopedNodeKey/u);
-  assert.match(workflow, /sourceUnitIdForNode/u);
-  assert.match(workflow, /canonicalPlaybackElementOrder/u);
+  assert.match(workflow, /withPlaybackElementPolicy/u);
+  assert.match(workflow, /GLYPH_BLEED_PX = 6/u);
   assert.match(workflow, /relaxTimedTextClipping/u);
 });
