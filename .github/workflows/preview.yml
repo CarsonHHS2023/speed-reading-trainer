@@ -115,6 +115,7 @@ jobs:
               && [[ "${structure_policy}" == *"BROAD_SEMANTIC_TYPES"* ]] \
               && [[ "${structure_policy}" == *"preferCanonicalPdfVisualAssetRefs"* ]] \
               && [[ "${structure_policy}" == *"SPEED_READING_EXCLUDED_PRESENTATION_KINDS"* ]] \
+              && [[ "${structure_policy}" == *"Chapter dividers are intentionally NOT excluded"* ]] \
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
               && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
@@ -130,6 +131,10 @@ jobs:
               && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
               && [[ "${formula_rendering}" == *"rendererChainReady"* ]] \
               && [[ "${layout_integrity}" == *"canonicalCaptionAssociations"* ]] \
+              && [[ "${layout_integrity}" == *"canonical_shared_parent_unique_visual"* ]] \
+              && [[ "${layout_integrity}" == *"canonical_visual_parent_unique_child"* ]] \
+              && [[ "${layout_integrity}" == *"suppressedVisualContainerIds"* ]] \
+              && [[ "${layout_integrity}" == *"unresolvedCaptionIds"* ]] \
               && [[ "${layout_integrity}" == *"lineFrameCapacity"* ]] \
               && [[ "${layout_integrity}" == *"applySafeHorizontalInset"* ]] \
               && [[ "${layout_integrity}" == *"withPlaybackElementPolicy"* ]] \
