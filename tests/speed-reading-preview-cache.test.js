@@ -48,6 +48,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /currentScriptAssetVersion/u);
   assert.match(workflow, /dataset\.readerEnhancement/u);
   assert.match(workflow, /inline_formula: 'paragraph'/u);
+  assert.match(workflow, /table_title: 'caption'/u);
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
   assert.match(workflow, /splitMeasuredLineIntoBlocks/u);
   assert.match(workflow, /pageLineCapacity/u);
