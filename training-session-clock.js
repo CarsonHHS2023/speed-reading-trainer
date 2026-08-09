@@ -89,4 +89,14 @@ if (typeof document !== 'undefined') {
             : 'speed-reading-responsive-layout.js';
         document.head.appendChild(script);
     }
+
+    if (!document.getElementById('speedReadingLayoutIntegrityScript')) {
+        const integrityScript = document.createElement('script');
+        integrityScript.id = 'speedReadingLayoutIntegrityScript';
+        integrityScript.async = false;
+        integrityScript.src = previewHead
+            ? `speed-reading-layout-integrity.js?v=${encodeURIComponent(previewHead)}`
+            : 'speed-reading-layout-integrity.js';
+        document.head.appendChild(integrityScript);
+    }
 }
