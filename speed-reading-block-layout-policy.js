@@ -74,9 +74,11 @@
             return originalBuild.call(responsive, adapter, documentView, nodes, options);
         }
 
-        // Fixed-viewpoint Block is a continuous reflow stream. Reuse the measured
-        // one-line layout at the configured block width so a soft visual-line tail
-        // never creates an artificial short block. Structural rows remain atomic.
+        // Fixed-viewpoint Block is a continuous measured stream: soft visual-line
+        // endings do not constrain grouping. Reuse the authoritative one-line
+        // measured builder at exactly the configured block width so tokenization,
+        // punctuation hanging, English-word atomicity, structure boundaries, timing,
+        // identity, and manual-frame boundaries remain owned by the existing layout.
         const built = originalBuild.call(responsive, adapter, documentView, nodes, {
             ...options,
             displayScope: 'line',
