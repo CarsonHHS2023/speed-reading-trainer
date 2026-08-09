@@ -57,6 +57,10 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /sameLogicalTextSource/u);
   assert.match(workflow, /HARD_STRUCTURE_TYPES/u);
   assert.match(workflow, /refreshFrameTiming/u);
+  assert.match(workflow, /LEADING_CLOSING_PUNCTUATION/u);
+  assert.match(workflow, /Closing punctuation hangs on the current line/u);
+  assert.ok(workflow.includes('&& [[ "${speed_layout}" != *"moveTrailingTokenToNextLine"* ]]'));
+  assert.ok(workflow.includes('&& [[ "${punctuation_policy}" != *"CARRIED_CHARACTER_AND_PUNCTUATION"* ]]'));
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
   assert.match(workflow, /splitMeasuredLineIntoBlocks/u);
   assert.match(workflow, /pageLineCapacity/u);
