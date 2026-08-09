@@ -12,6 +12,7 @@
         'title', 'heading', 'list', 'list_item', 'toc', 'toc_item',
         'quote', 'code', 'caption', 'reference',
     ]);
+    const SINGLE_ROW_TYPES = new Set(['title', 'heading', 'list', 'list_item', 'toc', 'toc_item']);
     const REFLOW_CONTINUATION_TYPES = new Set(['paragraph', 'unknown']);
     const SENTENCE_END = /[。！？!?；;：:]\s*$/u;
     const CLOSING_PUNCTUATION = new Set([
@@ -19,10 +20,12 @@
         '，', '。', '；', '：', '！', '？', '％', '）', '】', '》', '〉', '」', '』', '〕', '］', '｝',
         '、', '…', '—', '”', '’',
     ]);
-    const MIN_WIDTH_PERCENT = 30;
+    const MIN_WIDTH_PERCENT = 20;
     const MAX_WIDTH_PERCENT = 100;
     const DEFAULT_WIDTH_PERCENT = 100;
     const DEFAULT_SAFE_GUTTER_PX = 48;
+    const DEFAULT_SAFE_VERTICAL_GUTTER_PX = 72;
+    const DEFAULT_LINE_HEIGHT_RATIO = 1.55;
     const FONT_SCALE_BY_TYPE = Object.freeze({ title: 1.5, heading: 1.22, caption: 0.82, reference: 0.82 });
 
     function clampWidthPercent(value) {
@@ -35,6 +38,13 @@
         const available = Math.max(0, Number(availableWidthPx) || 0);
         const gutter = Math.max(0, Number(safeGutterPx) || 0);
         return Math.max(1, (available - gutter) * clampWidthPercent(widthPercent) / 100);
+    }
+
+    function pageLineCapacity(availableHeightPx, lineHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX) {
+        const available = Math.max(0, Number(availableHeightPx) || 0);
+        const gutter = Math.max(0, Number(safeGutterPx) || 0);
+        const lineHeight = Math.max(1, Number(lineHeightPx) || 1);
+        return Math.max(1, Math.floor(Math.max(lineHeight, available - gutter) / lineHeight));
     }
 
     function createCanvasMeasurer(documentObject, fontOptions) {
@@ -117,14 +127,18 @@
             node_type: element.node_type,
             heading_level: element.heading_level || null,
             identity: element.identity,
-            element,
         }));
     }
 
-    function structuredLine(tokens) {
+    function trimMeasuredTokens(tokens) {
         const trimmed = [...tokens];
         while (trimmed.length && trimmed[0].kind === 'space') trimmed.shift();
         while (trimmed.length && trimmed[trimmed.length - 1].kind === 'space') trimmed.pop();
+        return trimmed;
+    }
+
+    function structuredLine(tokens, extra = {}) {
+        const trimmed = trimMeasuredTokens(tokens);
         const sourceSpans = uniqueSourceSpans(trimmed);
         const types = [...new Set(trimmed.map((token) => token.node_type).filter(Boolean))];
         const levels = [...new Set(trimmed.map((token) => token.heading_level).filter((value) => Number.isInteger(value)))];
@@ -136,16 +150,9 @@
             source_spans: sourceSpans,
             measured_width_px: trimmed.reduce((sum, token) => sum + token.measured_width, 0),
             reading_units: trimmed.reduce((sum, token) => sum + (Number(token.reading_units) || 0), 0),
+            tokens: trimmed,
+            ...extra,
         };
-    }
-
-    function moveTrailingTokenToNextLine(lineTokens) {
-        for (let index = lineTokens.length - 1; index >= 0; index -= 1) {
-            const token = lineTokens[index];
-            if (token.kind === 'space' || token.kind === 'punctuation') continue;
-            return lineTokens.splice(index, 1);
-        }
-        return [];
     }
 
     function buildMeasuredLines(adapter, elements, maxWidthPx, measureText) {
@@ -158,8 +165,8 @@
         const recalculateWidth = () => {
             lineWidth = lineTokens.reduce((sum, token) => sum + token.measured_width, 0);
         };
-        const flush = () => {
-            const line = structuredLine(lineTokens);
+        const flush = (extra = {}) => {
+            const line = structuredLine(lineTokens, extra);
             if (line.text.trim()) lines.push(line);
             lineTokens = [];
             lineWidth = 0;
@@ -167,8 +174,18 @@
 
         for (const element of elements) {
             if (!element?.text) continue;
-            const independentLine = element.node_type === 'list_item';
-            if (independentLine || shouldForceNodeBoundary(previousElement, element)) flush();
+            const singleRow = SINGLE_ROW_TYPES.has(element.node_type);
+            if (singleRow) {
+                flush();
+                lineTokens = measuredTokensForElement(adapter, element, measureText)
+                    .filter((token) => token.kind !== 'newline');
+                recalculateWidth();
+                flush({ structural_single_row: true });
+                previousElement = element;
+                continue;
+            }
+
+            if (shouldForceNodeBoundary(previousElement, element)) flush();
             else if (previousElement && lineTokens.length) {
                 const before = lastCharacter(previousElement.text);
                 const after = firstCharacter(element.text);
@@ -179,7 +196,7 @@
                         lineTokens.push({
                             kind: 'space', text: ' ', reading_units: 0, measured_width: spaceWidth,
                             node_type: element.node_type, heading_level: element.heading_level || null,
-                            identity: element.identity, element,
+                            identity: element.identity,
                         });
                         lineWidth += spaceWidth;
                     }
@@ -193,32 +210,80 @@
                 }
                 if (token.kind === 'space' && !lineTokens.length) continue;
                 const wouldOverflow = lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width;
-                if (wouldOverflow) {
-                    if (isClosingPunctuationToken(token)) {
-                        const carried = moveTrailingTokenToNextLine(lineTokens);
-                        recalculateWidth();
-                        flush();
-                        lineTokens.push(...carried);
-                        recalculateWidth();
-                    } else {
-                        flush();
-                    }
-                }
+
+                // Closing punctuation hangs on the current line. Never move a text
+                // token across the boundary to make room for punctuation. If the
+                // punctuation itself is the item that exceeds the measured width,
+                // keep it with the preceding text and let the paint box overflow.
+                if (wouldOverflow && !isClosingPunctuationToken(token)) flush();
+
                 lineTokens.push(token);
                 lineWidth += token.measured_width;
             }
-            if (independentLine) flush();
             previousElement = element;
         }
         flush();
         return lines;
     }
 
+    function splitMeasuredLineIntoBlocks(line, maxBlockWidthPx) {
+        if (!line?.text) return [];
+        if (line.structural_single_row) {
+            return [{
+                ...line,
+                block_index: 0,
+                block_count: 1,
+                x_offset_px: 0,
+            }];
+        }
+
+        const width = Math.max(1, Number(maxBlockWidthPx) || 1);
+        const blocks = [];
+        let blockTokens = [];
+        let blockWidth = 0;
+        let blockStartX = 0;
+        let absoluteX = 0;
+
+        const flush = () => {
+            const block = structuredLine(blockTokens, { x_offset_px: blockStartX });
+            if (block.text.trim()) blocks.push(block);
+            blockTokens = [];
+            blockWidth = 0;
+        };
+
+        for (const token of line.tokens || []) {
+            const tokenWidth = Math.max(0, Number(token.measured_width) || 0);
+            if (!blockTokens.length && token.kind === 'space') {
+                absoluteX += tokenWidth;
+                continue;
+            }
+            const projected = blockWidth + tokenWidth;
+            if (blockTokens.length && tokenWidth > 0 && projected > width && !isClosingPunctuationToken(token)) {
+                flush();
+                if (token.kind === 'space') {
+                    absoluteX += tokenWidth;
+                    continue;
+                }
+                blockStartX = absoluteX;
+            }
+            if (!blockTokens.length) blockStartX = absoluteX;
+            blockTokens.push(token);
+            blockWidth += tokenWidth;
+            absoluteX += tokenWidth;
+        }
+        flush();
+        blocks.forEach((block, index) => {
+            block.block_index = index;
+            block.block_count = blocks.length;
+        });
+        return blocks;
+    }
+
     function frameId(element, ordinal) {
         return `playback-frame:${element.identity.candidate_id}:${element.identity.node_id}:${String(ordinal).padStart(4, '0')}`;
     }
 
-    function timedFrame(adapter, anchor, ordinal, lines, speedPerMinute) {
+    function timedFrame(adapter, anchor, ordinal, lines, speedPerMinute, placement = {}) {
         const text = lines.map((line) => line.text).join('\n');
         const sourceSpans = [];
         const seen = new Set();
@@ -244,10 +309,11 @@
             identity: sourceSpans[0] || anchor.identity,
             source_spans: sourceSpans,
             frame_ordinal: ordinal,
+            placement,
         };
     }
 
-    function manualFrame(element) {
+    function manualFrame(element, virtualPageIndex = 0) {
         return {
             frame_id: frameId(element, 0),
             kind: 'manual',
@@ -260,12 +326,29 @@
             identity: element.identity,
             source_spans: [element.identity],
             frame_ordinal: 0,
+            placement: {
+                display_scope: 'manual',
+                virtual_page_index: virtualPageIndex,
+                line_index: 0,
+                line_span: 1,
+                x_px: 0,
+                y_px: 0,
+                width_px: null,
+            },
         };
     }
 
     function buildMeasuredPlaybackFrames(adapter, documentView, nodes, options = {}) {
         const elements = adapter.buildReadingElements(documentView, nodes);
-        const maxLines = Math.max(1, Number(options.maxLines) || 3);
+        const displayScope = ['block', 'line', 'page'].includes(options.displayScope) ? options.displayScope : 'line';
+        const widthPercent = clampWidthPercent(options.widthPercent);
+        const contentWidthPx = Math.max(1, Number(options.maxWidthPx) || 1);
+        const configuredWidthPx = Math.max(1, contentWidthPx * widthPercent / 100);
+        const lineWidthPx = displayScope === 'block' ? contentWidthPx : configuredWidthPx;
+        const blockWidthPx = configuredWidthPx;
+        const lineCount = Math.max(1, Number(options.lineCount || options.maxLines) || 3);
+        const capacity = Math.max(1, Number(options.pageLineCapacity) || lineCount);
+        const lineHeightPx = Math.max(1, Number(options.lineHeightPx) || 1);
         const speedPerMinute = Number(options.speedPerMinute) || 5000;
         const measureText = options.measureText;
         if (typeof measureText !== 'function') return adapter.buildPlaybackFrames(documentView, nodes, options);
@@ -273,44 +356,140 @@
         const frames = [];
         let run = [];
         let ordinal = 0;
+        let virtualPageIndex = 0;
+        let lineCursor = 0;
+        const lineOriginX = Math.max(0, (contentWidthPx - lineWidthPx) / 2);
+
+        const advanceToFreshPage = () => {
+            if (lineCursor > 0) virtualPageIndex += 1;
+            lineCursor = 0;
+        };
+
+        const emitPageFrames = (anchor, lines) => {
+            let index = 0;
+            while (index < lines.length) {
+                const slice = lines.slice(index, index + capacity);
+                frames.push(timedFrame(adapter, anchor, ordinal, slice, speedPerMinute, {
+                    display_scope: 'page',
+                    virtual_page_index: virtualPageIndex,
+                    line_index: 0,
+                    line_span: slice.length,
+                    x_px: lineOriginX,
+                    y_px: 0,
+                    width_px: lineWidthPx,
+                    line_width_px: lineWidthPx,
+                    content_width_px: contentWidthPx,
+                }));
+                ordinal += 1;
+                virtualPageIndex += 1;
+                index += slice.length;
+            }
+            lineCursor = 0;
+        };
+
+        const emitLineFrames = (anchor, lines) => {
+            let index = 0;
+            while (index < lines.length) {
+                const availableOnPage = Math.max(1, capacity - lineCursor);
+                const take = Math.min(lineCount, availableOnPage, lines.length - index);
+                const slice = lines.slice(index, index + take);
+                frames.push(timedFrame(adapter, anchor, ordinal, slice, speedPerMinute, {
+                    display_scope: 'line',
+                    virtual_page_index: virtualPageIndex,
+                    line_index: lineCursor,
+                    line_span: slice.length,
+                    x_px: lineOriginX,
+                    y_px: lineCursor * lineHeightPx,
+                    width_px: lineWidthPx,
+                    line_width_px: lineWidthPx,
+                    content_width_px: contentWidthPx,
+                }));
+                ordinal += 1;
+                index += take;
+                lineCursor += take;
+                if (lineCursor >= capacity) {
+                    virtualPageIndex += 1;
+                    lineCursor = 0;
+                }
+            }
+        };
+
+        const emitBlockFrames = (anchor, lines) => {
+            for (const line of lines) {
+                const blocks = splitMeasuredLineIntoBlocks(line, blockWidthPx);
+                for (const block of blocks) {
+                    const atomicStructure = Boolean(line.structural_single_row);
+                    frames.push(timedFrame(adapter, anchor, ordinal, [block], speedPerMinute, {
+                        display_scope: 'block',
+                        virtual_page_index: virtualPageIndex,
+                        line_index: lineCursor,
+                        line_span: 1,
+                        x_px: lineOriginX + Math.max(0, Number(block.x_offset_px) || 0),
+                        y_px: lineCursor * lineHeightPx,
+                        width_px: atomicStructure ? lineWidthPx : Math.max(1, block.measured_width_px),
+                        block_width_px: blockWidthPx,
+                        line_width_px: lineWidthPx,
+                        content_width_px: contentWidthPx,
+                        block_index: block.block_index,
+                        block_count: block.block_count,
+                        structural_single_row: atomicStructure,
+                    }));
+                    ordinal += 1;
+                }
+                lineCursor += 1;
+                if (lineCursor >= capacity) {
+                    virtualPageIndex += 1;
+                    lineCursor = 0;
+                }
+            }
+        };
+
         const flushRun = () => {
             if (!run.length) return;
             const anchor = run[0];
-            const lines = buildMeasuredLines(adapter, run, options.maxWidthPx, measureText);
-            if (options.displayScope === 'block') {
-                for (const element of run) {
-                    const elementLines = buildMeasuredLines(adapter, [element], options.maxWidthPx, measureText);
-                    for (let index = 0; index < elementLines.length; index += maxLines) {
-                        frames.push(timedFrame(adapter, element, index / maxLines, elementLines.slice(index, index + maxLines), speedPerMinute));
-                    }
-                }
-            } else {
-                for (let index = 0; index < lines.length; index += maxLines) {
-                    frames.push(timedFrame(adapter, anchor, ordinal, lines.slice(index, index + maxLines), speedPerMinute));
-                    ordinal += 1;
-                }
-            }
+            const lines = buildMeasuredLines(adapter, run, lineWidthPx, measureText);
+            if (displayScope === 'page') emitPageFrames(anchor, lines);
+            else if (displayScope === 'line') emitLineFrames(anchor, lines);
+            else emitBlockFrames(anchor, lines);
             run = [];
         };
 
         for (const element of elements) {
             if (element.kind === 'manual') {
                 flushRun();
-                frames.push(manualFrame(element));
-            } else if (element.text) run.push(element);
+                advanceToFreshPage();
+                frames.push(manualFrame(element, virtualPageIndex));
+                virtualPageIndex += 1;
+                lineCursor = 0;
+            } else if (element.text) {
+                run.push(element);
+            }
         }
         flushRun();
+
         return {
             elements,
             frames,
             options: {
-                displayScope: options.displayScope || 'line',
-                widthPercent: clampWidthPercent(options.widthPercent),
-                maxWidthPx: Math.max(1, Number(options.maxWidthPx) || 1),
-                maxLines,
+                displayScope,
+                widthPercent,
+                maxWidthPx: contentWidthPx,
+                lineWidthPx,
+                blockWidthPx,
+                lineCount,
+                maxLines: lineCount,
+                pageLineCapacity: capacity,
+                lineHeightPx,
                 speedPerMinute,
             },
         };
+    }
+
+    function numericLineHeight(computed, fallbackFontSize) {
+        const parsed = Number.parseFloat(computed?.lineHeight);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        const fontSize = Math.max(1, Number.parseFloat(computed?.fontSize) || Number(fallbackFontSize) || 28);
+        return fontSize * DEFAULT_LINE_HEIGHT_RATIO;
     }
 
     function install(root) {
@@ -327,10 +506,15 @@
         };
 
         Controller.prototype.playbackAvailableWidth = function playbackAvailableWidth() {
-            const target = this.displayScope() === 'page' ? this.element('pageText') : this.element('focusText');
             const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const panel = this.document?.querySelector?.('.reading-panel');
-            return Number(target?.clientWidth || surface?.clientWidth || panel?.clientWidth || 1);
+            return Number(surface?.clientWidth || panel?.clientWidth || 1);
+        };
+
+        Controller.prototype.playbackAvailableHeight = function playbackAvailableHeight() {
+            const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
+            const panel = this.document?.querySelector?.('.reading-panel');
+            return Number(surface?.clientHeight || panel?.clientHeight || 1);
         };
 
         Controller.prototype.adapterOptions = function responsiveAdapterOptions() {
@@ -339,22 +523,93 @@
             return {
                 ...base,
                 widthPercent: percent,
+                lineCount: Math.max(1, Number(this.element('linesInput')?.value || base.maxLines || 3)),
                 maxWidthPx: targetWidthPx(this.playbackAvailableWidth(), 100, DEFAULT_SAFE_GUTTER_PX),
             };
+        };
+
+        Controller.prototype.updateSettingsVisibility = function corePlaybackSettingsVisibility() {
+            const scope = this.displayScope();
+            const pageSettings = this.element('pageSettings');
+            const focusSettings = this.element('focusSettings');
+            if (pageSettings) pageSettings.style.display = 'none';
+            if (focusSettings) focusSettings.style.display = '';
+
+            const widthInput = this.element('widthInput');
+            const widthSlider = this.element('widthSlider');
+            for (const control of [widthInput, widthSlider]) {
+                if (!control) continue;
+                control.min = String(MIN_WIDTH_PERCENT);
+                control.max = String(MAX_WIDTH_PERCENT);
+                const current = clampWidthPercent(control.value);
+                control.value = String(current);
+            }
+            const widthLabel = widthInput?.closest?.('.setting-grid-cell')?.querySelector?.('label');
+            if (widthLabel) widthLabel.textContent = scope === 'block' ? '块宽：' : '行宽：';
+
+            const linesCell = this.element('linesInput')?.closest?.('.setting-grid-cell');
+            if (linesCell?.style) linesCell.style.display = scope === 'line' ? '' : 'none';
+
+            const scopeSelect = this.element('displayMode');
+            const blockOption = Array.from(scopeSelect?.options || []).find((option) => option.value === 'block');
+            if (blockOption) blockOption.textContent = '块';
         };
 
         Controller.prototype.applyVisualSettings = function responsiveVisualSettings() {
             originalApplyVisualSettings.call(this);
             const panel = this.document?.querySelector?.('.reading-panel');
             if (!panel) return;
-            const percent = this.playbackWidthPercent();
-            panel.style.setProperty('--speed-reading-width-percent', `${percent}%`);
+            panel.style.setProperty('--speed-reading-width-percent', '100%');
             panel.style.removeProperty('--speed-reading-measure');
+            for (const id of ['focusText', 'pageText']) {
+                const target = this.element(id);
+                if (!target?.style) continue;
+                target.style.width = '100%';
+                target.style.maxWidth = '100%';
+                target.style.height = '100%';
+                target.style.margin = '0';
+                target.style.marginTop = '0';
+                target.style.alignSelf = 'stretch';
+                target.style.position = 'relative';
+                target.style.overflow = 'hidden';
+            }
         };
 
-        Controller.prototype.renderFrame = function renderFrameWithHeadingLevels(frame, target) {
+        Controller.prototype.renderFrame = function renderMeasuredPlaybackFrame(frame, target) {
             const result = originalRenderFrame.call(this, frame, target);
-            if (target && Array.isArray(frame?.lines)) {
+            if (!target || frame?.kind !== 'timed_text') return result;
+
+            const container = target.querySelector?.('.reader-playback-frame-text');
+            if (!container?.style) return result;
+            const placement = frame.placement || {};
+            const scope = this.displayScope();
+            const mode = this.readingMode();
+            const width = Math.max(1, Number(placement.width_px) || Number(placement.line_width_px) || 1);
+
+            target.style.position = 'relative';
+            target.style.width = '100%';
+            target.style.height = '100%';
+            container.style.position = 'absolute';
+            container.style.margin = '0';
+            container.style.animation = 'none';
+            container.style.maxWidth = 'none';
+            container.style.width = `${width}px`;
+
+            if (scope === 'page') {
+                container.style.left = `${Math.max(0, Number(placement.x_px) || 0)}px`;
+                container.style.top = '0px';
+                container.style.transform = 'none';
+            } else if (mode === 'focus') {
+                container.style.left = '50%';
+                container.style.top = '50%';
+                container.style.transform = 'translate(-50%, -50%)';
+            } else {
+                container.style.left = `${Math.max(0, Number(placement.x_px) || 0)}px`;
+                container.style.top = `${Math.max(0, Number(placement.y_px) || 0)}px`;
+                container.style.transform = 'none';
+            }
+
+            if (Array.isArray(frame.lines)) {
                 const rows = target.querySelectorAll?.('.reader-playback-line') || [];
                 frame.lines.forEach((line, index) => {
                     const row = rows[index];
@@ -372,9 +627,11 @@
                 this.updateControls();
                 return [];
             }
+            this.updateSettingsVisibility();
             this.applyVisualSettings();
             const settings = this.adapterOptions();
             const target = this.displayScope() === 'page' ? this.element('pageText') : this.element('focusText');
+            const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const view = this.document?.defaultView;
             const computed = target && view?.getComputedStyle ? view.getComputedStyle(target) : null;
             const measureText = createCanvasMeasurer(this.document, {
@@ -383,10 +640,13 @@
                 fontStyle: computed?.fontStyle,
                 fontWeight: computed?.fontWeight,
             });
-            const actualTargetWidth = Number(target?.clientWidth || settings.maxWidthPx || 1);
+            const lineHeightPx = numericLineHeight(computed, this.element('fontInput')?.value || 28);
+            const capacity = pageLineCapacity(this.playbackAvailableHeight(), lineHeightPx, DEFAULT_SAFE_VERTICAL_GUTTER_PX);
             const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
                 ...settings,
-                maxWidthPx: Math.max(1, Math.min(settings.maxWidthPx, actualTargetWidth - 12)),
+                maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
+                pageLineCapacity: capacity,
+                lineHeightPx,
                 measureText,
             });
             this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
@@ -397,29 +657,32 @@
         Controller.prototype.__responsiveLayoutInstalled = true;
 
         const controller = PlaybackUI?.getDefaultController?.();
-        if (controller && !controller.__responsiveReflowBound) {
-            controller.__responsiveReflowBound = true;
-            let pending = null;
-            const scheduleReflow = () => {
-                const view = controller.document?.defaultView;
-                if (!controller.isReaderActive?.()) return;
-                if (pending !== null && view?.cancelAnimationFrame) view.cancelAnimationFrame(pending);
-                const run = () => {
-                    pending = null;
-                    controller.refreshFrames({ preserveIdentity: true });
-                    if (controller.playback?.currentFrame?.()) controller.showPlaybackSurface(controller.playback.currentFrame());
+        if (controller) {
+            controller.updateSettingsVisibility?.();
+            if (!controller.__responsiveReflowBound) {
+                controller.__responsiveReflowBound = true;
+                let pending = null;
+                const scheduleReflow = () => {
+                    const view = controller.document?.defaultView;
+                    if (!controller.isReaderActive?.()) return;
+                    if (pending !== null && view?.cancelAnimationFrame) view.cancelAnimationFrame(pending);
+                    const run = () => {
+                        pending = null;
+                        controller.refreshFrames({ preserveIdentity: true });
+                        if (controller.playback?.currentFrame?.()) controller.showPlaybackSurface(controller.playback.currentFrame());
+                    };
+                    pending = view?.requestAnimationFrame ? view.requestAnimationFrame(run) : root.setTimeout(run, 0);
                 };
-                pending = view?.requestAnimationFrame ? view.requestAnimationFrame(run) : root.setTimeout(run, 0);
-            };
-            for (const id of ['fontInput', 'fontSlider', 'fontWeight', 'linesInput', 'linesSlider', 'widthInput', 'widthSlider']) {
-                const element = controller.element(id);
-                element?.addEventListener('input', scheduleReflow);
-                element?.addEventListener('change', scheduleReflow);
-            }
-            const panel = controller.document?.querySelector?.('.reading-panel');
-            if (panel && typeof root.ResizeObserver === 'function') {
-                controller.__responsiveResizeObserver = new root.ResizeObserver(scheduleReflow);
-                controller.__responsiveResizeObserver.observe(panel);
+                for (const id of ['fontInput', 'fontSlider', 'fontWeight', 'linesInput', 'linesSlider', 'widthInput', 'widthSlider', 'displayMode']) {
+                    const element = controller.element(id);
+                    element?.addEventListener('input', scheduleReflow);
+                    element?.addEventListener('change', scheduleReflow);
+                }
+                const panel = controller.document?.querySelector?.('.reading-panel');
+                if (panel && typeof root.ResizeObserver === 'function') {
+                    controller.__responsiveResizeObserver = new root.ResizeObserver(scheduleReflow);
+                    controller.__responsiveResizeObserver.observe(panel);
+                }
             }
         }
         return true;
@@ -427,16 +690,22 @@
 
     return {
         CLOSING_PUNCTUATION,
+        DEFAULT_LINE_HEIGHT_RATIO,
+        DEFAULT_SAFE_GUTTER_PX,
+        DEFAULT_SAFE_VERTICAL_GUTTER_PX,
         DEFAULT_WIDTH_PERCENT,
         MAX_WIDTH_PERCENT,
         MIN_WIDTH_PERCENT,
+        SINGLE_ROW_TYPES,
         buildMeasuredLines,
         buildMeasuredPlaybackFrames,
         clampWidthPercent,
         createCanvasMeasurer,
         install,
         isClosingPunctuationToken,
+        pageLineCapacity,
         shouldForceNodeBoundary,
+        splitMeasuredLineIntoBlocks,
         targetWidthPx,
     };
 });
