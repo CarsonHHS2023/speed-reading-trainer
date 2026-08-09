@@ -130,6 +130,25 @@
             prototype.__blockViewpointAdapterOptionsWrapped = true;
         }
 
+        // Reader v2 owns block/line/page selector semantics even before a book is
+        // open. The base handler returns before stopping propagation when Reader is
+        // inactive, which lets legacy app.js treat block/line as its old Page mode
+        // and replace the width controls with the obsolete max-lines panel.
+        if (!prototype.__blockViewpointDisplayModeOwnershipWrapped) {
+            const originalOnDisplayModeChanged = prototype.onDisplayModeChanged;
+            if (typeof originalOnDisplayModeChanged !== 'function') return false;
+            prototype.onDisplayModeChanged = function blockViewpointDisplayModeChanged(event) {
+                event?.stopImmediatePropagation?.();
+                this.updateSettingsVisibility?.();
+                if (!this.isReaderActive?.()) {
+                    this.applyVisualSettings?.();
+                    return false;
+                }
+                return originalOnDisplayModeChanged.call(this, event);
+            };
+            prototype.__blockViewpointDisplayModeOwnershipWrapped = true;
+        }
+
         if (!prototype.__blockViewpointSettingRefreshWrapped) {
             const originalOnSettingChanged = prototype.onSettingChanged;
             if (typeof originalOnSettingChanged !== 'function') return false;
