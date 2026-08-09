@@ -108,7 +108,7 @@ test('avoidable closing punctuation stays attached to preceding line', () => {
 
 test('duration formula honors speed and safe floors', () => {
     assert.equal(Adapter.durationMs(10, 600), 1000);
-    assert.equal(Adapter.durationMs(0, 600), 1000 / 12);
+    assert.equal(Adapter.durationMs(0, 600), 1000 / 6);
     const punctuation = Adapter.buildPlaybackFrames(documentView, [node('punct', 0, 'paragraph', '...')], {
         displayScope: 'line', lineWidth: 10, speedPerMinute: 5000,
     });

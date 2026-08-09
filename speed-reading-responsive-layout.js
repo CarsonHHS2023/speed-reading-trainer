@@ -40,6 +40,70 @@
         return Math.max(1, (available - gutter) * clampWidthPercent(widthPercent) / 100);
     }
 
+    function contentBoxWidth(element, view) {
+        const clientWidth = Math.max(0, Number(element?.clientWidth) || 0);
+        if (!clientWidth) return 0;
+        const computed = element && view?.getComputedStyle ? view.getComputedStyle(element) : null;
+        const paddingLeft = Math.max(0, Number.parseFloat(computed?.paddingLeft) || 0);
+        const paddingRight = Math.max(0, Number.parseFloat(computed?.paddingRight) || 0);
+        return Math.max(1, clientWidth - paddingLeft - paddingRight);
+    }
+
+    function contentBoxHeight(element, view) {
+        const clientHeight = Math.max(0, Number(element?.clientHeight) || 0);
+        if (!clientHeight) return 0;
+        const computed = element && view?.getComputedStyle ? view.getComputedStyle(element) : null;
+        const paddingTop = Math.max(0, Number.parseFloat(computed?.paddingTop) || 0);
+        const paddingBottom = Math.max(0, Number.parseFloat(computed?.paddingBottom) || 0);
+        return Math.max(1, clientHeight - paddingTop - paddingBottom);
+    }
+
+    function elementRenderedWidth(element) {
+        const rectWidth = Math.max(0, Number(element?.getBoundingClientRect?.().width) || 0);
+        if (rectWidth) return rectWidth;
+        return Math.max(0, Number(element?.clientWidth) || 0);
+    }
+
+    function cssVariablePx(element, view, name) {
+        const computed = element && view?.getComputedStyle ? view.getComputedStyle(element) : null;
+        const raw = computed?.getPropertyValue?.(name);
+        return Math.max(0, Number.parseFloat(raw) || 0);
+    }
+
+    function playbackSurfaceContentWidth(surface, panel, documentObject, view) {
+        const direct = contentBoxWidth(surface, view);
+        if (direct) return direct;
+
+        const panelWidth = contentBoxWidth(panel, view);
+        if (!panelWidth) return 0;
+        const surfaceComputed = surface && view?.getComputedStyle ? view.getComputedStyle(surface) : null;
+        const paddingLeft = Math.max(0, Number.parseFloat(surfaceComputed?.paddingLeft) || 0);
+        const paddingRight = Math.max(0, Number.parseFloat(surfaceComputed?.paddingRight) || 0);
+
+        const rail = documentObject?.querySelector?.('.reader-study-tools-rail');
+        let reservedWidth = elementRenderedWidth(rail);
+        if (!reservedWidth) {
+            reservedWidth = cssVariablePx(panel, view, '--study-tools-rail-width');
+            if (panel?.dataset?.studyToolsExpanded === '1') {
+                const drawer = documentObject?.querySelector?.('.reader-study-tools-drawer');
+                reservedWidth += elementRenderedWidth(drawer);
+            }
+        }
+        return Math.max(1, panelWidth - reservedWidth - paddingLeft - paddingRight);
+    }
+
+    function playbackSurfaceContentHeight(surface, panel, view) {
+        const direct = contentBoxHeight(surface, view);
+        if (direct) return direct;
+
+        const panelHeight = contentBoxHeight(panel, view);
+        if (!panelHeight) return 0;
+        const surfaceComputed = surface && view?.getComputedStyle ? view.getComputedStyle(surface) : null;
+        const paddingTop = Math.max(0, Number.parseFloat(surfaceComputed?.paddingTop) || 0);
+        const paddingBottom = Math.max(0, Number.parseFloat(surfaceComputed?.paddingBottom) || 0);
+        return Math.max(1, panelHeight - paddingTop - paddingBottom);
+    }
+
     function pageLineCapacity(availableHeightPx, lineHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX) {
         const available = Math.max(0, Number(availableHeightPx) || 0);
         const gutter = Math.max(0, Number(safeGutterPx) || 0);
@@ -508,13 +572,15 @@
         Controller.prototype.playbackAvailableWidth = function playbackAvailableWidth() {
             const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const panel = this.document?.querySelector?.('.reading-panel');
-            return Number(surface?.clientWidth || panel?.clientWidth || 1);
+            const view = this.document?.defaultView || root;
+            return playbackSurfaceContentWidth(surface, panel, this.document, view) || 1;
         };
 
         Controller.prototype.playbackAvailableHeight = function playbackAvailableHeight() {
             const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const panel = this.document?.querySelector?.('.reading-panel');
-            return Number(surface?.clientHeight || panel?.clientHeight || 1);
+            const view = this.document?.defaultView || root;
+            return playbackSurfaceContentHeight(surface, panel, view) || 1;
         };
 
         Controller.prototype.adapterOptions = function responsiveAdapterOptions() {
@@ -631,7 +697,6 @@
             this.applyVisualSettings();
             const settings = this.adapterOptions();
             const target = this.displayScope() === 'page' ? this.element('pageText') : this.element('focusText');
-            const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const view = this.document?.defaultView;
             const computed = target && view?.getComputedStyle ? view.getComputedStyle(target) : null;
             const measureText = createCanvasMeasurer(this.document, {
@@ -700,10 +765,16 @@
         buildMeasuredLines,
         buildMeasuredPlaybackFrames,
         clampWidthPercent,
+        contentBoxHeight,
+        contentBoxWidth,
         createCanvasMeasurer,
+        cssVariablePx,
+        elementRenderedWidth,
         install,
         isClosingPunctuationToken,
         pageLineCapacity,
+        playbackSurfaceContentHeight,
+        playbackSurfaceContentWidth,
         shouldForceNodeBoundary,
         splitMeasuredLineIntoBlocks,
         targetWidthPx,
