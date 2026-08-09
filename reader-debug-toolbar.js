@@ -20,9 +20,12 @@
     const LAYOUT_RETRY_MS = 25;
     const LAYOUT_TIMEOUT_MS = 10000;
     const MOVED_PLAYBACK_CONTROL_IDS = Object.freeze([
+        'speedReadingFirst',
         'speedReadingPrev',
-        'speedReadingPause',
+        READING_TOGGLE_ID,
         'speedReadingNext',
+        'speedReadingLast',
+        'speedReadingStop',
     ]);
 
     function currentSourceUnitId(controller) {
@@ -73,10 +76,9 @@
         const rail = documentObject?.querySelector?.(RAIL_SELECTOR);
         const tabs = rail?.querySelector?.(RAIL_TABS_SELECTOR);
         const toolbar = documentObject?.getElementById?.(TOP_TOOLBAR_ID);
-        const toggle = documentObject?.getElementById?.(READING_TOGGLE_ID);
         const debugButton = documentObject?.getElementById?.(BUTTON_ID);
         const controls = MOVED_PLAYBACK_CONTROL_IDS.map((id) => documentObject?.getElementById?.(id));
-        if (!header || !tabs || !toolbar || !toggle || !debugButton || controls.some((control) => !control)) return false;
+        if (!header || !tabs || !toolbar || !debugButton || controls.some((control) => !control)) return false;
         if (toolbar.classList?.contains('speed-reading-v2-toolbar-compat')) return true;
 
         let group = header.querySelector?.(`.${BOOKLIST_CONTROLS_CLASS}`);
@@ -88,7 +90,6 @@
             header.appendChild(group);
         }
         for (const control of controls) group.appendChild(control);
-        group.appendChild(toggle);
 
         debugButton.classList?.add('reader-study-tool-tab', 'reader-debug-tool-button');
         tabs.appendChild(debugButton);
