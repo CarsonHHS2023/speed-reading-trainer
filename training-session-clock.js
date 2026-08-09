@@ -110,4 +110,5 @@ if (typeof document !== 'undefined') {
     appendEnhancementScript('speedReadingResponsiveLayoutScript', 'speed-reading-responsive-layout.js', { lifecycleManaged: true });
     appendEnhancementScript('readerPunctuationHangingPolicyScript', 'reader-punctuation-hanging-policy.js', { lifecycleManaged: true });
     appendEnhancementScript('speedReadingLayoutIntegrityScript', 'speed-reading-layout-integrity.js');
+    appendEnhancementScript('speedReadingSpeedPolicyScript', 'speed-reading-speed-policy.js');
 }
