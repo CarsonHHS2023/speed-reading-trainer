@@ -17,6 +17,7 @@
     const INSTALL_RETRY_MS = 20;
     const INSTALL_RETRY_LIMIT = 250;
     const VISUAL_TYPES_WITH_CAPTION = new Set(['figure', 'table']);
+    const GLYPH_BLEED_PX = 6;
 
     function normalizeType(value) {
         return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
@@ -32,77 +33,42 @@
         return normalizeType(node?.node_type);
     }
 
-    function sourceUnitIdForNode(node) {
-        return String(
-            node?.location?.source_unit_id
-            || node?.source_unit_ids?.[0]
-            || '',
-        ).trim();
-    }
-
-    function sourceUnitIdForElement(element) {
-        return String(element?.identity?.source_unit_id || '').trim();
-    }
-
-    function scopedNodeKey(sourceUnitId, nodeId) {
-        return `${String(sourceUnitId || '').trim()}\u0000${String(nodeId || '').trim()}`;
-    }
-
-    function scopedNodeKeyForNode(node) {
-        return scopedNodeKey(sourceUnitIdForNode(node), node?.node_id);
-    }
-
-    function scopedNodeKeyForElement(element) {
-        return scopedNodeKey(sourceUnitIdForElement(element), element?.identity?.node_id);
-    }
-
     function canonicalCaptionAssociations(adapter, nodes) {
-        // Match the ordinary Reader contract exactly: caption parent_ref is resolved
-        // only inside the same physical source unit/page. Never join captions across
-        // pages, even when local node ids happen to be identical.
+        // Reader v2 projects canonical node.parent_id directly to parent_ref and
+        // assigns node.order from the selected semantic-tree preorder. Node ids are
+        // document-wide identities, so do not reinterpret this relationship through
+        // page proximity, text, source-unit location, or any secondary ordering.
         const visualParents = new Map();
         for (const node of nodes || []) {
             const type = resolvedNodeType(adapter, node);
             if (!VISUAL_TYPES_WITH_CAPTION.has(type)) continue;
             const nodeId = String(node?.node_id || '').trim();
-            const sourceUnitId = sourceUnitIdForNode(node);
-            if (!nodeId || !sourceUnitId) continue;
-            visualParents.set(scopedNodeKey(sourceUnitId, nodeId), {
-                node_id: nodeId,
-                node_type: type,
-                source_unit_id: sourceUnitId,
-            });
+            if (nodeId) visualParents.set(nodeId, type);
         }
 
         const byParent = new Map();
-        const consumedCaptionKeys = new Set();
         const consumedCaptionIds = new Set();
         for (const node of nodes || []) {
             if (resolvedNodeType(adapter, node) !== 'caption') continue;
             const parentRef = typeof node?.parent_ref === 'string' ? node.parent_ref.trim() : '';
-            const sourceUnitId = sourceUnitIdForNode(node);
-            if (!parentRef || !sourceUnitId) continue;
-            const parentKey = scopedNodeKey(sourceUnitId, parentRef);
-            if (!visualParents.has(parentKey)) continue;
+            if (!parentRef || !visualParents.has(parentRef)) continue;
             const nodeId = String(node?.node_id || '').trim();
             const text = typeof node?.text === 'string' ? node.text.trim() : '';
             if (!nodeId || !text) continue;
-            if (!byParent.has(parentKey)) byParent.set(parentKey, []);
-            byParent.get(parentKey).push({
+            if (!byParent.has(parentRef)) byParent.set(parentRef, []);
+            byParent.get(parentRef).push({
                 node_id: nodeId,
                 text,
                 order: Number(node?.order || 0),
                 parent_ref: parentRef,
-                source_unit_id: sourceUnitId,
             });
-            consumedCaptionKeys.add(scopedNodeKey(sourceUnitId, nodeId));
             consumedCaptionIds.add(nodeId);
         }
 
         for (const captions of byParent.values()) {
             captions.sort((a, b) => a.order - b.order || a.node_id.localeCompare(b.node_id));
         }
-        return { byParent, consumedCaptionKeys, consumedCaptionIds };
+        return { byParent, consumedCaptionIds };
     }
 
     function lineFrameCapacity(rawCapacity, lineCount) {
@@ -119,37 +85,17 @@
         return fontSize * Math.max(1, Number(ratio) || 1.55);
     }
 
-    function finiteSourceOrder(element) {
-        if (element?.source_order === null || element?.source_order === undefined || element?.source_order === '') {
-            return Number.MAX_SAFE_INTEGER;
-        }
-        const value = Number(element.source_order);
-        return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
-    }
-
-    function canonicalPlaybackElementOrder(elements) {
-        return (elements || [])
-            .map((element, originalIndex) => ({
-                element,
-                originalIndex,
-                sourceOrder: finiteSourceOrder(element),
-            }))
-            .sort((left, right) => (
-                left.sourceOrder - right.sourceOrder
-                || left.originalIndex - right.originalIndex
-            ))
-            .map((entry) => entry.element);
-    }
-
-    function withPlaybackElementPolicy(adapter, consumedCaptionKeys, callback) {
+    function withPlaybackElementPolicy(adapter, consumedCaptionIds, callback) {
         const originalBuildReadingElements = adapter?.buildReadingElements;
         if (typeof originalBuildReadingElements !== 'function') return callback();
-        const consumed = consumedCaptionKeys || new Set();
-        adapter.buildReadingElements = function buildReadingElementsWithCanonicalPageOrder(...args) {
-            const elements = originalBuildReadingElements.apply(this, args).filter((element) => (
-                !consumed.has(scopedNodeKeyForElement(element))
+        const consumed = consumedCaptionIds || new Set();
+        adapter.buildReadingElements = function buildReadingElementsWithCanonicalRelations(...args) {
+            // Preserve Reader v2's canonical preorder exactly. The only mutation here
+            // is removing captions that are already represented in their parent
+            // visual manual frame.
+            return originalBuildReadingElements.apply(this, args).filter((element) => (
+                !consumed.has(String(element?.identity?.node_id || '').trim())
             ));
-            return canonicalPlaybackElementOrder(elements);
         };
         try {
             return callback();
@@ -158,8 +104,8 @@
         }
     }
 
-    function withAssociatedCaptionsSuppressed(adapter, consumedCaptionKeys, callback) {
-        return withPlaybackElementPolicy(adapter, consumedCaptionKeys, callback);
+    function withAssociatedCaptionsSuppressed(adapter, consumedCaptionIds, callback) {
+        return withPlaybackElementPolicy(adapter, consumedCaptionIds, callback);
     }
 
     function attachVisualCaptions(frames, associations) {
@@ -167,8 +113,7 @@
         for (const frame of frames || []) {
             if (frame?.kind !== 'manual' || !VISUAL_TYPES_WITH_CAPTION.has(normalizeType(frame?.node_type))) continue;
             const nodeId = String(frame?.identity?.node_id || '').trim();
-            const sourceUnitId = String(frame?.identity?.source_unit_id || '').trim();
-            const captions = byParent.get(scopedNodeKey(sourceUnitId, nodeId));
+            const captions = byParent.get(nodeId);
             if (!captions?.length) continue;
             frame.captions = captions.map((caption) => ({ ...caption }));
             frame.caption_text = captions.map((caption) => caption.text).join('\n');
@@ -225,7 +170,7 @@
 
         const nodes = controller.reader.nodes || [];
         const associations = canonicalCaptionAssociations(adapter, nodes);
-        const built = withPlaybackElementPolicy(adapter, associations.consumedCaptionKeys, () => (
+        const built = withPlaybackElementPolicy(adapter, associations.consumedCaptionIds, () => (
             responsive.buildMeasuredPlaybackFrames(adapter, controller.reader.openResponse, nodes, {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
@@ -264,7 +209,6 @@
             caption.className = 'reader-playback-visual-caption reader-playback-line-caption';
             caption.textContent = text;
             caption.dataset.readerCaptionNodeId = String(captionData?.node_id || '');
-            caption.dataset.readerCaptionSourceUnitId = String(captionData?.source_unit_id || '');
             if (caption.style) {
                 caption.style.marginBottom = '8px';
                 caption.style.whiteSpace = 'normal';
@@ -280,12 +224,32 @@
         return nodes.length > 0;
     }
 
-    function relaxTimedTextClipping(target) {
+    function setImportant(style, property, value) {
+        if (!style) return;
+        if (typeof style.setProperty === 'function') style.setProperty(property, value, 'important');
+        else style[property.replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())] = value;
+    }
+
+    function relaxTimedTextClipping(target, glyphBleedPx = GLYPH_BLEED_PX) {
+        const bleed = Math.max(0, Number(glyphBleedPx) || 0);
+        setImportant(target?.style, 'overflow', 'visible');
+
         const container = target?.querySelector?.('.reader-playback-frame-text');
-        if (container?.style) container.style.overflow = 'visible';
+        setImportant(container?.style, 'overflow', 'visible');
+        const structured = target?.querySelector?.('.reader-playback-frame-structured');
+        setImportant(structured?.style, 'overflow', 'visible');
+
         const rows = target?.querySelectorAll?.('.reader-playback-line') || [];
         for (const row of rows) {
-            if (row?.style) row.style.overflow = 'visible';
+            setImportant(row?.style, 'overflow', 'visible');
+            if (bleed > 0) {
+                // Expand the row's paint box without moving the measured text origin:
+                // -bleed margin + bleed padding keeps x unchanged while allowing glyph
+                // side bearings/antialiasing to paint outside the measured line box.
+                setImportant(row?.style, 'margin-inline', `-${bleed}px`);
+                setImportant(row?.style, 'padding-inline', `${bleed}px`);
+                setImportant(row?.style, 'width', `calc(100% + ${bleed * 2}px)`);
+            }
         }
         return rows.length;
     }
@@ -344,6 +308,7 @@
     }
 
     return {
+        GLYPH_BLEED_PX,
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
         VISUAL_TYPES_WITH_CAPTION,
@@ -351,7 +316,6 @@
         attachVisualCaptions,
         buildIntegrityPlaybackFrames,
         canonicalCaptionAssociations,
-        canonicalPlaybackElementOrder,
         install,
         installWithRetry,
         lineFrameCapacity,
@@ -360,11 +324,7 @@
         relaxTimedTextClipping,
         rendererChainReady,
         resolvedNodeType,
-        scopedNodeKey,
-        scopedNodeKeyForElement,
-        scopedNodeKeyForNode,
-        sourceUnitIdForElement,
-        sourceUnitIdForNode,
+        setImportant,
         withAssociatedCaptionsSuppressed,
         withPlaybackElementPolicy,
     };
