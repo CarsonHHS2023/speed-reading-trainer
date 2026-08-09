@@ -36,6 +36,7 @@ jobs:
               "reader-presentation.js",
               "reader-semantic-layout-refinement.js",
               "training-session-clock.js",
+              "reader-resume-lifecycle.js",
           ):
               text = text.replace(asset, f"{asset}?v={sha}")
           marker = f'<meta name="reader-preview-head" content="{sha}">' 
@@ -68,11 +69,14 @@ jobs:
             refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
             edge_polish="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-edge-polish.js?v=${PREVIEW_HEAD_SHA}" || true)"
             training_clock="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/training-session-clock.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            lifecycle="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            structure_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-structure-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
             speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"training-session-clock.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
               && [[ "${js}" == *"恢复到100%"* ]] \
               && [[ "${presentation}" == *"reader-semantic-layout-edge-polish.js"* ]] \
@@ -85,6 +89,11 @@ jobs:
               && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
               && [[ "${training_clock}" == *"reader-preview-head"* ]] \
               && [[ "${training_clock}" == *"speed-reading-responsive-layout.js?v="* ]] \
+              && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
+              && [[ "${lifecycle}" == *"assetVersion"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-structure-policy.js"* ]] \
+              && [[ "${structure_policy}" == *"inline_formula: 'paragraph'"* ]] \
+              && [[ "${structure_policy}" == *"providerType === 'inline_formula'"* ]] \
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
               && [[ "${speed_layout}" == *"pageLineCapacity"* ]]; then
