@@ -121,6 +121,7 @@ test('changing viewpoint while in Block forces one frame rebuild so grouping fol
         readingMode() { return this.mode; }
         displayScope() { return this.scope; }
         adapterOptions() { return { displayScope: this.scope }; }
+        onDisplayModeChanged() { return true; }
         onSettingChanged(options = {}) {
             calls.push({ ...options });
             return options;
@@ -152,6 +153,58 @@ test('changing viewpoint while in Block forces one frame rebuild so grouping fol
 
     controller.onSettingChanged({ frames: false });
     assert.deepEqual(calls.pop(), { frames: false });
+});
+
+test('Block selector keeps Reader v2 width settings visible before a book is active', () => {
+    let stopped = 0;
+    let visibilityUpdates = 0;
+    let visualUpdates = 0;
+    let delegated = 0;
+
+    class FakeController {
+        constructor() {
+            this.mode = 'focus';
+            this.scope = 'block';
+            this.active = false;
+        }
+        readingMode() { return this.mode; }
+        displayScope() { return this.scope; }
+        adapterOptions() { return { displayScope: this.scope }; }
+        isReaderActive() { return this.active; }
+        updateSettingsVisibility() { visibilityUpdates += 1; }
+        applyVisualSettings() { visualUpdates += 1; }
+        onDisplayModeChanged() { delegated += 1; return true; }
+        onSettingChanged(options = {}) { return options; }
+    }
+    FakeController.prototype.__speedReadingLayoutIntegrityInstalled = true;
+
+    const controller = new FakeController();
+    const root = {
+        SpeedReadingResponsiveLayout: {
+            buildMeasuredPlaybackFrames() {
+                return { frames: [], options: {} };
+            },
+        },
+        ReaderSpeedPlaybackUI: {
+            ReaderSpeedPlaybackUIController: FakeController,
+            getDefaultController: () => controller,
+        },
+    };
+
+    assert.equal(Policy.install(root), true);
+    const event = { stopImmediatePropagation() { stopped += 1; } };
+
+    assert.equal(controller.onDisplayModeChanged(event), false);
+    assert.equal(stopped, 1, 'legacy app.js display-mode listener is blocked');
+    assert.equal(visibilityUpdates, 1, 'Reader v2 refreshes Block/Line/Page panel visibility');
+    assert.equal(visualUpdates, 1, 'the selected scope is reflected in visual settings');
+    assert.equal(delegated, 0, 'no Reader reflow/frame work runs before a book is active');
+
+    controller.active = true;
+    assert.equal(controller.onDisplayModeChanged(event), true);
+    assert.equal(stopped, 2);
+    assert.equal(visibilityUpdates, 2);
+    assert.equal(delegated, 1, 'active Reader still delegates to the normal reflow path');
 });
 
 test('block layout policy is loaded from the exact-head enhancement bootstrap', () => {
