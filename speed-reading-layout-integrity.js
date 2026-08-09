@@ -367,6 +367,52 @@
         return frames;
     }
 
+    function applyRuntimeHorizontalPlacement(controller, frame, target, rootObject) {
+        if (!controller || !target || frame?.kind !== 'timed_text') return null;
+        const placement = frame.placement || {};
+        const scope = controller.displayScope?.() || String(placement.display_scope || 'line');
+        const mode = controller.readingMode?.() || 'focus';
+        if (scope !== 'page' && mode !== 'moving') return null;
+
+        const container = target.querySelector?.('.reader-playback-frame-text');
+        if (!container?.style) return null;
+        const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
+        const view = controller.document?.defaultView || rootObject;
+        const targetWidth = Math.max(
+            1,
+            Number(responsive?.contentBoxWidth?.(target, view)) || Number(target?.clientWidth) || 1,
+        );
+        const planeWidth = Math.max(1, Number(placement.content_width_px) || targetWidth);
+        const buildOrigin = Math.max(0, Number(placement.content_origin_x_px) || 0);
+        const storedX = Math.max(0, Number(placement.x_px) || 0);
+        const internalX = Math.max(0, storedX - buildOrigin);
+        const frameWidth = Math.max(1, Number(placement.width_px) || Number(placement.line_width_px) || 1);
+        const runtimeOrigin = Math.max(0, (targetWidth - planeWidth) / 2);
+        const maxLeft = Math.max(0, targetWidth - frameWidth);
+        const left = Math.max(0, Math.min(runtimeOrigin + internalX, maxLeft));
+        container.style.left = `${left}px`;
+        return {
+            target_width_px: targetWidth,
+            measured_plane_width_px: planeWidth,
+            build_origin_x_px: buildOrigin,
+            runtime_origin_x_px: runtimeOrigin,
+            internal_x_px: internalX,
+            rendered_left_px: left,
+        };
+    }
+
+    function bindReadingModeRerender(controller) {
+        const mode = controller?.element?.('trainingMode');
+        if (!mode?.addEventListener || controller.__layoutIntegrityReadingModeRerenderBound) return false;
+        controller.__layoutIntegrityReadingModeRerenderBound = true;
+        mode.addEventListener('change', () => {
+            if (!controller.isReaderActive?.()) return;
+            const frame = controller.playback?.currentFrame?.();
+            if (frame) controller.showPlaybackSurface?.(frame);
+        });
+        return true;
+    }
+
     function buildIntegrityPlaybackFrames(controller, rootObject) {
         const adapter = rootObject?.SpeedReadingAdapter || Adapter;
         const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
@@ -465,7 +511,9 @@
 
     function relaxTimedTextClipping(target, glyphBleedPx = GLYPH_BLEED_PX) {
         const bleed = Math.max(0, Number(glyphBleedPx) || 0);
-        setImportant(target?.style, 'overflow', 'visible');
+        // The reading target is the hard viewport boundary. Glyph bleed is allowed
+        // inside it, but never past the reading area or underneath the tools rail.
+        setImportant(target?.style, 'overflow', 'hidden');
 
         const container = target?.querySelector?.('.reader-playback-frame-text');
         setImportant(container?.style, 'overflow', 'visible');
@@ -478,7 +526,7 @@
             if (bleed > 0) {
                 // Expand the row's paint box without moving the measured text origin:
                 // -bleed margin + bleed padding keeps x unchanged while allowing glyph
-                // side bearings/antialiasing to paint outside the measured line box.
+                // side bearings/antialiasing to paint inside the safe viewport gutter.
                 setImportant(row?.style, 'margin-inline', `-${bleed}px`);
                 setImportant(row?.style, 'padding-inline', `${bleed}px`);
                 setImportant(row?.style, 'width', `calc(100% + ${bleed * 2}px)`);
@@ -519,7 +567,10 @@
 
         prototype.renderFrame = function renderFrameWithoutGlyphClipping(frame, target) {
             const result = originalRenderFrame.call(this, frame, target);
-            if (frame?.kind === 'timed_text') relaxTimedTextClipping(target);
+            if (frame?.kind === 'timed_text') {
+                applyRuntimeHorizontalPlacement(this, frame, target, rootObject);
+                relaxTimedTextClipping(target);
+            }
             return result;
         };
 
@@ -530,6 +581,8 @@
         };
 
         prototype.__speedReadingLayoutIntegrityInstalled = true;
+        const controller = PlaybackUI?.getDefaultController?.();
+        if (controller) bindReadingModeRerender(controller);
         return true;
     }
 
@@ -550,8 +603,10 @@
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
         VISUAL_TYPES_WITH_CAPTION,
+        applyRuntimeHorizontalPlacement,
         applySafeHorizontalInset,
         attachVisualCaptions,
+        bindReadingModeRerender,
         buildIntegrityPlaybackFrames,
         canonicalCaptionAssociations,
         canonicalNodeId,

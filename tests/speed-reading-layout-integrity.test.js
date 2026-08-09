@@ -182,8 +182,8 @@ test('horizontal safety gutter is symmetric by moving measured content origin in
   assert.equal(frames[3].placement.x_px, 0);
 });
 
-test('timed text clipping overrides important CSS and adds glyph bleed without moving the text origin', () => {
-  const targetStyle = importantStyle({ overflow: 'hidden' });
+test('timed text keeps the reading target clipped while allowing internal glyph bleed without moving the text origin', () => {
+  const targetStyle = importantStyle({ overflow: 'visible' });
   const containerStyle = importantStyle({ overflow: 'hidden' });
   const structuredStyle = importantStyle({ overflow: 'hidden' });
   const rowStyles = [importantStyle({ overflow: 'hidden' }), importantStyle({ overflow: 'hidden' })];
@@ -200,7 +200,7 @@ test('timed text clipping overrides important CSS and adds glyph bleed without m
   };
 
   assert.equal(Integrity.relaxTimedTextClipping(target), 2);
-  assert.equal(targetStyle.value('overflow'), 'visible');
+  assert.equal(targetStyle.value('overflow'), 'hidden');
   assert.equal(targetStyle.priority('overflow'), 'important');
   assert.equal(containerStyle.value('overflow'), 'visible');
   assert.equal(structuredStyle.value('overflow'), 'visible');
