@@ -12,32 +12,82 @@ test('line mode keeps complete configured groups across virtual-page boundaries 
   assert.equal(Integrity.lineFrameCapacity(7, 1), 7);
 });
 
-test('visual captions associate only by canonical parent_ref and never by text or proximity', () => {
+test('visual captions resolve parent_ref only inside the same source unit/page', () => {
   const adapter = {
     resolvedTypeForNode(node) { return { type: node.node_type }; },
   };
   const nodes = [
-    { node_id: 'figure-1', node_type: 'figure', order: 2 },
-    { node_id: 'caption-1', node_type: 'caption', parent_ref: 'figure-1', text: '图1 正确标题', order: 1 },
-    { node_id: 'caption-nearby', node_type: 'caption', text: '图1 看起来很近但没有关系', order: 3 },
-    { node_id: 'caption-wrong-parent', node_type: 'caption', parent_ref: 'paragraph-1', text: '错误父节点', order: 4 },
-    { node_id: 'paragraph-1', node_type: 'paragraph', text: '正文', order: 5 },
+    { node_id: 'figure-local', node_type: 'figure', order: 2, location: { source_unit_id: 'page-1' } },
+    { node_id: 'figure-local', node_type: 'figure', order: 2, location: { source_unit_id: 'page-2' } },
+    {
+      node_id: 'caption-page-2', node_type: 'caption', parent_ref: 'figure-local', text: '图3 正确标题', order: 3,
+      location: { source_unit_id: 'page-2' },
+    },
+    {
+      node_id: 'caption-nearby', node_type: 'caption', text: '图2 看起来很近但没有 parent_ref', order: 3,
+      location: { source_unit_id: 'page-1' },
+    },
   ];
 
   const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
-  assert.deepEqual([...result.consumedCaptionIds], ['caption-1']);
-  assert.deepEqual(result.byParent.get('figure-1').map((item) => item.text), ['图1 正确标题']);
-  assert.equal(result.byParent.has('paragraph-1'), false);
+  const page1Key = Integrity.scopedNodeKey('page-1', 'figure-local');
+  const page2Key = Integrity.scopedNodeKey('page-2', 'figure-local');
+  assert.equal(result.byParent.has(page1Key), false);
+  assert.deepEqual(result.byParent.get(page2Key).map((item) => item.text), ['图3 正确标题']);
+  assert.equal(result.consumedCaptionKeys.has(Integrity.scopedNodeKey('page-2', 'caption-page-2')), true);
+  assert.equal(result.consumedCaptionKeys.has(Integrity.scopedNodeKey('page-1', 'caption-nearby')), false);
 });
 
-test('associated caption is removed from timed text layout and attached to the manual visual frame', () => {
+test('page-scoped attachment never gives an uncaptioned visual another page caption', () => {
+  const adapter = {
+    resolvedTypeForNode(node) { return { type: node.node_type }; },
+  };
+  const associations = Integrity.canonicalCaptionAssociations(adapter, [
+    { node_id: 'figure-local', node_type: 'figure', location: { source_unit_id: 'page-1' } },
+    { node_id: 'figure-local', node_type: 'figure', location: { source_unit_id: 'page-2' } },
+    {
+      node_id: 'caption-2', node_type: 'caption', parent_ref: 'figure-local', text: '只属于第二页',
+      location: { source_unit_id: 'page-2' },
+    },
+  ]);
+  const frames = [
+    { kind: 'manual', node_type: 'figure', identity: { node_id: 'figure-local', source_unit_id: 'page-1' } },
+    { kind: 'manual', node_type: 'figure', identity: { node_id: 'figure-local', source_unit_id: 'page-2' } },
+  ];
+
+  Integrity.attachVisualCaptions(frames, associations);
+  assert.equal(frames[0].caption_text, undefined);
+  assert.equal(frames[1].caption_text, '只属于第二页');
+});
+
+test('playback element order follows source_unit source_order before node-local order', () => {
+  const elements = [
+    { text: '第二页先被 node.order 排到前面', source_order: 2, identity: { node_id: 'p2', source_unit_id: 'page-2' } },
+    { text: '第一页视觉内容', source_order: 1, identity: { node_id: 'fig1', source_unit_id: 'page-1' } },
+    { text: '第一页后续正文', source_order: 1, identity: { node_id: 'p1', source_unit_id: 'page-1' } },
+  ];
+  const ordered = Integrity.canonicalPlaybackElementOrder(elements);
+  assert.deepEqual(ordered.map((element) => element.identity.node_id), ['fig1', 'p1', 'p2']);
+});
+
+test('associated table caption is removed from timed flow, attached to table, and page order is preserved', () => {
   const adapter = {
     resolvedTypeForNode(node) { return { type: node.node_type }; },
     buildReadingElements() {
+      // Deliberately mimic a global node.order result that puts page 2 before page 1.
       return [
-        { kind: 'text', node_type: 'caption', text: '表1 复利的作用', identity: { node_id: 'caption-1' } },
-        { kind: 'manual', node_type: 'table', text: '', identity: { node_id: 'table-1' }, asset_refs: ['asset-table'] },
-        { kind: 'text', node_type: 'paragraph', text: '后续正文', identity: { node_id: 'p-1' } },
+        {
+          kind: 'text', node_type: 'paragraph', text: '第二页正文', source_order: 2,
+          identity: { node_id: 'p-2', source_unit_id: 'page-2' },
+        },
+        {
+          kind: 'text', node_type: 'caption', text: '表1 复利的作用', source_order: 1,
+          identity: { node_id: 'caption-1', source_unit_id: 'page-1' },
+        },
+        {
+          kind: 'manual', node_type: 'table', text: '', source_order: 1,
+          identity: { node_id: 'table-1', source_unit_id: 'page-1' }, asset_refs: ['asset-table'],
+        },
       ];
     },
   };
@@ -55,10 +105,13 @@ test('associated caption is removed from timed text layout and attached to the m
       return {
         frames: [
           {
-            kind: 'manual', node_type: 'table', identity: { node_id: 'table-1' }, placement: { display_scope: 'manual', x_px: 0 },
+            kind: 'manual', node_type: 'table',
+            identity: { node_id: 'table-1', source_unit_id: 'page-1' },
+            placement: { display_scope: 'manual', x_px: 0 },
           },
           {
-            kind: 'timed_text', node_type: 'paragraph', identity: { node_id: 'p-1' }, lines: [{ text: '后续正文' }],
+            kind: 'timed_text', node_type: 'paragraph',
+            identity: { node_id: 'p-2', source_unit_id: 'page-2' }, lines: [{ text: '第二页正文' }],
             placement: { display_scope: 'line', x_px: 0 },
           },
         ],
@@ -70,11 +123,20 @@ test('associated caption is removed from timed text layout and attached to the m
   const controller = {
     document: { defaultView: { getComputedStyle() { return { lineHeight: '20px', fontSize: '20px' }; } } },
     reader: {
-      openResponse: { candidate_id: 'cand' },
+      openResponse: {
+        candidate_id: 'cand',
+        source_units: [
+          { source_unit_id: 'page-1', source_order: 1 },
+          { source_unit_id: 'page-2', source_order: 2 },
+        ],
+      },
       nodes: [
-        { node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 1 },
-        { node_id: 'table-1', node_type: 'table', order: 2 },
-        { node_id: 'p-1', node_type: 'paragraph', text: '后续正文', order: 3 },
+        {
+          node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 1,
+          location: { source_unit_id: 'page-1' },
+        },
+        { node_id: 'table-1', node_type: 'table', order: 2, location: { source_unit_id: 'page-1' } },
+        { node_id: 'p-2', node_type: 'paragraph', text: '第二页正文', order: 0, location: { source_unit_id: 'page-2' } },
       ],
     },
     updateSettingsVisibility() {},
@@ -87,7 +149,7 @@ test('associated caption is removed from timed text layout and attached to the m
 
   const built = Integrity.buildIntegrityPlaybackFrames(controller, root);
   assert.equal(capturedOptions.pageLineCapacity, 6);
-  assert.deepEqual(capturedElements.map((element) => element.identity.node_id), ['table-1', 'p-1']);
+  assert.deepEqual(capturedElements.map((element) => element.identity.node_id), ['table-1', 'p-2']);
   assert.equal(built.frames[0].caption_text, '表1 复利的作用');
   assert.deepEqual(built.frames[0].caption_node_ids, ['caption-1']);
   assert.equal(built.frames[1].placement.x_px, 24);
@@ -110,6 +172,21 @@ test('horizontal safety gutter is symmetric by moving measured content origin in
   assert.equal(frames[3].placement.x_px, 0);
 });
 
+test('timed text clipping is relaxed at the actual glyph containers, including focus mode rows', () => {
+  const container = { style: { overflow: 'hidden' } };
+  const rows = [
+    { style: { overflow: 'hidden' } },
+    { style: { overflow: 'hidden' } },
+  ];
+  const target = {
+    querySelector(selector) { return selector === '.reader-playback-frame-text' ? container : null; },
+    querySelectorAll(selector) { return selector === '.reader-playback-line' ? rows : []; },
+  };
+  assert.equal(Integrity.relaxTimedTextClipping(target), 2);
+  assert.equal(container.style.overflow, 'visible');
+  assert.deepEqual(rows.map((row) => row.style.overflow), ['visible', 'visible']);
+});
+
 test('manual visual caption renderer keeps caption and visual in the same target frame', () => {
   const created = [];
   const documentObject = {
@@ -127,12 +204,13 @@ test('manual visual caption renderer keeps caption and visual in the same target
   const rendered = Integrity.prependVisualCaptions(controller, {
     kind: 'manual',
     node_type: 'figure',
-    captions: [{ node_id: 'caption-1', text: '图2 富人的现金流' }],
+    captions: [{ node_id: 'caption-1', text: '图2 富人的现金流', source_unit_id: 'page-2' }],
   }, target);
 
   assert.equal(rendered, true);
   assert.match(target.children[0].className, /reader-playback-visual-caption/);
   assert.equal(target.children[0].textContent, '图2 富人的现金流');
+  assert.equal(target.children[0].dataset.readerCaptionSourceUnitId, 'page-2');
   assert.equal(target.children[1].className, 'reader-playback-asset-slot');
 });
 
