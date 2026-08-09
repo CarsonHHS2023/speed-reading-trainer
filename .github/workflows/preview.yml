@@ -73,6 +73,7 @@ jobs:
             structure_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-structure-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
             speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
             formula_rendering="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-formula-rendering.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            layout_integrity="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-layout-integrity.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
@@ -91,6 +92,7 @@ jobs:
               && [[ "${training_clock}" == *"reader-preview-head"* ]] \
               && [[ "${training_clock}" == *"speed-reading-formula-rendering.js?v="* ]] \
               && [[ "${training_clock}" == *"speed-reading-responsive-layout.js?v="* ]] \
+              && [[ "${training_clock}" == *"speed-reading-layout-integrity.js?v="* ]] \
               && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
               && [[ "${lifecycle}" == *"assetVersion"* ]] \
               && [[ "${lifecycle}" == *"speed-reading-structure-policy.js"* ]] \
@@ -102,7 +104,11 @@ jobs:
               && [[ "${formula_rendering}" == *"INLINE_FORMULA_KIND = 'inline_formula'"* ]] \
               && [[ "${formula_rendering}" == *"displayMode: false"* ]] \
               && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
-              && [[ "${formula_rendering}" == *"rendererChainReady"* ]]; then
+              && [[ "${formula_rendering}" == *"rendererChainReady"* ]] \
+              && [[ "${layout_integrity}" == *"canonicalCaptionAssociations"* ]] \
+              && [[ "${layout_integrity}" == *"lineFrameCapacity"* ]] \
+              && [[ "${layout_integrity}" == *"applySafeHorizontalInset"* ]] \
+              && [[ "${layout_integrity}" == *"parent_ref"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
