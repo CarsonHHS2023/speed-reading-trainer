@@ -32,38 +32,77 @@
         return normalizeType(node?.node_type);
     }
 
+    function sourceUnitIdForNode(node) {
+        return String(
+            node?.location?.source_unit_id
+            || node?.source_unit_ids?.[0]
+            || '',
+        ).trim();
+    }
+
+    function sourceUnitIdForElement(element) {
+        return String(element?.identity?.source_unit_id || '').trim();
+    }
+
+    function scopedNodeKey(sourceUnitId, nodeId) {
+        return `${String(sourceUnitId || '').trim()}\u0000${String(nodeId || '').trim()}`;
+    }
+
+    function scopedNodeKeyForNode(node) {
+        return scopedNodeKey(sourceUnitIdForNode(node), node?.node_id);
+    }
+
+    function scopedNodeKeyForElement(element) {
+        return scopedNodeKey(sourceUnitIdForElement(element), element?.identity?.node_id);
+    }
+
     function canonicalCaptionAssociations(adapter, nodes) {
+        // Match the ordinary Reader contract exactly: caption parent_ref is resolved
+        // only inside the same physical source unit/page. Never join captions across
+        // pages, even when local node ids happen to be identical.
         const visualParents = new Map();
         for (const node of nodes || []) {
             const type = resolvedNodeType(adapter, node);
             if (!VISUAL_TYPES_WITH_CAPTION.has(type)) continue;
-            const nodeId = String(node?.node_id || '');
-            if (nodeId) visualParents.set(nodeId, type);
+            const nodeId = String(node?.node_id || '').trim();
+            const sourceUnitId = sourceUnitIdForNode(node);
+            if (!nodeId || !sourceUnitId) continue;
+            visualParents.set(scopedNodeKey(sourceUnitId, nodeId), {
+                node_id: nodeId,
+                node_type: type,
+                source_unit_id: sourceUnitId,
+            });
         }
 
         const byParent = new Map();
+        const consumedCaptionKeys = new Set();
         const consumedCaptionIds = new Set();
         for (const node of nodes || []) {
             if (resolvedNodeType(adapter, node) !== 'caption') continue;
             const parentRef = typeof node?.parent_ref === 'string' ? node.parent_ref.trim() : '';
-            if (!parentRef || !visualParents.has(parentRef)) continue;
-            const nodeId = String(node?.node_id || '');
+            const sourceUnitId = sourceUnitIdForNode(node);
+            if (!parentRef || !sourceUnitId) continue;
+            const parentKey = scopedNodeKey(sourceUnitId, parentRef);
+            if (!visualParents.has(parentKey)) continue;
+            const nodeId = String(node?.node_id || '').trim();
             const text = typeof node?.text === 'string' ? node.text.trim() : '';
             if (!nodeId || !text) continue;
-            if (!byParent.has(parentRef)) byParent.set(parentRef, []);
-            byParent.get(parentRef).push({
+            if (!byParent.has(parentKey)) byParent.set(parentKey, []);
+            byParent.get(parentKey).push({
                 node_id: nodeId,
                 text,
                 order: Number(node?.order || 0),
                 parent_ref: parentRef,
+                source_unit_id: sourceUnitId,
             });
+            consumedCaptionKeys.add(scopedNodeKey(sourceUnitId, nodeId));
             consumedCaptionIds.add(nodeId);
         }
 
         for (const captions of byParent.values()) {
             captions.sort((a, b) => a.order - b.order || a.node_id.localeCompare(b.node_id));
         }
-        return { byParent, consumedCaptionIds };
+        return { byParent, consumedCaptionKeys, consumedCaptionIds };
     }
 
     function lineFrameCapacity(rawCapacity, lineCount) {
@@ -80,15 +119,37 @@
         return fontSize * Math.max(1, Number(ratio) || 1.55);
     }
 
-    function withAssociatedCaptionsSuppressed(adapter, consumedCaptionIds, callback) {
-        const originalBuildReadingElements = adapter?.buildReadingElements;
-        if (typeof originalBuildReadingElements !== 'function' || !consumedCaptionIds?.size) {
-            return callback();
+    function finiteSourceOrder(element) {
+        if (element?.source_order === null || element?.source_order === undefined || element?.source_order === '') {
+            return Number.MAX_SAFE_INTEGER;
         }
-        adapter.buildReadingElements = function buildReadingElementsWithoutAssociatedCaptions(...args) {
-            return originalBuildReadingElements.apply(this, args).filter((element) => (
-                !consumedCaptionIds.has(String(element?.identity?.node_id || ''))
+        const value = Number(element.source_order);
+        return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+    }
+
+    function canonicalPlaybackElementOrder(elements) {
+        return (elements || [])
+            .map((element, originalIndex) => ({
+                element,
+                originalIndex,
+                sourceOrder: finiteSourceOrder(element),
+            }))
+            .sort((left, right) => (
+                left.sourceOrder - right.sourceOrder
+                || left.originalIndex - right.originalIndex
+            ))
+            .map((entry) => entry.element);
+    }
+
+    function withPlaybackElementPolicy(adapter, consumedCaptionKeys, callback) {
+        const originalBuildReadingElements = adapter?.buildReadingElements;
+        if (typeof originalBuildReadingElements !== 'function') return callback();
+        const consumed = consumedCaptionKeys || new Set();
+        adapter.buildReadingElements = function buildReadingElementsWithCanonicalPageOrder(...args) {
+            const elements = originalBuildReadingElements.apply(this, args).filter((element) => (
+                !consumed.has(scopedNodeKeyForElement(element))
             ));
+            return canonicalPlaybackElementOrder(elements);
         };
         try {
             return callback();
@@ -97,12 +158,17 @@
         }
     }
 
+    function withAssociatedCaptionsSuppressed(adapter, consumedCaptionKeys, callback) {
+        return withPlaybackElementPolicy(adapter, consumedCaptionKeys, callback);
+    }
+
     function attachVisualCaptions(frames, associations) {
         const byParent = associations?.byParent || new Map();
         for (const frame of frames || []) {
             if (frame?.kind !== 'manual' || !VISUAL_TYPES_WITH_CAPTION.has(normalizeType(frame?.node_type))) continue;
-            const nodeId = String(frame?.identity?.node_id || '');
-            const captions = byParent.get(nodeId);
+            const nodeId = String(frame?.identity?.node_id || '').trim();
+            const sourceUnitId = String(frame?.identity?.source_unit_id || '').trim();
+            const captions = byParent.get(scopedNodeKey(sourceUnitId, nodeId));
             if (!captions?.length) continue;
             frame.captions = captions.map((caption) => ({ ...caption }));
             frame.caption_text = captions.map((caption) => caption.text).join('\n');
@@ -159,7 +225,7 @@
 
         const nodes = controller.reader.nodes || [];
         const associations = canonicalCaptionAssociations(adapter, nodes);
-        const built = withAssociatedCaptionsSuppressed(adapter, associations.consumedCaptionIds, () => (
+        const built = withPlaybackElementPolicy(adapter, associations.consumedCaptionKeys, () => (
             responsive.buildMeasuredPlaybackFrames(adapter, controller.reader.openResponse, nodes, {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
@@ -198,6 +264,7 @@
             caption.className = 'reader-playback-visual-caption reader-playback-line-caption';
             caption.textContent = text;
             caption.dataset.readerCaptionNodeId = String(captionData?.node_id || '');
+            caption.dataset.readerCaptionSourceUnitId = String(captionData?.source_unit_id || '');
             if (caption.style) {
                 caption.style.marginBottom = '8px';
                 caption.style.whiteSpace = 'normal';
@@ -211,6 +278,16 @@
             else target.appendChild?.(caption);
         }
         return nodes.length > 0;
+    }
+
+    function relaxTimedTextClipping(target) {
+        const container = target?.querySelector?.('.reader-playback-frame-text');
+        if (container?.style) container.style.overflow = 'visible';
+        const rows = target?.querySelectorAll?.('.reader-playback-line') || [];
+        for (const row of rows) {
+            if (row?.style) row.style.overflow = 'visible';
+        }
+        return rows.length;
     }
 
     function rendererChainReady(rootObject) {
@@ -227,7 +304,12 @@
 
         const originalRefreshFrames = prototype.refreshFrames;
         const originalRenderManualFrame = prototype.renderManualFrame;
-        if (typeof originalRefreshFrames !== 'function' || typeof originalRenderManualFrame !== 'function') return false;
+        const originalRenderFrame = prototype.renderFrame;
+        if (
+            typeof originalRefreshFrames !== 'function'
+            || typeof originalRenderManualFrame !== 'function'
+            || typeof originalRenderFrame !== 'function'
+        ) return false;
 
         prototype.refreshFrames = function integrityRefreshFrames(options = {}) {
             if (!this.reader?.openResponse) return originalRefreshFrames.call(this, options);
@@ -236,6 +318,12 @@
             this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
             this.updateControls?.();
             return built.frames;
+        };
+
+        prototype.renderFrame = function renderFrameWithoutGlyphClipping(frame, target) {
+            const result = originalRenderFrame.call(this, frame, target);
+            if (frame?.kind === 'timed_text') relaxTimedTextClipping(target);
+            return result;
         };
 
         prototype.renderManualFrame = function renderManualFrameWithCanonicalCaption(frame, target) {
@@ -263,13 +351,21 @@
         attachVisualCaptions,
         buildIntegrityPlaybackFrames,
         canonicalCaptionAssociations,
+        canonicalPlaybackElementOrder,
         install,
         installWithRetry,
         lineFrameCapacity,
         numericLineHeight,
         prependVisualCaptions,
+        relaxTimedTextClipping,
         rendererChainReady,
         resolvedNodeType,
+        scopedNodeKey,
+        scopedNodeKeyForElement,
+        scopedNodeKeyForNode,
+        sourceUnitIdForElement,
+        sourceUnitIdForNode,
         withAssociatedCaptionsSuppressed,
+        withPlaybackElementPolicy,
     };
 });
