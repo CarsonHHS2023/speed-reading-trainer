@@ -24,6 +24,8 @@
     const FIXED_VIEWPOINT_LABEL = '固定式';
     const MOVING_VIEWPOINT_LABEL = '移动式';
     const LAYOUT_SETTING_PAIRS = Object.freeze({
+        speedSlider: 'speedInput',
+        speedInput: 'speedSlider',
         widthSlider: 'widthInput',
         widthInput: 'widthSlider',
         linesSlider: 'linesInput',
@@ -32,6 +34,7 @@
         fontInput: 'fontSlider',
     });
     const LAYOUT_SPEED_CONTROL_IDS = Object.freeze([
+        'speedSlider', 'speedInput',
         'widthSlider', 'widthInput',
         'linesSlider', 'linesInput',
         'fontSlider', 'fontInput', 'fontWeight',
