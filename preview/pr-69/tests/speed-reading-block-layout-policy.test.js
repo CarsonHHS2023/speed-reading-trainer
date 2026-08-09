@@ -35,11 +35,23 @@ function tenPxMeasure(text) {
     return Array.from(String(text || '')).length * 10;
 }
 
+function titleAwareMeasure(text, nodeType) {
+    const unit = nodeType === 'title' ? 15 : 10;
+    return Array.from(String(text || '')).length * unit;
+}
+
+function structuredAdapterClone() {
+    const clone = { ...Adapter };
+    assert.equal(StructurePolicy.install({ SpeedReadingAdapter: clone }), true);
+    return clone;
+}
+
 function build(nodes, options = {}) {
+    const { adapter = Adapter, ...layoutOptions } = options;
     return Policy.buildBlockAwarePlaybackFrames(
         Layout.buildMeasuredPlaybackFrames,
         Layout,
-        Adapter,
+        adapter,
         documentView,
         nodes,
         {
@@ -52,7 +64,7 @@ function build(nodes, options = {}) {
             lineHeightPx: 20,
             speedPerMinute: 600,
             measureText: tenPxMeasure,
-            ...options,
+            ...layoutOptions,
         },
     );
 }
@@ -109,6 +121,54 @@ test('fixed-viewpoint structural rows use intrinsic width so canonical TOC entri
     assert.equal(frame.placement.width_px, 90);
     assert.equal(frame.placement.x_px, 155);
     assert.equal(frame.placement.block_width_px, 100);
+});
+
+test('canonical TOC container restores title typography in fixed and moving Block modes', () => {
+    const adapter = structuredAdapterClone();
+    const toc = node('toc-root', 0, 'toc', '目录');
+
+    const fixed = build([toc], {
+        adapter,
+        widthPercent: 25,
+        maxWidthPx: 400,
+        measureText: titleAwareMeasure,
+    });
+    assert.equal(fixed.frames.length, 1);
+    assert.equal(fixed.frames[0].node_type, 'title');
+    assert.equal(fixed.frames[0].lines[0].node_type, 'title');
+    assert.equal(fixed.frames[0].lines[0].toc_title, true);
+    assert.equal(fixed.frames[0].lines[0].measured_width_px, 30);
+    assert.equal(fixed.frames[0].placement.width_px, 30);
+    assert.equal(fixed.frames[0].placement.x_px, 185);
+
+    const moving = build([toc], {
+        adapter,
+        readingMode: 'moving',
+        widthPercent: 25,
+        maxWidthPx: 400,
+        measureText: titleAwareMeasure,
+    });
+    assert.equal(moving.frames.length, 1);
+    assert.equal(moving.frames[0].node_type, 'title');
+    assert.equal(moving.frames[0].lines[0].node_type, 'title');
+    assert.equal(moving.frames[0].lines[0].measured_width_px, 30);
+});
+
+test('synthetic TOC entries remain list-item typography instead of becoming titles', () => {
+    const adapter = structuredAdapterClone();
+    const result = build([
+        node('toc-root', 0, 'toc', '第一章....1\n第二章....2'),
+    ], {
+        adapter,
+        widthPercent: 25,
+        maxWidthPx: 400,
+        measureText: titleAwareMeasure,
+    });
+
+    assert.equal(result.frames.length, 2);
+    assert.deepEqual(result.frames.map((frame) => frame.node_type), ['list_item', 'list_item']);
+    assert.ok(result.frames.every((frame) => frame.lines[0].node_type === 'list_item'));
+    assert.ok(result.frames.every((frame) => frame.lines[0].toc_title !== true));
 });
 
 test('changing viewpoint while in Block forces one frame rebuild so grouping follows the new mode', () => {
