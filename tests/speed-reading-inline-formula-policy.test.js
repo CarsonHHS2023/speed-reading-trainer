@@ -36,12 +36,9 @@ test('inline formula metadata keeps the formula in timed text flow while display
   assert.deepEqual(prepared.map((item) => item.node_type), ['paragraph', 'formula']);
   assert.deepEqual(prepared.map((item) => item.raw_node_type), ['inline_formula', 'display_formula']);
 
-  const adapter = { ...BaseAdapter };
-  assert.equal(Policy.install({ SpeedReadingAdapter: adapter }), true);
-  const elements = adapter.buildReadingElements(documentView, [
-    node('inline', 0, 'inline_formula', 'x + y'),
-    node('display', 1, 'display_formula', 'E = mc^2'),
-  ]);
+  // Validate the policy output at the adapter boundary without depending on the
+  // process-global idempotent installation flag used by runtime enhancement loading.
+  const elements = BaseAdapter.buildReadingElements(documentView, prepared);
   assert.deepEqual(elements.map((item) => item.kind), ['text', 'manual']);
   assert.deepEqual(elements.map((item) => item.node_type), ['paragraph', 'formula']);
 });
