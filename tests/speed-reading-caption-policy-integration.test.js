@@ -8,19 +8,21 @@ test('real structure policy classifies provider visual-title aliases for canonic
   const adapter = { resolvedTypeForNode: StructurePolicy.resolvedTypeForNode };
   const nodes = [
     {
-      node_id: 'figure-1', node_type: 'unknown', order: 1,
+      node_id: 'figure-1', node_type: 'figure', order: 1,
       metadata: { provider_block_label: 'figure' },
     },
     {
-      node_id: 'figure-title-1', node_type: 'unknown', order: 2, parent_ref: 'figure-1', text: '图 1-1 印度 GDP 变化图',
+      // Older/degraded candidates can retain a broad paragraph semantic while
+      // preserving the provider's explicit structural label and canonical parent.
+      node_id: 'figure-title-1', node_type: 'paragraph', order: 2, parent_ref: 'figure-1', text: '图 1-1 印度 GDP 变化图',
       metadata: { provider_block_label: 'figure_title' },
     },
     {
-      node_id: 'table-1', node_type: 'unknown', order: 3,
+      node_id: 'table-1', node_type: 'table', order: 3,
       metadata: { provider_block_label: 'table' },
     },
     {
-      node_id: 'table-title-1', node_type: 'unknown', order: 4, parent_ref: 'table-1', text: '表1 复利的作用',
+      node_id: 'table-title-1', node_type: 'paragraph', order: 4, parent_ref: 'table-1', text: '表1 复利的作用',
       metadata: { provider_block_label: 'table_title' },
     },
   ];
@@ -39,12 +41,12 @@ test('real structure policy keeps figure_caption and table_caption aliases canon
   const nodes = [
     { node_id: 'figure-1', node_type: 'figure', order: 1 },
     {
-      node_id: 'figure-caption-1', node_type: 'unknown', order: 2, parent_ref: 'figure-1', text: '图注',
+      node_id: 'figure-caption-1', node_type: 'paragraph', order: 2, parent_ref: 'figure-1', text: '图注',
       metadata: { provider_block_label: 'figure_caption' },
     },
     { node_id: 'table-1', node_type: 'table', order: 3 },
     {
-      node_id: 'table-caption-1', node_type: 'unknown', order: 4, parent_ref: 'table-1', text: '表注',
+      node_id: 'table-caption-1', node_type: 'paragraph', order: 4, parent_ref: 'table-1', text: '表注',
       metadata: { provider_block_label: 'table_caption' },
     },
   ];
@@ -52,4 +54,15 @@ test('real structure policy keeps figure_caption and table_caption aliases canon
   const associations = Integrity.canonicalCaptionAssociations(adapter, nodes);
   assert.equal(associations.byParent.get('figure-1')[0].text, '图注');
   assert.equal(associations.byParent.get('table-1')[0].text, '表注');
+});
+
+test('strong canonical semantics still override a generic provider text label', () => {
+  const node = {
+    node_id: 'heading-1',
+    node_type: 'heading',
+    heading_level: 2,
+    text: '第二章',
+    metadata: { provider_block_label: 'text' },
+  };
+  assert.equal(StructurePolicy.resolvedTypeForNode(node).type, 'heading');
 });
