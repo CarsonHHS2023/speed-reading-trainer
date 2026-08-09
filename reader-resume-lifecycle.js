@@ -33,8 +33,18 @@
         }
     }
 
+    // document.currentScript is only reliable while this entrypoint is executing.
+    // Capture its deployment SHA now so later Promise-chain loads inherit the same
+    // production version even after currentScript becomes null.
+    const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
+        typeof document !== 'undefined' ? document : null,
+    );
+
     function assetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
-        return previewHeadVersion(documentObject) || currentScriptAssetVersion(documentObject) || ASSET_VERSION;
+        return previewHeadVersion(documentObject)
+            || currentScriptAssetVersion(documentObject)
+            || ENTRYPOINT_ASSET_VERSION
+            || ASSET_VERSION;
     }
 
     function versionedAsset(src, documentObject = typeof document !== 'undefined' ? document : null) {
@@ -319,6 +329,7 @@
         BOOKSHELF_CACHE_KEY,
         BookshelfEndpointError,
         DEFAULT_API_BASE_URL,
+        ENTRYPOINT_ASSET_VERSION,
         assetVersion,
         currentScriptAssetVersion,
         diagnoseBookshelfFailure,
