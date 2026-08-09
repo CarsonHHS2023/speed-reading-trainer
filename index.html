@@ -63,7 +63,7 @@
                             <div class="speed-control">
                                 <input type="range" id="speedSlider" min="100" max="10000" value="5000" />
                                 <input type="number" id="speedInput" min="100" max="10000" value="5000" size="5" />
-                                <span id="speedUnit">词/分钟</span>
+                                <span id="speedUnit">字/分钟</span>
                             </div>
                         </div>
 
@@ -107,8 +107,8 @@
                                 <select id="displayMode"><option value="focus">焦点式</option><option value="page">整页式</option></select>
                             </div>
                             <div class="setting-grid-cell setting-grid-cell-select">
-                                <label for="trainingMode">训练模式：</label>
-                                <select id="trainingMode"><option value="fixed">固定式</option><option value="scroll">滚动式</option></select>
+                                <label for="trainingMode">视点模式：</label>
+                                <select id="trainingMode"><option value="fixed">固定式</option><option value="scroll">移动式</option></select>
                             </div>
                         </div>
                     </div>
@@ -173,10 +173,7 @@
                                 <div id="readerV2HighlightsList" class="reader-v2-highlights-list"></div>
                             </section>
                             <section class="reader-v2-study-context" aria-label="学习上下文">
-                                <div class="reader-v2-study-header">
-                                    <strong>学习上下文</strong>
-                                    <button id="readerV2StudyContextBuild" type="button">生成预览</button>
-                                </div>
+                                <div class="reader-v2-study-header"><strong>学习上下文</strong></div>
                                 <div id="readerV2StudyContextStats" class="reader-v2-study-stats">尚未生成</div>
                                 <div id="readerV2StudyContextPreview" class="reader-v2-study-preview"></div>
                             </section>
