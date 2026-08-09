@@ -67,12 +67,26 @@
     return { TrainingSessionClock, CLOCK_STATES };
 });
 
-if (typeof document !== 'undefined' && !document.getElementById('speedReadingResponsiveLayoutScript')) {
-    const script = document.createElement('script');
+if (typeof document !== 'undefined') {
     const previewHead = document.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '';
-    script.id = 'speedReadingResponsiveLayoutScript';
-    script.src = previewHead
-        ? `speed-reading-responsive-layout.js?v=${encodeURIComponent(previewHead)}`
-        : 'speed-reading-responsive-layout.js';
-    document.head.appendChild(script);
+
+    if (!document.getElementById('speedReadingFormulaRenderingScript')) {
+        const formulaScript = document.createElement('script');
+        formulaScript.id = 'speedReadingFormulaRenderingScript';
+        formulaScript.async = false;
+        formulaScript.src = previewHead
+            ? `speed-reading-formula-rendering.js?v=${encodeURIComponent(previewHead)}`
+            : 'speed-reading-formula-rendering.js';
+        document.head.appendChild(formulaScript);
+    }
+
+    if (!document.getElementById('speedReadingResponsiveLayoutScript')) {
+        const script = document.createElement('script');
+        script.id = 'speedReadingResponsiveLayoutScript';
+        script.async = false;
+        script.src = previewHead
+            ? `speed-reading-responsive-layout.js?v=${encodeURIComponent(previewHead)}`
+            : 'speed-reading-responsive-layout.js';
+        document.head.appendChild(script);
+    }
 }
