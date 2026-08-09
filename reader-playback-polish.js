@@ -8,6 +8,7 @@
     const WIDTH_INPUT_PX = 48;
     const FIRST_CONTROL_ID = 'speedReadingFirst';
     const LAST_CONTROL_ID = 'speedReadingLast';
+    const ACTIVE_SESSION_STATES = new Set(['playing', 'paused', 'manual']);
 
     function resolveResumeIndex(controller) {
         const record = controller?.reader?.resumeRecord;
@@ -43,26 +44,68 @@
         return button;
     }
 
-    function pauseForFrameNavigation(controller) {
-        if (!controller || controller.playback?.state !== 'playing') return false;
+    function isTrainingRunning(controller) {
+        return controller?.trainingClock?.state === 'running' && !controller?.trainingPaused;
+    }
+
+    function pauseTrainingForNavigation(controller) {
+        if (!controller || !isTrainingRunning(controller)) return false;
         controller.trainingPaused = true;
         controller.comprehensionPaused = false;
         controller.resumePlaybackAfterTrainingPause = true;
         controller.trainingClock?.pause?.();
-        controller.playback.pause?.();
-        controller.updateTrainingTime?.();
+        const pausedPlayback = controller.playback?.state === 'playing'
+            ? Boolean(controller.playback.pause?.())
+            : false;
+        if (!pausedPlayback) {
+            controller.updateTrainingTime?.();
+            controller.updateControls?.();
+        }
         return true;
+    }
+
+    function navigateBy(controller, delta) {
+        if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return null;
+        pauseTrainingForNavigation(controller);
+        return controller.playback?.moveBy?.(delta) || null;
     }
 
     function moveToBoundary(controller, toEnd = false) {
         const snapshot = controller?.playback?.snapshot?.();
         if (!controller?.isReaderActive?.() || !snapshot?.frame_count) return null;
-        pauseForFrameNavigation(controller);
+        pauseTrainingForNavigation(controller);
         const latest = controller.playback?.snapshot?.() || snapshot;
         const destination = toEnd ? latest.frame_count - 1 : 0;
         const delta = destination - latest.index;
-        if (typeof controller.playback?.moveBy === 'function') return controller.playback.moveBy(delta);
-        return controller.playback?.seek?.(toEnd ? 1 : 0) || null;
+        return controller.playback?.moveBy?.(delta) || null;
+    }
+
+    function seekFromSlider(controller) {
+        const slider = controller?.element?.('progressSlider');
+        if (!slider || !controller?.isReaderActive?.()) return null;
+        pauseTrainingForNavigation(controller);
+        const max = Math.max(1, Number(slider.max || 1000));
+        return controller.playback?.seek?.(Number(slider.value || 0) / max) || null;
+    }
+
+    function continueManualRespectingSession(controller) {
+        if (!controller || controller.playback?.state !== 'manual') return false;
+        if (isTrainingRunning(controller)) {
+            return Boolean(controller.playback?.continueManual?.());
+        }
+        // Browsing a manual visual while the session is paused/stopped is pure
+        // navigation. Do not arm autoplay or restart the training clock.
+        return Boolean(controller.playback?.next?.());
+    }
+
+    function togglePlayPause(controller) {
+        if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return false;
+        const clockState = controller.trainingClock?.state;
+        if (clockState === 'running' || clockState === 'paused') {
+            return Boolean(controller.toggleTrainingPause?.());
+        }
+        Promise.resolve(controller.start?.()).catch((error) => controller.reader?.renderError?.(error));
+        return true;
     }
 
     function upgradeToolbar(controller) {
@@ -109,67 +152,27 @@
         return Boolean(first && last);
     }
 
-    function ensureTrainingClockRunning(controller) {
-        const clock = controller?.trainingClock;
-        if (!clock) return;
-        if (clock.state === 'paused') clock.resume?.();
-        else if (clock.state !== 'running') clock.start?.();
-        controller.startTrainingTicker?.();
-    }
-
-    function playPause(controller) {
-        if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return false;
-        const state = controller.playback.state;
-
-        if (state === 'idle' || state === 'completed') {
-            if (state === 'completed') controller.playback.stop?.();
-            Promise.resolve(controller.start?.()).catch((error) => controller.reader?.renderError?.(error));
-            return true;
-        }
-
-        // Playing and natural manual-visual waits are both active training states.
-        // The central control pauses/resumes the training session; the manual
-        // frame's Continue button is the only control that advances that frame.
-        if (state === 'playing' || state === 'manual') {
-            return controller.toggleTrainingPause?.() || false;
-        }
-
-        if (state === 'paused') {
-            if (controller.trainingPaused) return controller.toggleTrainingPause?.() || false;
-            controller.comprehensionPaused = false;
-            controller.resumePlaybackAfterTrainingPause = false;
-            ensureTrainingClockRunning(controller);
-            return controller.playback.resume?.() || false;
-        }
-        return false;
-    }
-
     function applyPlaybackControlState(controller, snapshot = controller?.playback?.snapshot?.()) {
         if (!controller || !snapshot) return false;
         const playable = Boolean(controller.isReaderActive?.() && snapshot.frame_count > 0);
-        const manualSessionRunning = snapshot.state === 'manual'
-            && !controller.trainingPaused
-            && controller.trainingClock?.state === 'running';
-        const showPause = snapshot.state === 'playing' || manualSessionRunning;
+        const sessionRunning = isTrainingRunning(controller) && ACTIVE_SESSION_STATES.has(snapshot.state);
         const atFirst = !snapshot.frame_count || snapshot.index <= 0;
         const atLast = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
 
         const toggle = controller.element?.('readingToggleBtn');
         if (toggle) {
             toggle.disabled = !playable;
-            toggle.textContent = showPause ? '⏸' : '▶';
-            toggle.title = showPause ? '暂停速度阅读' : '播放速度阅读';
+            toggle.textContent = sessionRunning ? '⏸' : '▶';
+            toggle.title = sessionRunning ? '暂停速度阅读' : '播放速度阅读';
             toggle.setAttribute?.('aria-label', toggle.title);
-            toggle.classList?.toggle?.('active', showPause);
+            toggle.classList?.toggle?.('active', sessionRunning);
         }
 
         const hiddenPlayPause = controller.element?.('speedReadingPause');
         if (hiddenPlayPause) {
             hiddenPlayPause.disabled = !playable;
-            hiddenPlayPause.textContent = showPause ? '⏸' : '▶';
-            hiddenPlayPause.title = showPause
-                ? '暂停训练（暂停计时）'
-                : (snapshot.state === 'manual' ? '继续训练（恢复计时）' : '播放速度阅读');
+            hiddenPlayPause.textContent = sessionRunning ? '⏸' : '▶';
+            hiddenPlayPause.title = sessionRunning ? '暂停训练（暂停计时）' : '播放速度阅读';
             hiddenPlayPause.setAttribute?.('aria-label', hiddenPlayPause.title);
         }
 
@@ -204,10 +207,6 @@
 
     function wrapUpdateControls(target) {
         if (!target || typeof target.updateControls !== 'function') return false;
-        // A prototype marker must not make us skip an instance-level wrapper.
-        // ReaderDebugToolbar installs an own updateControls function on the default
-        // controller before this enhancement loads, so prototype and instance each
-        // need their own post-processing wrapper.
         if (Object.prototype.hasOwnProperty.call(target, '__playbackControlStateWrapped')) return false;
         const original = target.updateControls;
         target.updateControls = function updateControlsWithPlaybackTruth(...args) {
@@ -252,43 +251,42 @@
         };
 
         const originalRenderManualFrame = Controller.prototype.renderManualFrame;
-        Controller.prototype.renderManualFrame = function renderManualFrameWithTerminalState(frame, target) {
+        Controller.prototype.renderManualFrame = function renderManualFrameWithSessionSemantics(frame, target) {
             originalRenderManualFrame.call(this, frame, target);
             const button = target?.querySelector?.('.reader-playback-continue');
             const isLast = this.playback?.index >= (this.playback?.frames?.length || 0) - 1;
-            if (button && isLast) {
+            if (!button) return;
+            if (isLast) {
                 button.textContent = '最后一帧 · 返回阅读视图';
                 button.onclick = (event) => {
                     event?.stopPropagation?.();
                     this.stop();
                 };
+            } else {
+                button.textContent = isTrainingRunning(this) ? '继续' : '下一帧';
             }
         };
 
-        const originalPreviousFrame = Controller.prototype.previousFrame;
-        if (typeof originalPreviousFrame === 'function') {
-            Controller.prototype.previousFrame = function previousFrameWithSessionPause(...args) {
-                pauseForFrameNavigation(this);
-                return originalPreviousFrame.apply(this, args);
-            };
-        }
-
-        const originalNextFrame = Controller.prototype.nextFrame;
-        if (typeof originalNextFrame === 'function') {
-            Controller.prototype.nextFrame = function nextFrameWithSessionPause(...args) {
-                pauseForFrameNavigation(this);
-                return originalNextFrame.apply(this, args);
-            };
-        }
-
+        Controller.prototype.previousFrame = function previousPlaybackFrame() {
+            return navigateBy(this, -1);
+        };
+        Controller.prototype.nextFrame = function nextPlaybackFrame() {
+            return navigateBy(this, 1);
+        };
         Controller.prototype.firstFrame = function firstPlaybackFrame() {
             return moveToBoundary(this, false);
         };
         Controller.prototype.lastFrame = function lastPlaybackFrame() {
             return moveToBoundary(this, true);
         };
-        Controller.prototype.togglePause = function togglePlaybackPlayPause() {
-            return playPause(this);
+        Controller.prototype.continueManual = function continueManualWithSessionSemantics() {
+            return continueManualRespectingSession(this);
+        };
+        Controller.prototype.togglePause = function togglePlaybackSession() {
+            return togglePlayPause(this);
+        };
+        Controller.prototype.seekFromSlider = function seekPlaybackWithoutAutoplaySurprises() {
+            return seekFromSlider(this);
         };
 
         const originalEnsureToolbar = Controller.prototype.ensureToolbar;
@@ -353,20 +351,25 @@
     }
 
     return {
+        ACTIVE_SESSION_STATES,
         FIRST_CONTROL_ID,
         LAST_CONTROL_ID,
         WIDTH_INPUT_PX,
         applyPlaybackControlState,
         bindReadingToggleCapture,
+        continueManualRespectingSession,
         createToolbarButton,
-        ensureTrainingClockRunning,
-        install,
-        moveToBoundary,
-        pauseForFrameNavigation,
-        playPause,
+        isTrainingRunning,
+        navigateBy,
+        pauseForFrameNavigation: pauseTrainingForNavigation,
+        pauseTrainingForNavigation,
+        playPause: togglePlayPause,
         resolveResumeIndex,
+        seekFromSlider,
+        togglePlayPause,
         upgradeToolbar,
         widenWidthInput,
         wrapUpdateControls,
+        moveToBoundary,
     };
 });
