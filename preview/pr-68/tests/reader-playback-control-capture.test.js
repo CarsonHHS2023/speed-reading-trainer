@@ -42,6 +42,8 @@ test('Play/Pause while actively playing pauses through training state and never 
   let stopCalls = 0;
   const controller = {
     isReaderActive: () => true,
+    trainingPaused: false,
+    trainingClock: { state: 'running' },
     playback: {
       state: 'playing',
       frames: [{}, {}],
