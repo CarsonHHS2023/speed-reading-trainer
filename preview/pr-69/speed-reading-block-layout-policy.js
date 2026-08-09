@@ -18,6 +18,48 @@
         return String(value || '').trim().toLowerCase() === 'moving' ? 'moving' : 'focus';
     }
 
+    function normalizeNodeType(value) {
+        return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
+    }
+
+    function canonicalTocTitleNodeIds(nodes) {
+        const ids = new Set();
+        for (const node of nodes || []) {
+            if (normalizeNodeType(node?.node_type) !== 'toc') continue;
+            const nodeId = String(node?.node_id || '').trim();
+            if (nodeId) ids.add(nodeId);
+        }
+        return ids;
+    }
+
+    function restoreCanonicalTocTitleTypography(built, nodes, measureText) {
+        if (!built) return built;
+        const tocTitleIds = canonicalTocTitleNodeIds(nodes);
+        if (!tocTitleIds.size) return built;
+
+        for (const frame of built.frames || []) {
+            if (frame?.kind !== 'timed_text' || !Array.isArray(frame.lines)) continue;
+            let promoted = false;
+            for (const line of frame.lines) {
+                const nodeId = String(line?.identity?.node_id || '').trim();
+                if (!tocTitleIds.has(nodeId)) continue;
+                line.node_type = 'title';
+                line.structural_single_row = true;
+                line.toc_title = true;
+                if (typeof measureText === 'function') {
+                    const measured = Number(measureText(line.text || '', 'title'));
+                    if (Number.isFinite(measured) && measured > 0) line.measured_width_px = measured;
+                }
+                promoted = true;
+            }
+            if (promoted && frame.lines.length === 1) {
+                frame.node_type = 'title';
+                frame.heading_level = frame.lines[0].heading_level || null;
+            }
+        }
+        return built;
+    }
+
     function fixedBlockFrameWidth(frame, contentWidthPx) {
         const measured = Number(frame?.lines?.[0]?.measured_width_px);
         const fallback = Number(frame?.placement?.width_px || frame?.placement?.line_width_px);
@@ -70,8 +112,13 @@
             ? options.displayScope
             : 'line';
         const readingMode = normalizeReadingMode(options.readingMode);
-        if (displayScope !== 'block' || readingMode === 'moving') {
+        if (displayScope !== 'block') {
             return originalBuild.call(responsive, adapter, documentView, nodes, options);
+        }
+
+        if (readingMode === 'moving') {
+            const built = originalBuild.call(responsive, adapter, documentView, nodes, options);
+            return restoreCanonicalTocTitleTypography(built, nodes, options.measureText);
         }
 
         // Fixed-viewpoint Block is a continuous measured stream: soft visual-line
@@ -85,6 +132,7 @@
             lineCount: 1,
             maxLines: 1,
         });
+        restoreCanonicalTocTitleTypography(built, nodes, options.measureText);
         return convertLineBuildToFixedBlocks(built, options);
     }
 
@@ -183,10 +231,13 @@
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
         buildBlockAwarePlaybackFrames,
+        canonicalTocTitleNodeIds,
         convertLineBuildToFixedBlocks,
         fixedBlockFrameWidth,
         install,
         installWithRetry,
+        normalizeNodeType,
         normalizeReadingMode,
+        restoreCanonicalTocTitleTypography,
     };
 });
