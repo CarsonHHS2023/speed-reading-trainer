@@ -16,9 +16,40 @@
         }
     }
 
-    function versionedAsset(src) {
+    function previewHeadVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        return String(
+            documentObject?.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '',
+        ).trim();
+    }
+
+    function currentScriptAssetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        const src = String(documentObject?.currentScript?.src || '').trim();
+        if (!src) return '';
+        try {
+            return new URL(src, documentObject?.baseURI || root?.location?.href || undefined).searchParams.get('v') || '';
+        } catch (_error) {
+            const match = src.match(/[?&]v=([^&#]+)/u);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+    }
+
+    // document.currentScript is only reliable while this entrypoint is executing.
+    // Capture its deployment SHA now so later Promise-chain loads inherit the same
+    // production version even after currentScript becomes null.
+    const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
+        typeof document !== 'undefined' ? document : null,
+    );
+
+    function assetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        return previewHeadVersion(documentObject)
+            || currentScriptAssetVersion(documentObject)
+            || ENTRYPOINT_ASSET_VERSION
+            || ASSET_VERSION;
+    }
+
+    function versionedAsset(src, documentObject = typeof document !== 'undefined' ? document : null) {
         const separator = String(src).includes('?') ? '&' : '?';
-        return `${src}${separator}v=${encodeURIComponent(ASSET_VERSION)}`;
+        return `${src}${separator}v=${encodeURIComponent(assetVersion(documentObject))}`;
     }
 
     function refreshStylesheet() {
@@ -298,6 +329,9 @@
         BOOKSHELF_CACHE_KEY,
         BookshelfEndpointError,
         DEFAULT_API_BASE_URL,
+        ENTRYPOINT_ASSET_VERSION,
+        assetVersion,
+        currentScriptAssetVersion,
         diagnoseBookshelfFailure,
         endpointDiagnosticFromError,
         endpointDiagnosticLabel,
@@ -308,6 +342,7 @@
         installEnhancements,
         loadScript,
         normalizeBaseUrl,
+        previewHeadVersion,
         probeEndpoint,
         readCachedBooks,
         refreshStylesheet,

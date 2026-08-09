@@ -24,6 +24,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import re
           from pathlib import Path
 
           sha = os.environ["PREVIEW_HEAD_SHA"]
@@ -35,8 +36,14 @@ jobs:
               "reader-debug-toolbar.js",
               "reader-presentation.js",
               "reader-semantic-layout-refinement.js",
+              "training-session-clock.js",
+              "reader-resume-lifecycle.js",
           ):
-              text = text.replace(asset, f"{asset}?v={sha}")
+              text = re.sub(
+                  rf"{re.escape(asset)}(?:\?v=[^\"']+)?",
+                  f"{asset}?v={sha}",
+                  text,
+              )
           marker = f'<meta name="reader-preview-head" content="{sha}">' 
           if "</head>" in text and "reader-preview-head" not in text:
               text = text.replace("</head>", f"    {marker}\n</head>", 1)
@@ -66,9 +73,18 @@ jobs:
             presentation="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-presentation.js?v=${PREVIEW_HEAD_SHA}" || true)"
             refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
             edge_polish="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-edge-polish.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            training_clock="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/training-session-clock.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            lifecycle="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            structure_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-structure-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            punctuation_policy="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-punctuation-hanging-policy.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            formula_rendering="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-formula-rendering.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            layout_integrity="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-layout-integrity.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"training-session-clock.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-resume-lifecycle.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
               && [[ "${js}" == *"恢复到100%"* ]] \
               && [[ "${presentation}" == *"reader-semantic-layout-edge-polish.js"* ]] \
@@ -78,7 +94,60 @@ jobs:
               && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
               && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
-              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]]; then
+              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
+              && [[ "${training_clock}" == *"reader-preview-head"* ]] \
+              && [[ "${training_clock}" == *"FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'"* ]] \
+              && [[ "${training_clock}" == *"currentScriptAssetVersion"* ]] \
+              && [[ "${training_clock}" == *"const entrypointVersion = currentScriptAssetVersion(document)"* ]] \
+              && [[ "${training_clock}" == *"const assetVersion = previewHead || entrypointVersion || FALLBACK_ASSET_VERSION"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-structure-policy.js"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-formula-rendering.js"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-responsive-layout.js"* ]] \
+              && [[ "${training_clock}" == *"reader-punctuation-hanging-policy.js"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-layout-integrity.js"* ]] \
+              && [[ "${training_clock}" == *"dataset.readerEnhancement"* ]] \
+              && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
+              && [[ "${lifecycle}" == *"assetVersion"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-structure-policy.js"* ]] \
+              && [[ "${structure_policy}" == *"inline_formula: 'paragraph'"* ]] \
+              && [[ "${structure_policy}" == *"providerType === 'inline_formula'"* ]] \
+              && [[ "${structure_policy}" == *"table_title: 'caption'"* ]] \
+              && [[ "${structure_policy}" == *"BROAD_SEMANTIC_TYPES"* ]] \
+              && [[ "${structure_policy}" == *"preferCanonicalPdfVisualAssetRefs"* ]] \
+              && [[ "${structure_policy}" == *"SPEED_READING_EXCLUDED_PRESENTATION_KINDS"* ]] \
+              && [[ "${structure_policy}" == *"Chapter dividers are intentionally NOT excluded"* ]] \
+              && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
+              && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
+              && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
+              && [[ "${speed_layout}" == *"Closing punctuation hangs on the current line"* ]] \
+              && [[ "${speed_layout}" != *"moveTrailingTokenToNextLine"* ]] \
+              && [[ "${punctuation_policy}" == *"sameLogicalTextSource"* ]] \
+              && [[ "${punctuation_policy}" == *"HARD_STRUCTURE_TYPES"* ]] \
+              && [[ "${punctuation_policy}" == *"refreshFrameTiming"* ]] \
+              && [[ "${punctuation_policy}" == *"LEADING_CLOSING_PUNCTUATION"* ]] \
+              && [[ "${punctuation_policy}" != *"CARRIED_CHARACTER_AND_PUNCTUATION"* ]] \
+              && [[ "${formula_rendering}" == *"INLINE_FORMULA_KIND = 'inline_formula'"* ]] \
+              && [[ "${formula_rendering}" == *"displayMode: false"* ]] \
+              && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
+              && [[ "${formula_rendering}" == *"rendererChainReady"* ]] \
+              && [[ "${layout_integrity}" == *"canonicalCaptionAssociations"* ]] \
+              && [[ "${layout_integrity}" == *"same_page_spatial_visual_v1_frontend_fallback"* ]] \
+              && [[ "${layout_integrity}" == *"CAPTION_VISUAL_MAX_VERTICAL_GAP = 0.18"* ]] \
+              && [[ "${layout_integrity}" == *"CAPTION_VISUAL_MIN_HORIZONTAL_OVERLAP = 0.40"* ]] \
+              && [[ "${layout_integrity}" == *"CAPTION_VISUAL_AMBIGUITY_MARGIN = 0.025"* ]] \
+              && [[ "${layout_integrity}" == *"sourceUnitIdForNode"* ]] \
+              && [[ "${layout_integrity}" == *"normalizedSpatialAnchor"* ]] \
+              && [[ "${layout_integrity}" == *"captionVisualMetrics"* ]] \
+              && [[ "${layout_integrity}" == *"fallbackBoundVisualIds"* ]] \
+              && [[ "${layout_integrity}" == *"unresolvedCaptionIds"* ]] \
+              && [[ "${layout_integrity}" != *"canonical_shared_parent_unique_visual"* ]] \
+              && [[ "${layout_integrity}" != *"canonical_visual_parent_unique_child"* ]] \
+              && [[ "${layout_integrity}" == *"lineFrameCapacity"* ]] \
+              && [[ "${layout_integrity}" == *"applySafeHorizontalInset"* ]] \
+              && [[ "${layout_integrity}" == *"withPlaybackElementPolicy"* ]] \
+              && [[ "${layout_integrity}" == *"GLYPH_BLEED_PX = 6"* ]] \
+              && [[ "${layout_integrity}" == *"relaxTimedTextClipping"* ]] \
+              && [[ "${layout_integrity}" == *"parent_ref"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
