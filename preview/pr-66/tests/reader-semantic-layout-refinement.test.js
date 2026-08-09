@@ -128,7 +128,7 @@ test('caption is part of the visual flow unit instead of remaining at its late s
   assert.equal(units[1].type, 'paragraph');
   assert.equal(units[0].memberLayout[0].captionLayouts.length, 1);
   assert.equal(units[0].memberLayout[0].captionLayouts[0].offset, 206);
-  assert.equal(units[0].height, 226, 'figure height includes 6px gap plus caption height');
+  assert.ok(Math.abs(units[0].height - 226) < 1e-9, 'figure height includes 6px gap plus caption height');
 });
 
 test('flow application places canonical caption immediately below its parent visual', () => {
