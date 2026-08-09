@@ -118,9 +118,13 @@ jobs:
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
               && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
+              && [[ "${speed_layout}" == *"Closing punctuation hangs on the current line"* ]] \
+              && [[ "${speed_layout}" != *"moveTrailingTokenToNextLine"* ]] \
               && [[ "${punctuation_policy}" == *"sameLogicalTextSource"* ]] \
               && [[ "${punctuation_policy}" == *"HARD_STRUCTURE_TYPES"* ]] \
               && [[ "${punctuation_policy}" == *"refreshFrameTiming"* ]] \
+              && [[ "${punctuation_policy}" == *"LEADING_CLOSING_PUNCTUATION"* ]] \
+              && [[ "${punctuation_policy}" != *"CARRIED_CHARACTER_AND_PUNCTUATION"* ]] \
               && [[ "${formula_rendering}" == *"INLINE_FORMULA_KIND = 'inline_formula'"* ]] \
               && [[ "${formula_rendering}" == *"displayMode: false"* ]] \
               && [[ "${formula_rendering}" == *"renderFormulaInto"* ]] \
