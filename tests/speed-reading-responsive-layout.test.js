@@ -66,6 +66,22 @@ test('display width percentage is clamped to the product contract of 20 through 
     assert.equal(Layout.targetWidthPx(1000, 50, 32), 484);
 });
 
+test('horizontal measurement uses the playback surface content box so focus and moving keep symmetric gutters', () => {
+    const surface = { clientWidth: 1177 };
+    const view = {
+        getComputedStyle() {
+            return { paddingLeft: '6px', paddingRight: '6px' };
+        },
+    };
+    const contentWidth = Layout.contentBoxWidth(surface, view);
+    const measuredWidth = Layout.targetWidthPx(contentWidth, 100, Layout.DEFAULT_SAFE_GUTTER_PX);
+    const movingInset = Layout.DEFAULT_SAFE_GUTTER_PX / 2;
+
+    assert.equal(contentWidth, 1165);
+    assert.equal(measuredWidth, 1117);
+    assert.equal(movingInset + measuredWidth + movingInset, contentWidth);
+});
+
 test('page capacity is derived from available reading height and line height', () => {
     assert.equal(Layout.pageLineCapacity(500, 40, 100), 10);
     assert.equal(Layout.pageLineCapacity(200, 40, 40), 4);
