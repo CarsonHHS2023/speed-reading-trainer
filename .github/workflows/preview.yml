@@ -12,12 +12,37 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-      
+
+      - name: Prepare cache-busted Preview entrypoint
+        env:
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          sha = os.environ["PREVIEW_HEAD_SHA"]
+          path = Path("index.html")
+          text = path.read_text(encoding="utf-8")
+          for asset in (
+              "reader-page-zoom-pan.css",
+              "reader-page-zoom-pan.js",
+              "reader-debug-toolbar.js",
+              "reader-presentation.js",
+              "reader-semantic-layout-refinement.js",
+          ):
+              text = text.replace(asset, f"{asset}?v={sha}")
+          marker = f'<meta name="reader-preview-head" content="{sha}">' 
+          if "</head>" in text and "reader-preview-head" not in text:
+              text = text.replace("</head>", f"    {marker}\n</head>", 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+
       - name: Deploy to GitHub Pages (PR Preview)
         uses: peaceiris/actions-gh-pages@v3
         with:
@@ -26,16 +51,56 @@ jobs:
           publish_dir: ./
           destination_dir: preview/pr-${{ github.event.number }}
           keep_files: true
-      
+
+      - name: Verify public Preview matches exact head
+        env:
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIEW_PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          base_url="https://carsonhhs2023.github.io/speed-reading-trainer/preview/pr-${PREVIEW_PR_NUMBER}"
+          verified=0
+          for attempt in $(seq 1 40); do
+            html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
+            js="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            presentation="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-presentation.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            edge_polish="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-edge-polish.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
+              && [[ "${js}" == *"恢复到100%"* ]] \
+              && [[ "${presentation}" == *"reader-semantic-layout-edge-polish.js"* ]] \
+              && [[ "${presentation}" == *"reader-preview-head"* ]] \
+              && [[ "${refinement}" == *"BODY_FONT_PX = 18"* ]] \
+              && [[ "${refinement}" == *"pairInlineRows"* ]] \
+              && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
+              && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
+              && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
+              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]]; then
+              echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
+              verified=1
+              break
+            fi
+            echo "Public Preview is still stale on attempt ${attempt}; waiting 10 seconds..."
+            sleep 10
+          done
+          if [[ "${verified}" != "1" ]]; then
+            echo "Public Preview did not publish exact head ${PREVIEW_HEAD_SHA} within the verification window." >&2
+            exit 1
+          fi
+
       - name: Comment PR with preview link
         uses: actions/github-script@v6
         with:
           script: |
             const prNumber = context.issue.number;
-            const previewUrl = `https://carsonhhs2023.github.io/speed-reading-trainer/preview/pr-${prNumber}/`;
+            const headSha = context.payload.pull_request.head.sha;
+            const previewUrl = `https://carsonhhs2023.github.io/speed-reading-trainer/preview/pr-${prNumber}/?v=${headSha}`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🔍 **Preview**: [View PR Preview](${previewUrl})`
+              body: `🔍 **Preview (exact head ${headSha.slice(0, 12)})**: [View PR Preview](${previewUrl})`
             });
