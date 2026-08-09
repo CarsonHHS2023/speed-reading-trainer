@@ -65,6 +65,16 @@ test('recovered heading semantics override a generic provider text label', () =>
   assert.equal(prepared[0].raw_node_type, 'text');
 });
 
+test('explicit provider structural labels refine broad paragraph semantics', () => {
+  const prepared = Policy.prepareStructuredNodes([
+    node('figure-title', 'paragraph', '图 1-1', 0, { metadata: { provider_block_label: 'figure_title' } }),
+    node('table-title', 'paragraph', '表 1', 1, { metadata: { provider_block_label: 'table_title' } }),
+    node('provider-heading', 'paragraph', '第一章', 2, { metadata: { provider_block_label: 'paragraph_title' } }),
+  ]);
+
+  assert.deepEqual(prepared.map((item) => item.node_type), ['caption', 'caption', 'heading']);
+});
+
 test('extended Paddle content labels remain playable after an image', () => {
   const prepared = Policy.prepareStructuredNodes([
     node('before', 'text', '图片前正文'),
@@ -76,6 +86,42 @@ test('extended Paddle content labels remain playable after an image', () => {
   assert.deepEqual(prepared.map((item) => item.node_type), [
     'paragraph', 'figure', 'paragraph', 'code', 'caption',
   ]);
+});
+
+test('ordinary figure/table nodes prefer the durable canonical PDF crop inside their own asset refs', () => {
+  const prepared = Policy.prepareStructuredNodes([
+    node('figure', 'figure', '', 0, {
+      asset_refs: ['provider-image:old', 'pdf-visual:canonical-figure', 'provider-image:other'],
+    }),
+    node('table', 'table', '', 1, {
+      asset_refs: ['provider-table:old', 'pdf-visual:canonical-table'],
+    }),
+  ]);
+
+  assert.deepEqual(prepared[0].asset_refs, [
+    'pdf-visual:canonical-figure', 'provider-image:old', 'provider-image:other',
+  ]);
+  assert.deepEqual(prepared[1].asset_refs, ['pdf-visual:canonical-table', 'provider-table:old']);
+});
+
+test('non-content source-rendered presentation carriers are excluded from speed reading while full-page visuals remain', () => {
+  const prepared = Policy.prepareStructuredNodes([
+    node('divider', 'figure', '', 0, {
+      asset_refs: ['pdf-source-rendering:divider'],
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'chapter_divider' },
+    }),
+    node('title-page', 'figure', '', 1, {
+      asset_refs: ['pdf-source-rendering:title'],
+      metadata: { presentation_mode: 'source_rendering', page_kind: 'title_page' },
+    }),
+    node('full-figure', 'figure', '', 2, {
+      asset_refs: ['pdf-source-rendering:full-figure'],
+      metadata: { presentation_mode: 'source_rendering', presentation_actual_page_kind: 'full_page_figure' },
+    }),
+    node('ordinary', 'figure', '', 3, { asset_refs: ['pdf-visual:ordinary'] }),
+  ]);
+
+  assert.deepEqual(prepared.map((item) => item.node_id), ['full-figure', 'ordinary']);
 });
 
 test('standalone punctuation is attached to the previous text node', () => {
