@@ -69,7 +69,10 @@
 
 if (typeof document !== 'undefined' && !document.getElementById('speedReadingResponsiveLayoutScript')) {
     const script = document.createElement('script');
+    const previewHead = document.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '';
     script.id = 'speedReadingResponsiveLayoutScript';
-    script.src = 'speed-reading-responsive-layout.js';
+    script.src = previewHead
+        ? `speed-reading-responsive-layout.js?v=${encodeURIComponent(previewHead)}`
+        : 'speed-reading-responsive-layout.js';
     document.head.appendChild(script);
 }
