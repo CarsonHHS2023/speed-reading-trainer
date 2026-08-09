@@ -308,6 +308,15 @@
         return true;
     }
 
+    function rendererChainReady(rootObject) {
+        const prototype = rootObject?.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController?.prototype;
+        return Boolean(
+            prototype
+            && prototype.__phase24cRendererInstalled
+            && prototype.__responsiveLayoutInstalled
+        );
+    }
+
     function installPlaybackFormulaRendering(rootObject, formulaApi = Formula) {
         const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
@@ -374,10 +383,12 @@
             const button = this.document.createElement('button');
             button.type = 'button';
             button.className = 'reader-playback-continue';
-            button.textContent = '继续';
+            const isLast = this.playback?.index >= (this.playback?.frames?.length || 0) - 1;
+            button.textContent = isLast ? '最后一帧 · 返回阅读视图' : '继续';
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                this.continueManual();
+                if (isLast) this.stop();
+                else this.continueManual();
             });
             target.appendChild(button);
             return result;
@@ -391,6 +402,7 @@
         const adapter = rootObject?.SpeedReadingAdapter || Adapter;
         const formulaApi = rootObject?.ReaderFormulaV2 || Formula;
         const adapterInstalled = installAdapterFormulaTokens(adapter, formulaApi);
+        if (!rendererChainReady(rootObject)) return false;
         const rendererInstalled = installPlaybackFormulaRendering(rootObject, formulaApi);
         return Boolean(adapterInstalled && rendererInstalled);
     }
@@ -414,6 +426,7 @@
         installWithRetry,
         normalizeFormulaSource,
         renderInlineFormulaInto,
+        rendererChainReady,
         renderStructuredLineFormula,
         rowSegments,
         splitInlineMathSegments,
