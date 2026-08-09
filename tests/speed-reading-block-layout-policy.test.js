@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const Adapter = require('../speed-reading-adapter.js');
+const StructurePolicy = require('../speed-reading-structure-policy.js');
 const Layout = require('../speed-reading-responsive-layout.js');
 const Policy = require('../speed-reading-block-layout-policy.js');
 
@@ -89,8 +90,14 @@ test('moving-viewpoint blocks retain visual-line boundaries and line-tail short 
     assert.deepEqual(result.frames.map((frame) => frame.placement.x_px), [0, 30, 60, 90, 0, 30]);
 });
 
-test('fixed-viewpoint structural rows use intrinsic width so TOC entries center like body blocks', () => {
-    const result = build([node('toc-1', 0, 'toc_item', '后记....235')], {
+test('fixed-viewpoint structural rows use intrinsic width so canonical TOC entries center like body blocks', () => {
+    const prepared = StructurePolicy.prepareStructuredNodes([
+        node('toc-1', 0, 'toc_item', '后记....235'),
+    ]);
+    assert.equal(prepared.length, 1);
+    assert.equal(prepared[0].node_type, 'list_item');
+
+    const result = build(prepared, {
         widthPercent: 25,
         maxWidthPx: 400,
     });
