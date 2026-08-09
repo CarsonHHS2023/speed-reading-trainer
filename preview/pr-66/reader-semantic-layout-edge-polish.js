@@ -14,6 +14,11 @@
     const HEADER_BODY_GAP_PX = 16;
     const HEADER_HORIZONTAL_PADDING_PX = 8;
     const HEADER_PAGE_EDGE = 0.04;
+    const HEADER_COMPANION_MAX_TOP = 0.18;
+    const HEADER_COMPANION_MAX_WIDTH = 0.16;
+    const HEADER_COMPANION_MAX_CENTER_DISTANCE = 0.08;
+    const HEADER_COMPANION_TYPES = new Set(['paragraph', 'reference', 'unknown']);
+    const HEADER_PAGE_NUMBER_PATTERN = /^[\s·•∙⋅\-–—]*\d{1,4}[\s·•∙⋅\-–—]*$/u;
     const FURNITURE_TYPES = new Set(['header', 'footer', 'footnote']);
 
     function clamp(value, minimum, maximum) {
@@ -32,6 +37,82 @@
             clamp(bbox[2], 0, 1),
             clamp(bbox[3], 0, 1),
         ];
+    }
+
+    function presentationNodeType(element) {
+        return String(element?.node?.node_type || '').toLowerCase();
+    }
+
+    function presentationText(element) {
+        const value = element?.display_text === null || element?.display_text === undefined
+            ? element?.node?.text
+            : element.display_text;
+        return String(value || '').trim();
+    }
+
+    function isHeaderPageNumberText(value) {
+        const text = String(value || '').trim();
+        return Boolean(text && HEADER_PAGE_NUMBER_PATTERN.test(text));
+    }
+
+    function headerBandForPage(page) {
+        const headers = (page?.elements || [])
+            .filter((element) => presentationNodeType(element) === 'header')
+            .map((element) => normalizeBbox(element?.normalized_bbox))
+            .filter(Boolean);
+        if (!headers.length) return null;
+        const top = Math.min(...headers.map((bbox) => bbox[1]));
+        const bottom = Math.max(...headers.map((bbox) => bbox[3]));
+        const centers = headers.map((bbox) => (bbox[1] + bbox[3]) / 2).sort((a, b) => a - b);
+        const middle = Math.floor(centers.length / 2);
+        const center = centers.length % 2
+            ? centers[middle]
+            : (centers[middle - 1] + centers[middle]) / 2;
+        return { top, bottom, center };
+    }
+
+    function shouldPromoteHeaderCompanion(element, band) {
+        if (!band) return false;
+        const type = presentationNodeType(element);
+        const bbox = normalizeBbox(element?.normalized_bbox);
+        if (!bbox || !HEADER_COMPANION_TYPES.has(type)) return false;
+        if (!isHeaderPageNumberText(presentationText(element))) return false;
+        if (bbox[1] > HEADER_COMPANION_MAX_TOP) return false;
+        if (bbox[2] - bbox[0] > HEADER_COMPANION_MAX_WIDTH) return false;
+        const center = (bbox[1] + bbox[3]) / 2;
+        return Math.abs(center - band.center) <= HEADER_COMPANION_MAX_CENTER_DISTANCE;
+    }
+
+    function promoteHeaderCompanionsInPage(page) {
+        const band = headerBandForPage(page);
+        if (!band || !Array.isArray(page?.elements)) return page;
+        let promoted = 0;
+        const elements = page.elements.map((element) => {
+            if (!shouldPromoteHeaderCompanion(element, band)) return element;
+            const node = element?.node;
+            if (!node) return element;
+            const originalType = presentationNodeType(element);
+            promoted += 1;
+            return {
+                ...element,
+                presentation_header_companion: 'page_number',
+                node: {
+                    ...node,
+                    node_type: 'header',
+                    metadata: {
+                        ...(node.metadata || {}),
+                        presentation_header_companion: 'page_number',
+                        presentation_original_node_type: originalType,
+                    },
+                },
+            };
+        });
+        if (!promoted) return page;
+        return {
+            ...page,
+            elements,
+            presentation_header_companion_count: promoted,
+        };
     }
 
     function sourceBbox(slot) {
@@ -301,7 +382,9 @@
         if (SemanticPage.__readerLayoutEdgePolishInstalled) return true;
         const original = SemanticPage.renderSemanticPage;
         SemanticPage.renderSemanticPage = function renderSemanticPageWithEdgePolish(options = {}) {
-            const section = original.call(this, options);
+            const displayPage = promoteHeaderCompanionsInPage(options.page);
+            const renderOptions = displayPage === options.page ? options : { ...options, page: displayPage };
+            const section = original.call(this, renderOptions);
             if (section) {
                 scheduleAfterLayout(root, () => {
                     polishSection(section);
@@ -336,6 +419,9 @@
 
     return {
         HEADER_BODY_GAP_PX,
+        HEADER_COMPANION_MAX_CENTER_DISTANCE,
+        HEADER_COMPANION_MAX_TOP,
+        HEADER_COMPANION_MAX_WIDTH,
         HEADER_HORIZONTAL_PADDING_PX,
         HEADER_PAGE_EDGE,
         INLINE_ROW_MIN_GAP_PX,
@@ -344,14 +430,20 @@
         canonicalFurnitureBaseHeight,
         computeInlineRowBboxes,
         expandedHeaderBbox,
+        headerBandForPage,
         headerMeasuredWidthPx,
         headerShiftDelta,
         install,
+        isHeaderPageNumberText,
         normalizeBbox,
         normalizeHeaderSlot,
         normalizeHeaders,
         patchSemanticRenderer,
         polishSection,
+        presentationNodeType,
+        presentationText,
+        promoteHeaderCompanionsInPage,
+        shouldPromoteHeaderCompanion,
         sourceBbox,
     };
 });
