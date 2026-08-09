@@ -75,6 +75,9 @@ jobs:
               && [[ "${presentation}" == *"reader-preview-head"* ]] \
               && [[ "${refinement}" == *"BODY_FONT_PX = 18"* ]] \
               && [[ "${refinement}" == *"pairInlineRows"* ]] \
+              && [[ "${refinement}" == *"attachCanonicalVisualCaptions"* ]] \
+              && [[ "${refinement}" == *"visualCaptionParentIndex"* ]] \
+              && [[ "${refinement}" == *"captionLayouts"* ]] \
               && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
               && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
