@@ -29,6 +29,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.equal(Lifecycle.versionedAsset('speed-reading-responsive-layout.js', documentObject), `speed-reading-responsive-layout.js?v=${head}`);
 
   const clock = fs.readFileSync('training-session-clock.js', 'utf8');
+  const lifecycleSource = fs.readFileSync('reader-resume-lifecycle.js', 'utf8');
   const workflow = fs.readFileSync('.github/workflows/preview.yml', 'utf8');
 
   assert.match(clock, /meta\[name="reader-preview-head"\]/u);
@@ -44,6 +45,10 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(clock, /speed-reading-layout-integrity\.js/u);
   assert.match(clock, /script\.dataset\.readerEnhancement = src/u);
   assert.match(clock, /script\.dataset\.loaded = '1'/u);
+
+  assert.match(lifecycleSource, /const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion/u);
+  assert.match(lifecycleSource, /\|\| ENTRYPOINT_ASSET_VERSION/u);
+  assert.match(lifecycleSource, /document\.currentScript is only reliable while this entrypoint is executing/u);
 
   assert.match(workflow, /"training-session-clock\.js"/u);
   assert.match(workflow, /"reader-resume-lifecycle\.js"/u);
