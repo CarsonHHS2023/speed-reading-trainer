@@ -22,8 +22,19 @@
         ).trim();
     }
 
+    function currentScriptAssetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
+        const src = String(documentObject?.currentScript?.src || '').trim();
+        if (!src) return '';
+        try {
+            return new URL(src, documentObject?.baseURI || root?.location?.href || undefined).searchParams.get('v') || '';
+        } catch (_error) {
+            const match = src.match(/[?&]v=([^&#]+)/u);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+    }
+
     function assetVersion(documentObject = typeof document !== 'undefined' ? document : null) {
-        return previewHeadVersion(documentObject) || ASSET_VERSION;
+        return previewHeadVersion(documentObject) || currentScriptAssetVersion(documentObject) || ASSET_VERSION;
     }
 
     function versionedAsset(src, documentObject = typeof document !== 'undefined' ? document : null) {
@@ -309,6 +320,7 @@
         BookshelfEndpointError,
         DEFAULT_API_BASE_URL,
         assetVersion,
+        currentScriptAssetVersion,
         diagnoseBookshelfFailure,
         endpointDiagnosticFromError,
         endpointDiagnosticLabel,
