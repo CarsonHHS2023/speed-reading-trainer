@@ -54,7 +54,6 @@
 
     function upgradeToolbar(controller) {
         if (!controller?.document) return false;
-        controller.ensureToolbar?.();
         const toolbar = controller.element?.('speedReadingV2Toolbar');
         if (!toolbar || toolbar.classList?.contains?.('speed-reading-v2-toolbar-compat')) return false;
 
