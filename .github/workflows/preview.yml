@@ -35,6 +35,7 @@ jobs:
               "reader-debug-toolbar.js",
               "reader-presentation.js",
               "reader-semantic-layout-refinement.js",
+              "training-session-clock.js",
           ):
               text = text.replace(asset, f"{asset}?v={sha}")
           marker = f'<meta name="reader-preview-head" content="{sha}">' 
@@ -66,9 +67,12 @@ jobs:
             presentation="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-presentation.js?v=${PREVIEW_HEAD_SHA}" || true)"
             refinement="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}" || true)"
             edge_polish="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-semantic-layout-edge-polish.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            training_clock="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/training-session-clock.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            speed_layout="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/speed-reading-responsive-layout.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-debug-toolbar.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${html}" == *"reader-semantic-layout-refinement.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"training-session-clock.js?v=${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${js}" == *"BOOKLIST_CONTROLS_CLASS"* ]] \
               && [[ "${js}" == *"恢复到100%"* ]] \
               && [[ "${presentation}" == *"reader-semantic-layout-edge-polish.js"* ]] \
@@ -78,7 +82,12 @@ jobs:
               && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
               && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
-              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]]; then
+              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
+              && [[ "${training_clock}" == *"reader-preview-head"* ]] \
+              && [[ "${training_clock}" == *"speed-reading-responsive-layout.js?v="* ]] \
+              && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
+              && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
+              && [[ "${speed_layout}" == *"pageLineCapacity"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
