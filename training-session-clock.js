@@ -68,35 +68,31 @@
 });
 
 if (typeof document !== 'undefined') {
+    const PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1';
     const previewHead = document.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '';
+    const assetVersion = previewHead || PRODUCTION_ASSET_VERSION;
+    const versionedSrc = (src) => `${src}?v=${encodeURIComponent(assetVersion)}`;
 
-    if (!document.getElementById('speedReadingFormulaRenderingScript')) {
-        const formulaScript = document.createElement('script');
-        formulaScript.id = 'speedReadingFormulaRenderingScript';
-        formulaScript.async = false;
-        formulaScript.src = previewHead
-            ? `speed-reading-formula-rendering.js?v=${encodeURIComponent(previewHead)}`
-            : 'speed-reading-formula-rendering.js';
-        document.head.appendChild(formulaScript);
-    }
-
-    if (!document.getElementById('speedReadingResponsiveLayoutScript')) {
+    function appendEnhancementScript(id, src, options = {}) {
+        if (document.getElementById(id)) return;
         const script = document.createElement('script');
-        script.id = 'speedReadingResponsiveLayoutScript';
+        script.id = id;
         script.async = false;
-        script.src = previewHead
-            ? `speed-reading-responsive-layout.js?v=${encodeURIComponent(previewHead)}`
-            : 'speed-reading-responsive-layout.js';
+        script.src = versionedSrc(src);
+        if (options.lifecycleManaged === true) {
+            script.dataset.readerEnhancement = src;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = '1';
+            }, { once: true });
+        }
         document.head.appendChild(script);
     }
 
-    if (!document.getElementById('speedReadingLayoutIntegrityScript')) {
-        const integrityScript = document.createElement('script');
-        integrityScript.id = 'speedReadingLayoutIntegrityScript';
-        integrityScript.async = false;
-        integrityScript.src = previewHead
-            ? `speed-reading-layout-integrity.js?v=${encodeURIComponent(previewHead)}`
-            : 'speed-reading-layout-integrity.js';
-        document.head.appendChild(integrityScript);
-    }
+    // Structure policy must be fresh before measured playback is built. Mark the
+    // lifecycle-managed scripts so ReaderResumeLifecycle can wait on the same tag
+    // instead of creating a duplicate loader during startup.
+    appendEnhancementScript('speedReadingStructurePolicyScript', 'speed-reading-structure-policy.js', { lifecycleManaged: true });
+    appendEnhancementScript('speedReadingFormulaRenderingScript', 'speed-reading-formula-rendering.js');
+    appendEnhancementScript('speedReadingResponsiveLayoutScript', 'speed-reading-responsive-layout.js', { lifecycleManaged: true });
+    appendEnhancementScript('speedReadingLayoutIntegrityScript', 'speed-reading-layout-integrity.js');
 }
