@@ -24,6 +24,7 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   const workflow = fs.readFileSync('.github/workflows/preview.yml', 'utf8');
 
   assert.match(clock, /meta\[name="reader-preview-head"\]/u);
+  assert.match(clock, /speed-reading-formula-rendering\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
   assert.match(clock, /speed-reading-responsive-layout\.js\?v=\$\{encodeURIComponent\(previewHead\)\}/u);
   assert.match(workflow, /"training-session-clock\.js"/u);
   assert.match(workflow, /"reader-resume-lifecycle\.js"/u);
@@ -31,8 +32,11 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /reader-resume-lifecycle\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-structure-policy\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /speed-reading-responsive-layout\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
+  assert.match(workflow, /speed-reading-formula-rendering\.js\?v=\$\{PREVIEW_HEAD_SHA\}/u);
   assert.match(workflow, /inline_formula: 'paragraph'/u);
   assert.match(workflow, /MIN_WIDTH_PERCENT = 20/u);
   assert.match(workflow, /splitMeasuredLineIntoBlocks/u);
   assert.match(workflow, /pageLineCapacity/u);
+  assert.match(workflow, /displayMode: false/u);
+  assert.match(workflow, /rendererChainReady/u);
 });
