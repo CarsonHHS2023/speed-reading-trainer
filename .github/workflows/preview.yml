@@ -76,7 +76,9 @@ jobs:
               && [[ "${refinement}" == *"BODY_FONT_PX = 18"* ]] \
               && [[ "${refinement}" == *"pairInlineRows"* ]] \
               && [[ "${edge_polish}" == *"INLINE_ROW_MIN_GAP_PX = 8"* ]] \
-              && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]]; then
+              && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
+              && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
+              && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
               verified=1
               break
