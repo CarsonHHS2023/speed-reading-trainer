@@ -19,7 +19,7 @@
         'quote', 'code', 'reference', 'unknown',
     ]);
     const DISPLAY_SCOPES = new Set(['block', 'line', 'page']);
-    const MIN_FRAME_DURATION_MS = 1000 / 12;
+    const MIN_FRAME_DURATION_MS = 1000 / 6;
     const ZERO_UNIT_FRAME_DURATION_MS = 500;
     const LEXICAL_READING_UNITS = 3;
     const CLOSING_PUNCTUATION = new Set([
