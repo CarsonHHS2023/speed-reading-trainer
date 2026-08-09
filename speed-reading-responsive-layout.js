@@ -155,15 +155,6 @@
         };
     }
 
-    function moveTrailingTokenToNextLine(lineTokens) {
-        for (let index = lineTokens.length - 1; index >= 0; index -= 1) {
-            const token = lineTokens[index];
-            if (token.kind === 'space' || token.kind === 'punctuation') continue;
-            return lineTokens.splice(index, 1);
-        }
-        return [];
-    }
-
     function buildMeasuredLines(adapter, elements, maxWidthPx, measureText) {
         const width = Math.max(1, Number(maxWidthPx) || 1);
         const lines = [];
@@ -219,17 +210,13 @@
                 }
                 if (token.kind === 'space' && !lineTokens.length) continue;
                 const wouldOverflow = lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width;
-                if (wouldOverflow) {
-                    if (isClosingPunctuationToken(token)) {
-                        const carried = moveTrailingTokenToNextLine(lineTokens);
-                        recalculateWidth();
-                        flush();
-                        lineTokens.push(...carried);
-                        recalculateWidth();
-                    } else {
-                        flush();
-                    }
-                }
+
+                // Closing punctuation hangs on the current line. Never move a text
+                // token across the boundary to make room for punctuation. If the
+                // punctuation itself is the item that exceeds the measured width,
+                // keep it with the preceding text and let the paint box overflow.
+                if (wouldOverflow && !isClosingPunctuationToken(token)) flush();
+
                 lineTokens.push(token);
                 lineWidth += token.measured_width;
             }
