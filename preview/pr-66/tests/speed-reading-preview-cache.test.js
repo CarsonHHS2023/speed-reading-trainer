@@ -12,6 +12,14 @@ function fakePreviewDocument(head) {
   };
 }
 
+function fakeProductionDocument(version) {
+  return {
+    baseURI: 'https://example.test/',
+    currentScript: { src: `https://example.test/reader-resume-lifecycle.js?v=${version}` },
+    querySelector() { return null; },
+  };
+}
+
 test('Preview bootstraps speed-reading enhancement assets from the exact deployed head', () => {
   const head = 'abc123previewhead';
   const documentObject = fakePreviewDocument(head);
@@ -84,6 +92,16 @@ test('Preview bootstraps speed-reading enhancement assets from the exact deploye
   assert.match(workflow, /withPlaybackElementPolicy/u);
   assert.match(workflow, /GLYPH_BLEED_PX = 6/u);
   assert.match(workflow, /relaxTimedTextClipping/u);
+});
+
+test('Production lifecycle inherits the deployed entrypoint commit for every dynamically loaded enhancement', () => {
+  const version = 'deadbeefcafefeed';
+  const documentObject = fakeProductionDocument(version);
+  assert.equal(Lifecycle.previewHeadVersion(documentObject), '');
+  assert.equal(Lifecycle.currentScriptAssetVersion(documentObject), version);
+  assert.equal(Lifecycle.assetVersion(documentObject), version);
+  assert.equal(Lifecycle.versionedAsset('reader-fragment-join-policy.js', documentObject), `reader-fragment-join-policy.js?v=${version}`);
+  assert.equal(Lifecycle.versionedAsset('speed-reading-v2.css', documentObject), `speed-reading-v2.css?v=${version}`);
 });
 
 test('Production Pages binds entrypoint assets to the deployed main commit', () => {
