@@ -40,6 +40,15 @@
         return Math.max(1, (available - gutter) * clampWidthPercent(widthPercent) / 100);
     }
 
+    function contentBoxWidth(element, view) {
+        const clientWidth = Math.max(0, Number(element?.clientWidth) || 0);
+        if (!clientWidth) return 0;
+        const computed = element && view?.getComputedStyle ? view.getComputedStyle(element) : null;
+        const paddingLeft = Math.max(0, Number.parseFloat(computed?.paddingLeft) || 0);
+        const paddingRight = Math.max(0, Number.parseFloat(computed?.paddingRight) || 0);
+        return Math.max(1, clientWidth - paddingLeft - paddingRight);
+    }
+
     function pageLineCapacity(availableHeightPx, lineHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX) {
         const available = Math.max(0, Number(availableHeightPx) || 0);
         const gutter = Math.max(0, Number(safeGutterPx) || 0);
@@ -508,7 +517,8 @@
         Controller.prototype.playbackAvailableWidth = function playbackAvailableWidth() {
             const surface = this.displayScope() === 'page' ? this.element('pageModeDisplay') : this.element('focusModeDisplay');
             const panel = this.document?.querySelector?.('.reading-panel');
-            return Number(surface?.clientWidth || panel?.clientWidth || 1);
+            const view = this.document?.defaultView || root;
+            return contentBoxWidth(surface, view) || contentBoxWidth(panel, view) || 1;
         };
 
         Controller.prototype.playbackAvailableHeight = function playbackAvailableHeight() {
@@ -700,6 +710,7 @@
         buildMeasuredLines,
         buildMeasuredPlaybackFrames,
         clampWidthPercent,
+        contentBoxWidth,
         createCanvasMeasurer,
         install,
         isClosingPunctuationToken,
