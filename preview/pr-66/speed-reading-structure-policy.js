@@ -13,8 +13,12 @@
     const PROVIDER_STRUCTURAL_TYPES = new Set([
         'title', 'heading', 'caption', 'figure', 'table', 'formula', 'code', 'reference', 'list', 'list_item',
     ]);
+    // Cover/title/back-cover pages are navigation/presentation furniture for speed
+    // reading. Chapter dividers are intentionally NOT excluded: they are meaningful
+    // visual boundaries and play as manual source-rendered visual frames in canonical
+    // Reader order, just like full-page figures/charts.
     const SPEED_READING_EXCLUDED_PRESENTATION_KINDS = new Set([
-        'cover', 'title_page', 'back_cover', 'chapter_divider',
+        'cover', 'title_page', 'back_cover',
     ]);
     const PDF_VISUAL_ASSET_PREFIX = 'pdf-visual:';
     const TYPE_ALIASES = Object.freeze({
@@ -180,9 +184,9 @@
     function prepareStructuredNodes(nodes) {
         const output = [];
         for (const node of nodes || []) {
-            // Cover/title/back-cover/chapter-divider pages are Reader presentation
-            // surfaces, not ordinary speed-reading figures/text. Full-page figures
-            // and charts intentionally remain playable as manual visual frames.
+            // Cover/title/back-cover source-rendered pages are navigation surfaces,
+            // not ordinary speed-reading content. Chapter dividers and full-page
+            // figures/charts intentionally remain playable manual visual frames.
             if (isSpeedReadingPresentationCarrier(node)) continue;
 
             const resolved = resolvedTypeForNode(node);
