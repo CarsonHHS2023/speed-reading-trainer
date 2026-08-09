@@ -108,9 +108,8 @@ jobs:
               && [[ "${layout_integrity}" == *"canonicalCaptionAssociations"* ]] \
               && [[ "${layout_integrity}" == *"lineFrameCapacity"* ]] \
               && [[ "${layout_integrity}" == *"applySafeHorizontalInset"* ]] \
-              && [[ "${layout_integrity}" == *"scopedNodeKey"* ]] \
-              && [[ "${layout_integrity}" == *"sourceUnitIdForNode"* ]] \
-              && [[ "${layout_integrity}" == *"canonicalPlaybackElementOrder"* ]] \
+              && [[ "${layout_integrity}" == *"withPlaybackElementPolicy"* ]] \
+              && [[ "${layout_integrity}" == *"GLYPH_BLEED_PX = 6"* ]] \
               && [[ "${layout_integrity}" == *"relaxTimedTextClipping"* ]] \
               && [[ "${layout_integrity}" == *"parent_ref"* ]]; then
               echo "Public Preview verified at exact head ${PREVIEW_HEAD_SHA} on attempt ${attempt}."
