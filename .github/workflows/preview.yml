@@ -24,6 +24,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import re
           from pathlib import Path
 
           sha = os.environ["PREVIEW_HEAD_SHA"]
@@ -38,7 +39,11 @@ jobs:
               "training-session-clock.js",
               "reader-resume-lifecycle.js",
           ):
-              text = text.replace(asset, f"{asset}?v={sha}")
+              text = re.sub(
+                  rf"{re.escape(asset)}(?:\?v=[^\"']+)?",
+                  f"{asset}?v={sha}",
+                  text,
+              )
           marker = f'<meta name="reader-preview-head" content="{sha}">' 
           if "</head>" in text and "reader-preview-head" not in text:
               text = text.replace("</head>", f"    {marker}\n</head>", 1)
@@ -90,8 +95,10 @@ jobs:
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
               && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
               && [[ "${training_clock}" == *"reader-preview-head"* ]] \
-              && [[ "${training_clock}" == *"PRODUCTION_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'"* ]] \
-              && [[ "${training_clock}" == *"const assetVersion = previewHead || PRODUCTION_ASSET_VERSION"* ]] \
+              && [[ "${training_clock}" == *"FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'"* ]] \
+              && [[ "${training_clock}" == *"currentScriptAssetVersion"* ]] \
+              && [[ "${training_clock}" == *"const entrypointVersion = currentScriptAssetVersion(document)"* ]] \
+              && [[ "${training_clock}" == *"const assetVersion = previewHead || entrypointVersion || FALLBACK_ASSET_VERSION"* ]] \
               && [[ "${training_clock}" == *"speed-reading-structure-policy.js"* ]] \
               && [[ "${training_clock}" == *"speed-reading-formula-rendering.js"* ]] \
               && [[ "${training_clock}" == *"speed-reading-responsive-layout.js"* ]] \
