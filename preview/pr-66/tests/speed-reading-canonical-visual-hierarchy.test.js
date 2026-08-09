@@ -84,6 +84,27 @@ test('page-7 GDP caption binds to the adjacent real figure and does not give a t
   assert.equal(result.byParent.get('actual-gdp-figure')[0].association_mode, Integrity.CAPTION_VISUAL_POLICY);
 });
 
+test('shared parent is only an auxiliary hint and cannot beat a clearly better spatial match', () => {
+  const nodes = [
+    spatialNode('same-parent-but-worse', 'figure', 'pdf-page:000006', [0.10, 0.35, 0.50, 0.48], 30, {
+      parent_ref: 'legacy-group',
+    }),
+    spatialNode('spatially-correct', 'figure', 'pdf-page:000006', [0.30, 0.545, 0.70, 0.75], 31, {
+      parent_ref: 'different-group',
+    }),
+    spatialNode('caption', 'caption', 'pdf-page:000006', [0.40, 0.50, 0.60, 0.54], 32, {
+      parent_ref: 'legacy-group', text: '空间上属于下方图的标题',
+    }),
+  ];
+
+  const result = Integrity.canonicalCaptionAssociations(adapter, nodes);
+  assert.equal(result.byParent.has('same-parent-but-worse'), false);
+  const attached = result.byParent.get('spatially-correct');
+  assert.equal(attached.length, 1);
+  assert.equal(attached[0].node_id, 'caption');
+  assert.equal(attached[0].association_metrics.shared_parent, false);
+});
+
 test('a unique visual sharing the same parent is not enough when caption and visual are spatially far apart', () => {
   const nodes = [
     spatialNode('figure-far', 'figure', 'pdf-page:000003', [0.1, 0.05, 0.9, 0.25], 10, {
