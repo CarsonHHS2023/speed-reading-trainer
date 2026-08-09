@@ -98,11 +98,41 @@
         return Boolean(controller.playback?.next?.());
     }
 
+    function startTrainingFromCurrentFrame(controller) {
+        if (!controller || !ACTIVE_SESSION_STATES.has(controller.playback?.state)) return false;
+        controller.trainingPaused = false;
+        controller.comprehensionPaused = false;
+        controller.resumePlaybackAfterTrainingPause = false;
+        const clock = controller.trainingClock;
+        if (clock?.state === 'paused') clock.resume?.();
+        else if (clock?.state !== 'running') clock?.start?.();
+        controller.startTrainingTicker?.();
+
+        if (controller.playback.state === 'paused') {
+            return Boolean(controller.playback.resume?.());
+        }
+        if (controller.playback.state === 'manual') {
+            controller.updateTrainingTime?.();
+            controller.updateControls?.();
+            return true;
+        }
+        return controller.playback.state === 'playing';
+    }
+
     function togglePlayPause(controller) {
         if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return false;
         const clockState = controller.trainingClock?.state;
+        const playbackState = controller.playback?.state;
         if (clockState === 'running' || clockState === 'paused') {
             return Boolean(controller.toggleTrainingPause?.());
+        }
+        // Unit-test/degraded integrations without a clock still preserve the
+        // transport meaning: playing/manual uses the pause action, never Stop.
+        if (!controller.trainingClock && (playbackState === 'playing' || playbackState === 'manual')) {
+            return Boolean(controller.toggleTrainingPause?.());
+        }
+        if (playbackState === 'paused' || playbackState === 'manual') {
+            return startTrainingFromCurrentFrame(controller);
         }
         Promise.resolve(controller.start?.()).catch((error) => controller.reader?.renderError?.(error));
         return true;
@@ -155,7 +185,9 @@
     function applyPlaybackControlState(controller, snapshot = controller?.playback?.snapshot?.()) {
         if (!controller || !snapshot) return false;
         const playable = Boolean(controller.isReaderActive?.() && snapshot.frame_count > 0);
-        const sessionRunning = isTrainingRunning(controller) && ACTIVE_SESSION_STATES.has(snapshot.state);
+        const hasClock = Boolean(controller.trainingClock);
+        const sessionRunning = ACTIVE_SESSION_STATES.has(snapshot.state)
+            && (isTrainingRunning(controller) || (!hasClock && snapshot.state === 'playing'));
         const atFirst = !snapshot.frame_count || snapshot.index <= 0;
         const atLast = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
 
@@ -359,17 +391,19 @@
         bindReadingToggleCapture,
         continueManualRespectingSession,
         createToolbarButton,
+        install,
         isTrainingRunning,
+        moveToBoundary,
         navigateBy,
         pauseForFrameNavigation: pauseTrainingForNavigation,
         pauseTrainingForNavigation,
         playPause: togglePlayPause,
         resolveResumeIndex,
         seekFromSlider,
+        startTrainingFromCurrentFrame,
         togglePlayPause,
         upgradeToolbar,
         widenWidthInput,
         wrapUpdateControls,
-        moveToBoundary,
     };
 });
