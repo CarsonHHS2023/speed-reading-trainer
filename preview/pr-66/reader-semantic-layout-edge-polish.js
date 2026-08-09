@@ -14,7 +14,9 @@
     const HEADER_BODY_GAP_PX = 16;
     const HEADER_HORIZONTAL_PADDING_PX = 8;
     const HEADER_PAGE_EDGE = 0.04;
+    const VISUAL_CAPTION_GAP_PX = 6;
     const FURNITURE_TYPES = new Set(['header', 'footer', 'footnote']);
+    const VISUAL_CAPTION_PARENT_TYPES = new Set(['figure', 'table']);
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value));
@@ -36,6 +38,59 @@
 
     function sourceBbox(slot) {
         return normalizeBbox(slot?.dataset?.readerSourceBbox || null);
+    }
+
+    function elementNodeType(element) {
+        return String(element?.node?.node_type || '').trim().toLowerCase();
+    }
+
+    function elementNodeId(element) {
+        return String(element?.node?.node_id || element?.node_id || '').trim();
+    }
+
+    function elementParentRef(element) {
+        return String(element?.node?.parent_ref || '').trim();
+    }
+
+    function positionedPageElements(page) {
+        return (page?.elements || []).filter((element) => normalizeBbox(element?.normalized_bbox));
+    }
+
+    function visualCaptionAssociations(page) {
+        const elements = positionedPageElements(page);
+        const byNodeId = new Map();
+        elements.forEach((element, index) => {
+            const nodeId = elementNodeId(element);
+            if (nodeId) byNodeId.set(nodeId, { element, index });
+        });
+
+        const byParent = new Map();
+        elements.forEach((element, index) => {
+            if (elementNodeType(element) !== 'caption') return;
+            const parentRef = elementParentRef(element);
+            if (!parentRef) return;
+            const parent = byNodeId.get(parentRef);
+            if (!parent || !VISUAL_CAPTION_PARENT_TYPES.has(elementNodeType(parent.element))) return;
+            if (!byParent.has(parentRef)) {
+                byParent.set(parentRef, {
+                    parentNodeId: parentRef,
+                    parentIndex: parent.index,
+                    parentElement: parent.element,
+                    captions: [],
+                });
+            }
+            byParent.get(parentRef).captions.push({
+                captionIndex: index,
+                captionElement: element,
+            });
+        });
+
+        return [...byParent.values()]
+            .map((group) => ({
+                ...group,
+                captions: group.captions.slice().sort((left, right) => left.captionIndex - right.captionIndex),
+            }))
+            .sort((left, right) => left.parentIndex - right.parentIndex);
     }
 
     function computeInlineRowBboxes(boxes, shellWidth, minimumGapPx = INLINE_ROW_MIN_GAP_PX) {
@@ -105,6 +160,112 @@
     function styleTopPx(slot) {
         const value = Number.parseFloat(String(slot?.style?.top || ''));
         return Number.isFinite(value) ? value : null;
+    }
+
+    function measuredSlotHeight(slot, fallback = 0) {
+        const child = slot?.firstElementChild || slot?.children?.[0] || null;
+        const values = [slot?.offsetHeight, slot?.scrollHeight, child?.offsetHeight, child?.scrollHeight]
+            .map(Number)
+            .filter((value) => Number.isFinite(value) && value > 0);
+        return values.length ? Math.max(...values) : Math.max(0, Number(fallback) || 0);
+    }
+
+    function captionInsertionPlan(parentBottomPx, captionTopPx, captionHeightPx, gapPx = VISUAL_CAPTION_GAP_PX) {
+        const parentBottom = Number(parentBottomPx);
+        const captionTop = Number(captionTopPx);
+        const captionHeight = Math.max(0, Number(captionHeightPx) || 0);
+        const gap = Math.max(0, Number(gapPx) || 0);
+        if (!Number.isFinite(parentBottom) || !Number.isFinite(captionTop)) return null;
+        const desiredTop = parentBottom + gap;
+        const separatedDownstream = captionTop > desiredTop + 1;
+        return {
+            desiredTop,
+            shiftPx: separatedDownstream ? captionHeight + gap : 0,
+            separatedDownstream,
+        };
+    }
+
+    function alignCaptionHorizontally(parentSlot, captionSlot) {
+        if (!parentSlot || !captionSlot) return false;
+        if (parentSlot.style?.left) captionSlot.style.left = parentSlot.style.left;
+        if (parentSlot.style?.width) captionSlot.style.width = parentSlot.style.width;
+        captionSlot.style.height = 'auto';
+        captionSlot.style.overflow = 'visible';
+        captionSlot.style.textAlign = 'center';
+        const child = captionSlot.firstElementChild || captionSlot.children?.[0] || null;
+        if (child?.style) {
+            child.style.height = 'auto';
+            child.style.overflow = 'visible';
+            child.style.textAlign = 'center';
+        }
+        const text = child?.querySelector?.('.reader-v2-node-text') || null;
+        if (text?.style) text.style.textAlign = 'center';
+        if (captionSlot.classList?.remove) captionSlot.classList.remove('reader-v2-semantic-page-element--inline-row-member');
+        if (captionSlot.dataset) delete captionSlot.dataset.readerInlineRow;
+        return true;
+    }
+
+    function applyVisualCaptionGrouping(section, page) {
+        const shell = findShell(section);
+        const canvas = findCanvas(section);
+        if (!shell || !canvas || !page) return 0;
+        const elements = positionedPageElements(page);
+        const slots = Array.from(canvas.children || []);
+        if (!elements.length || slots.length < elements.length) return 0;
+        const associations = visualCaptionAssociations(page);
+        if (!associations.length) return 0;
+        const baseHeight = canonicalFurnitureBaseHeight(section, shell);
+        let grouped = 0;
+
+        for (const association of associations) {
+            const parentSlot = slots[association.parentIndex];
+            if (!parentSlot) continue;
+            const parentTop = styleTopPx(parentSlot);
+            if (parentTop === null) continue;
+            let anchorBottom = slotBottomPx(parentSlot, baseHeight);
+            if (!(anchorBottom > parentTop)) continue;
+
+            const groupCaptionIndices = new Set(association.captions.map((item) => item.captionIndex));
+            let attached = 0;
+            for (const caption of association.captions) {
+                const captionSlot = slots[caption.captionIndex];
+                if (!captionSlot) continue;
+                const oldCaptionTop = styleTopPx(captionSlot);
+                if (oldCaptionTop === null || oldCaptionTop <= parentTop) continue;
+                const fallbackHeight = sourceBbox(captionSlot)
+                    ? (sourceBbox(captionSlot)[3] - sourceBbox(captionSlot)[1]) * baseHeight
+                    : 0;
+                const captionHeight = measuredSlotHeight(captionSlot, fallbackHeight);
+                const plan = captionInsertionPlan(anchorBottom, oldCaptionTop, captionHeight);
+                if (!plan) continue;
+
+                if (plan.separatedDownstream && plan.shiftPx > 0) {
+                    slots.forEach((slot, index) => {
+                        if (index === association.parentIndex || groupCaptionIndices.has(index)) return;
+                        const type = String(slot?.dataset?.readerNodeType || '');
+                        if (FURNITURE_TYPES.has(type)) return;
+                        const top = styleTopPx(slot);
+                        if (top === null || top <= parentTop + 0.5 || top >= oldCaptionTop - 0.5) return;
+                        slot.style.top = `${Math.round((top + plan.shiftPx) * 100) / 100}px`;
+                        slot.dataset.readerVisualCaptionDisplaced = association.parentNodeId;
+                    });
+                }
+
+                alignCaptionHorizontally(parentSlot, captionSlot);
+                captionSlot.style.top = `${Math.round(plan.desiredTop * 100) / 100}px`;
+                captionSlot.dataset.readerVisualCaptionParent = association.parentNodeId;
+                captionSlot.dataset.readerVisualCaptionGrouped = '1';
+                anchorBottom = plan.desiredTop + captionHeight;
+                attached += 1;
+            }
+            if (attached) {
+                parentSlot.dataset.readerVisualCaptionCount = String(attached);
+                grouped += attached;
+            }
+        }
+
+        if (grouped) section.dataset.readerVisualCaptionGroupedCount = String(grouped);
+        return grouped;
     }
 
     function shellAspectRatio(shell) {
@@ -263,9 +424,10 @@
         return delta;
     }
 
-    function polishSection(section) {
+    function polishSection(section, page) {
         if (!section || section?.dataset?.readerLayoutRefined !== '1') return false;
         applyInlineRowClearance(section);
+        applyVisualCaptionGrouping(section, page);
         normalizeHeaders(section);
         applyHeaderClearance(section);
         section.dataset.readerLayoutEdgePolished = '1';
@@ -279,7 +441,7 @@
         schedule(() => schedule(() => schedule(callback)));
     }
 
-    function observeResize(root, section) {
+    function observeResize(root, section, page) {
         const ResizeObserverCtor = root?.ResizeObserver;
         const shell = findShell(section);
         if (!ResizeObserverCtor || !shell || shell.__readerSemanticEdgePolishObserver) return false;
@@ -288,7 +450,7 @@
             const width = Number(shell.clientWidth || shell.offsetWidth || 0);
             if (!width || Math.abs(width - lastWidth) < 1) return;
             lastWidth = width;
-            scheduleAfterLayout(root, () => polishSection(section));
+            scheduleAfterLayout(root, () => polishSection(section, page));
         });
         observer.observe(shell);
         shell.__readerSemanticEdgePolishObserver = observer;
@@ -302,10 +464,11 @@
         const original = SemanticPage.renderSemanticPage;
         SemanticPage.renderSemanticPage = function renderSemanticPageWithEdgePolish(options = {}) {
             const section = original.call(this, options);
+            const page = options.page;
             if (section) {
                 scheduleAfterLayout(root, () => {
-                    polishSection(section);
-                    observeResize(root, section);
+                    polishSection(section, page);
+                    observeResize(root, section, page);
                 });
             }
             return section;
@@ -339,9 +502,13 @@
         HEADER_HORIZONTAL_PADDING_PX,
         HEADER_PAGE_EDGE,
         INLINE_ROW_MIN_GAP_PX,
+        VISUAL_CAPTION_GAP_PX,
+        alignCaptionHorizontally,
         applyHeaderClearance,
         applyInlineRowClearance,
+        applyVisualCaptionGrouping,
         canonicalFurnitureBaseHeight,
+        captionInsertionPlan,
         computeInlineRowBboxes,
         expandedHeaderBbox,
         headerMeasuredWidthPx,
@@ -353,5 +520,6 @@
         patchSemanticRenderer,
         polishSection,
         sourceBbox,
+        visualCaptionAssociations,
     };
 });
