@@ -113,6 +113,103 @@ test('speed controls expose the computed maximum and clamp an over-limit current
     assert.equal(input.style.width, '72px');
 });
 
+test('installed policy keeps speed slider and numeric input synchronized after Reader activation', () => {
+    const speedSlider = eventControl(5000);
+    const speedInput = eventControl(5000);
+    const widthSlider = eventControl(100, 20, 100);
+    const widthInput = eventControl(100, 20, 100);
+    const linesSlider = eventControl(4, 1, 10);
+    const linesInput = eventControl(4, 1, 10);
+    const fontSlider = eventControl(28, 16, 48);
+    const fontInput = eventControl(28, 16, 48);
+    const fontWeight = eventControl('normal');
+    const displayMode = eventControl('line');
+    const speedUnit = { textContent: '' };
+    const viewpointLabel = { textContent: '' };
+    const trainingMode = eventControl('focus');
+    trainingMode.options = [
+        { value: 'focus', textContent: '焦点式' },
+        { value: 'moving', textContent: '移动式' },
+    ];
+    trainingMode.closest = () => ({ querySelector: () => viewpointLabel });
+    const focusText = {};
+    const elements = {
+        speedSlider, speedInput, speedUnit,
+        widthSlider, widthInput,
+        linesSlider, linesInput,
+        fontSlider, fontInput, fontWeight,
+        displayMode, trainingMode, focusText,
+    };
+
+    class FakeController {
+        constructor() {
+            this.document = {
+                defaultView: {
+                    getComputedStyle() {
+                        return {
+                            fontFamily: 'sans-serif',
+                            fontSize: '28px',
+                            fontStyle: 'normal',
+                            fontWeight: '400',
+                            lineHeight: '43.4px',
+                        };
+                    },
+                },
+                querySelector() { return null; },
+            };
+        }
+
+        element(id) { return elements[id] || null; }
+        updateSettingsVisibility() {}
+        applyVisualSettings() {}
+        displayScope() { return 'line'; }
+        playbackAvailableHeight() { return 600; }
+        adapterOptions() {
+            return {
+                displayScope: 'line',
+                widthPercent: Number(widthInput.value),
+                lineCount: Number(linesInput.value),
+                maxLines: Number(linesInput.value),
+                maxWidthPx: 700,
+                speedPerMinute: Number(speedInput.value),
+            };
+        }
+        refreshFrames() { return []; }
+    }
+    FakeController.prototype.__speedReadingLayoutIntegrityInstalled = true;
+
+    const controller = new FakeController();
+    const root = {
+        ReaderSpeedPlaybackUI: {
+            ReaderSpeedPlaybackUIController: FakeController,
+            getDefaultController: () => controller,
+        },
+        SpeedReadingAdapter: Adapter,
+        SpeedReadingResponsiveLayout: {
+            DEFAULT_LINE_HEIGHT_RATIO: 1.55,
+            DEFAULT_SAFE_VERTICAL_GUTTER_PX: 72,
+            createCanvasMeasurer: () => fixedMeasure(28),
+            pageLineCapacity: () => 10,
+        },
+    };
+
+    assert.equal(Policy.install(root), true);
+    assert.equal(speedSlider.max, '36000');
+    assert.equal(speedInput.max, '36000');
+
+    speedSlider.value = '12000';
+    speedSlider.dispatch('input');
+    assert.equal(speedSlider.value, '12000');
+    assert.equal(speedInput.value, '12000');
+    assert.equal(speedSlider.max, '36000');
+
+    speedInput.value = '8000';
+    speedInput.dispatch('change');
+    assert.equal(speedInput.value, '8000');
+    assert.equal(speedSlider.value, '8000');
+    assert.equal(speedSlider.max, '36000');
+});
+
 test('installed policy recomputes maximum from live width and line controls', () => {
     const speedSlider = eventControl(5000);
     const speedInput = eventControl(5000);
