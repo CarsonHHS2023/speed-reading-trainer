@@ -22,7 +22,12 @@ function element(id, type, text, extra = {}) {
     kind: 'text',
     node_type: type,
     text,
-    identity: { candidate_id: 'candidate', node_id: id, source_unit_id: 'page-1' },
+    identity: {
+      candidate_id: 'candidate',
+      node_id: id,
+      source_unit_id: 'page-1',
+      ...(extra.source_anchor ? { source_anchor: extra.source_anchor } : {}),
+    },
     source_unit_kind: 'text_flow',
     ...extra,
   };
@@ -41,15 +46,33 @@ test('TOC list items remain separate measured lines', () => {
   ]);
 });
 
-test('same-source paragraph fragments join without an artificial CJK space', () => {
+test('true same-source paragraph fragments join without an artificial CJK space', () => {
   const joined = FragmentJoin.joinReadingElements([
-    element('p1', 'paragraph', '本书是作者16年的股票、'),
-    element('p2', 'paragraph', '期货和外汇交易过程中总结出来的'),
+    element('p:page-fragment:0', 'paragraph', '本书是作者16年的股票、'),
+    element('p:page-fragment:1', 'paragraph', '期货和外汇交易过程中总结出来的'),
   ]);
   const lines = Layout.buildMeasuredLines(Adapter, joined, 1000, measure);
   assert.equal(joined.length, 1);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].text, '本书是作者16年的股票、期货和外汇交易过程中总结出来的');
+});
+
+test('contiguous text-span evidence can join OCR fragments without text heuristics', () => {
+  const joined = FragmentJoin.joinReadingElements([
+    element('fragment-a', 'paragraph', 'alpha', { source_anchor: { kind: 'text_span', start: 0, end: 5 } }),
+    element('fragment-b', 'paragraph', 'beta', { source_anchor: { kind: 'text_span', start: 5, end: 9 } }),
+  ]);
+  assert.equal(joined.length, 1);
+  assert.equal(joined[0].text, 'alpha beta');
+});
+
+test('distinct canonical paragraphs sharing one TXT source unit are not fragment-joined', () => {
+  const joined = FragmentJoin.joinReadingElements([
+    element('p1', 'paragraph', '第一段。', { source_anchor: { kind: 'text_span', start: 0, end: 4 } }),
+    element('p2', 'paragraph', '第二段。', { source_anchor: { kind: 'text_span', start: 6, end: 10 } }),
+  ]);
+  assert.equal(joined.length, 2);
+  assert.deepEqual(joined.map((item) => item.identity.node_id), ['p1', 'p2']);
 });
 
 test('closing punctuation never begins a measured line', () => {
