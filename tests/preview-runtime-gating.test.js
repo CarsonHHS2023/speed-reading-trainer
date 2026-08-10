@@ -12,7 +12,7 @@ const runtimeSource = fs.readFileSync(
 const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
 const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
 
-function executeRuntime(pathname) {
+function executeRuntime(pathname, options = {}) {
   const calls = [];
   const nativeFetch = async (input, init) => {
     calls.push({ input, init });
@@ -26,6 +26,8 @@ function executeRuntime(pathname) {
     },
     fetch: nativeFetch,
     Request: global.Request,
+    document: options.documentObject,
+    ReaderUIV2: options.readerUI,
     console: {
       info(...args) {
         messages.push(args);
@@ -86,4 +88,77 @@ test('PR preview leaves unrelated fetch destinations untouched', async () => {
 
   await windowObject.fetch('https://example.com/data');
   assert.equal(calls[0].input, 'https://example.com/data');
+});
+
+test('PR preview auto-loads one bounded Reader chunk near the loaded scroll end', async () => {
+  const listeners = {};
+  const main = {
+    dataset: {},
+    scrollHeight: 2200,
+    scrollTop: 1500,
+    clientHeight: 600,
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    },
+  };
+  const documentObject = {
+    readyState: 'complete',
+    querySelector(selector) {
+      return selector === '.reader-v2-main' ? main : null;
+    },
+  };
+  const loadCalls = [];
+  const controller = {
+    openResponse: { candidate_id: 'candidate-1' },
+    hasMore: true,
+    async loadMore(options) {
+      loadCalls.push(options);
+      return { has_more: true };
+    },
+  };
+
+  const { windowObject } = executeRuntime('/speed-reading-trainer/preview/pr-101/', {
+    documentObject,
+    readerUI: { getDefaultController: () => controller },
+  });
+
+  assert.equal(main.dataset.previewAutoPaginationBound, '1');
+  assert.equal(typeof listeners.scroll, 'function');
+  await listeners.scroll();
+  assert.deepEqual(loadCalls, [{ silent: true }]);
+  assert.equal(typeof windowObject.__TXT_PREVIEW_READER_AUTOPAGINATION__.nearLoadedEnd, 'function');
+});
+
+test('PR preview does not auto-load Reader chunks while far from the loaded end', async () => {
+  const listeners = {};
+  const main = {
+    dataset: {},
+    scrollHeight: 5000,
+    scrollTop: 800,
+    clientHeight: 600,
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    },
+  };
+  const documentObject = {
+    readyState: 'complete',
+    querySelector(selector) {
+      return selector === '.reader-v2-main' ? main : null;
+    },
+  };
+  let loadCount = 0;
+  const controller = {
+    openResponse: { candidate_id: 'candidate-1' },
+    hasMore: true,
+    async loadMore() {
+      loadCount += 1;
+    },
+  };
+
+  executeRuntime('/speed-reading-trainer/preview/pr-101/', {
+    documentObject,
+    readerUI: { getDefaultController: () => controller },
+  });
+  await listeners.scroll();
+  assert.equal(loadCount, 0);
 });
