@@ -127,6 +127,7 @@ test('block scope lays out full visual lines first, then slices each line withou
         widthPercent: 50,
         maxWidthPx: 100,
         pageLineCapacity: 10,
+        paragraphLayout: false,
     });
     assert.deepEqual(result.frames.map((frame) => frame.text), ['汉'.repeat(5), '汉'.repeat(5), '汉'.repeat(3)]);
     assert.deepEqual(result.frames.map((frame) => frame.placement.line_index), [0, 0, 1]);
@@ -153,6 +154,7 @@ test('line scope uses the configured percentage as line width and groups only co
         maxWidthPx: 100,
         lineCount: 2,
         pageLineCapacity: 10,
+        paragraphLayout: false,
     });
     assert.equal(result.options.lineWidthPx, 50);
     assert.deepEqual(result.frames.map((frame) => frame.lines.length), [2, 2]);
@@ -166,6 +168,7 @@ test('line frames do not straddle a virtual page boundary in moving geometry', (
         maxWidthPx: 100,
         lineCount: 2,
         pageLineCapacity: 3,
+        paragraphLayout: false,
     });
     assert.deepEqual(result.frames.map((frame) => frame.lines.length), [2, 1, 1]);
     assert.deepEqual(result.frames.map((frame) => frame.placement.virtual_page_index), [0, 0, 1]);
@@ -178,6 +181,7 @@ test('page scope is text reflow for every source type and uses automatic page-li
         widthPercent: 100,
         maxWidthPx: 100,
         pageLineCapacity: 2,
+        paragraphLayout: false,
     });
     assert.deepEqual(result.frames.map((frame) => frame.lines.length), [2, 2, 1]);
     assert.deepEqual(result.frames.map((frame) => frame.placement.virtual_page_index), [0, 1, 2]);
@@ -194,6 +198,7 @@ test('manual figure/table/formula frames terminate the current text page and fol
         widthPercent: 100,
         maxWidthPx: 100,
         pageLineCapacity: 3,
+        paragraphLayout: false,
     });
     assert.deepEqual(result.frames.map((frame) => frame.kind), ['timed_text', 'manual', 'timed_text']);
     assert.deepEqual(result.frames.map((frame) => frame.placement.virtual_page_index), [0, 1, 2]);

@@ -14,6 +14,7 @@
     ]);
     const SINGLE_ROW_TYPES = new Set(['title', 'heading', 'list', 'list_item', 'toc', 'toc_item']);
     const REFLOW_CONTINUATION_TYPES = new Set(['paragraph', 'unknown']);
+    const PARAGRAPH_FLOW_TYPES = new Set(['paragraph', 'unknown']);
     const SENTENCE_END = /[。！？!?；;：:]\s*$/u;
     const CLOSING_PUNCTUATION = new Set([
         ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '>',
@@ -26,7 +27,34 @@
     const DEFAULT_SAFE_GUTTER_PX = 48;
     const DEFAULT_SAFE_VERTICAL_GUTTER_PX = 72;
     const DEFAULT_LINE_HEIGHT_RATIO = 1.55;
+    const STRUCTURED_ROW_GAP_EM = 0.18;
+    const PARAGRAPH_FIRST_LINE_INDENT_EM = 2;
+    const PARAGRAPH_GAP_EM = 0.45;
     const FONT_SCALE_BY_TYPE = Object.freeze({ title: 1.5, heading: 1.22, caption: 0.82, reference: 0.82 });
+    const HEADING_FONT_SCALE_BY_LEVEL = Object.freeze({ 1: 1.32, 2: 1.22, 3: 1.12, 4: 1.04, 5: 1.04, 6: 1.04 });
+
+    function normalizeNodeType(value) {
+        return String(value || '').trim().toLowerCase().replace(/[\s-]+/gu, '_');
+    }
+
+    function normalizedHeadingLevel(value) {
+        return Number.isInteger(value) && value >= 1 && value <= 6 ? value : null;
+    }
+
+    function fontScaleFor(nodeType, headingLevel = null) {
+        const type = normalizeNodeType(nodeType);
+        const level = normalizedHeadingLevel(headingLevel);
+        if (type === 'heading' && level) return HEADING_FONT_SCALE_BY_LEVEL[level];
+        return FONT_SCALE_BY_TYPE[type] || 1;
+    }
+
+    function fontWeightFor(nodeType, headingLevel, baseWeight = '400') {
+        const type = normalizeNodeType(nodeType);
+        const level = normalizedHeadingLevel(headingLevel);
+        if (type === 'title') return '700';
+        if (type === 'heading') return level && level >= 4 ? '650' : '700';
+        return baseWeight || '400';
+    }
 
     function clampWidthPercent(value) {
         const numeric = Number(value);
@@ -104,11 +132,15 @@
         return Math.max(1, panelHeight - paddingTop - paddingBottom);
     }
 
-    function pageLineCapacity(availableHeightPx, lineHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX) {
+    function pageHeightBudget(availableHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX, minimumPx = 1) {
         const available = Math.max(0, Number(availableHeightPx) || 0);
         const gutter = Math.max(0, Number(safeGutterPx) || 0);
+        return Math.max(Math.max(1, Number(minimumPx) || 1), available - gutter);
+    }
+
+    function pageLineCapacity(availableHeightPx, lineHeightPx, safeGutterPx = DEFAULT_SAFE_VERTICAL_GUTTER_PX) {
         const lineHeight = Math.max(1, Number(lineHeightPx) || 1);
-        return Math.max(1, Math.floor(Math.max(lineHeight, available - gutter) / lineHeight));
+        return Math.max(1, Math.floor(pageHeightBudget(availableHeightPx, safeGutterPx, lineHeight) / lineHeight));
     }
 
     function createCanvasMeasurer(documentObject, fontOptions) {
@@ -124,10 +156,11 @@
         const family = options.fontFamily || 'sans-serif';
         const style = options.fontStyle || 'normal';
         const baseWeight = options.fontWeight || '400';
-        return (text, nodeType = 'paragraph') => {
-            const scale = FONT_SCALE_BY_TYPE[nodeType] || 1;
-            const weight = ['title', 'heading'].includes(nodeType) ? '700' : baseWeight;
-            const familyForType = nodeType === 'code' ? 'ui-monospace, SFMono-Regular, Consolas, monospace' : family;
+        return (text, nodeType = 'paragraph', headingLevel = null) => {
+            const type = normalizeNodeType(nodeType) || 'paragraph';
+            const scale = fontScaleFor(type, headingLevel);
+            const weight = fontWeightFor(type, headingLevel, baseWeight);
+            const familyForType = type === 'code' ? 'ui-monospace, SFMono-Regular, Consolas, monospace' : family;
             context.font = `${style} ${weight} ${baseSize * scale}px ${familyForType}`;
             return context.measureText(String(text || '')).width;
         };
@@ -175,21 +208,69 @@
         return !SENTENCE_END.test(previous.text || '');
     }
 
-    function shouldForceNodeBoundary(previous, current) {
+    function isParagraphFlowElement(element) {
+        return PARAGRAPH_FLOW_TYPES.has(normalizeNodeType(element?.node_type));
+    }
+
+    function shouldForceNodeBoundary(previous, current, options = {}) {
         if (!previous) return false;
         if (HARD_STRUCTURE_TYPES.has(previous.node_type) || HARD_STRUCTURE_TYPES.has(current.node_type)) return true;
         if (REFLOW_CONTINUATION_TYPES.has(previous.node_type) && REFLOW_CONTINUATION_TYPES.has(current.node_type)) {
+            const preserveParagraphBoundaries = options.preserveParagraphBoundaries !== false;
+            const sameSourceUnit = Boolean(
+                previous.identity?.source_unit_id
+                && previous.identity.source_unit_id === current.identity?.source_unit_id
+            );
+            const previousNodeId = String(previous.identity?.node_id || '').trim();
+            const currentNodeId = String(current.identity?.node_id || '').trim();
+            if (
+                preserveParagraphBoundaries
+                && sameSourceUnit
+                && previousNodeId
+                && currentNodeId
+                && previousNodeId !== currentNodeId
+            ) return true;
             return !shouldContinueAcrossPage(previous, current);
         }
         return true;
     }
 
+    function canonicalMeasuredHints(adapter, nodes) {
+        const hints = new Map();
+        for (const node of nodes || []) {
+            const nodeId = String(node?.node_id || '').trim();
+            if (!nodeId) continue;
+            const semanticType = normalizeNodeType(node?.node_type);
+            hints.set(nodeId, {
+                heading_level: normalizedHeadingLevel(node?.heading_level),
+                toc_title: semanticType === 'toc',
+            });
+        }
+        return hints;
+    }
+
+    function decorateMeasuredElements(adapter, elements, nodes, displayScope) {
+        const hints = canonicalMeasuredHints(adapter, nodes);
+        return (elements || []).map((element) => {
+            const nodeId = String(element?.identity?.node_id || '').trim();
+            const hint = hints.get(nodeId);
+            const headingLevel = normalizedHeadingLevel(element?.heading_level) || hint?.heading_level || null;
+            if (displayScope === 'page' && hint?.toc_title) {
+                return { ...element, node_type: 'title', heading_level: null, toc_title: true };
+            }
+            return headingLevel === element?.heading_level
+                ? element
+                : { ...element, heading_level: headingLevel };
+        });
+    }
+
     function measuredTokensForElement(adapter, element, measureText) {
         return adapter.tokenizeReadingText(element.text, { normalizeSoftWraps: true }).map((token) => ({
             ...token,
-            measured_width: Math.max(0, Number(measureText(token.text, element.node_type)) || 0),
+            measured_width: Math.max(0, Number(measureText(token.text, element.node_type, element.heading_level)) || 0),
             node_type: element.node_type,
-            heading_level: element.heading_level || null,
+            heading_level: normalizedHeadingLevel(element.heading_level),
+            toc_title: element.toc_title === true,
             identity: element.identity,
         }));
     }
@@ -210,6 +291,7 @@
             text: trimmed.map((token) => token.text).join(''),
             node_type: types.length === 1 ? types[0] : 'mixed',
             heading_level: levels.length === 1 ? levels[0] : null,
+            toc_title: trimmed.some((token) => token.toc_title === true),
             identity: sourceSpans[0] || null,
             source_spans: sourceSpans,
             measured_width_px: trimmed.reduce((sum, token) => sum + token.measured_width, 0),
@@ -219,21 +301,40 @@
         };
     }
 
-    function buildMeasuredLines(adapter, elements, maxWidthPx, measureText) {
+    function buildMeasuredLines(adapter, elements, maxWidthPx, measureText, options = {}) {
         const width = Math.max(1, Number(maxWidthPx) || 1);
+        const paragraphLayout = options.paragraphLayout !== false;
+        const paragraphIndentPx = paragraphLayout
+            ? Math.max(0, Number(options.paragraphIndentPx) || 0)
+            : 0;
         const lines = [];
         let lineTokens = [];
         let lineWidth = 0;
+        let lineMeta = {};
         let previousElement = null;
 
         const recalculateWidth = () => {
             lineWidth = lineTokens.reduce((sum, token) => sum + token.measured_width, 0);
         };
+        const availableLineWidth = () => Math.max(
+            1,
+            width - (lineMeta.paragraph_start === true ? paragraphIndentPx : 0),
+        );
+        const markParagraphStart = (element) => {
+            if (!paragraphLayout || !isParagraphFlowElement(element) || lineTokens.length) return;
+            lineMeta = {
+                ...lineMeta,
+                paragraph_start: true,
+                paragraph_id: String(element?.identity?.node_id || '').trim() || null,
+                paragraph_indent_px: paragraphIndentPx,
+            };
+        };
         const flush = (extra = {}) => {
-            const line = structuredLine(lineTokens, extra);
+            const line = structuredLine(lineTokens, { ...lineMeta, ...extra });
             if (line.text.trim()) lines.push(line);
             lineTokens = [];
             lineWidth = 0;
+            lineMeta = {};
         };
 
         for (const element of elements) {
@@ -249,31 +350,45 @@
                 continue;
             }
 
-            if (shouldForceNodeBoundary(previousElement, element)) flush();
+            const forceBoundary = shouldForceNodeBoundary(previousElement, element, {
+                preserveParagraphBoundaries: paragraphLayout,
+            });
+            if (forceBoundary) flush();
             else if (previousElement && lineTokens.length) {
                 const before = lastCharacter(previousElement.text);
                 const after = firstCharacter(element.text);
                 if (!(isCjk(before) && isCjk(after))) {
-                    const spaceWidth = Math.max(0, Number(measureText(' ', element.node_type)) || 0);
-                    if (lineWidth + spaceWidth > width) flush();
+                    const spaceWidth = Math.max(0, Number(measureText(' ', element.node_type, element.heading_level)) || 0);
+                    if (lineWidth + spaceWidth > availableLineWidth()) flush();
                     if (lineTokens.length) {
                         lineTokens.push({
                             kind: 'space', text: ' ', reading_units: 0, measured_width: spaceWidth,
-                            node_type: element.node_type, heading_level: element.heading_level || null,
-                            identity: element.identity,
+                            node_type: element.node_type, heading_level: normalizedHeadingLevel(element.heading_level),
+                            toc_title: element.toc_title === true, identity: element.identity,
                         });
                         lineWidth += spaceWidth;
                     }
                 }
             }
 
+            const startsParagraph = paragraphLayout
+                && isParagraphFlowElement(element)
+                && (!previousElement || forceBoundary || !isParagraphFlowElement(previousElement));
+            if (startsParagraph) markParagraphStart(element);
+
+            let newlineRun = 0;
             for (const token of measuredTokensForElement(adapter, element, measureText)) {
                 if (token.kind === 'newline') {
                     flush();
+                    newlineRun += 1;
+                    if (newlineRun >= 2) markParagraphStart(element);
                     continue;
                 }
+                newlineRun = 0;
                 if (token.kind === 'space' && !lineTokens.length) continue;
-                const wouldOverflow = lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width;
+                const wouldOverflow = lineTokens.length
+                    && token.measured_width > 0
+                    && lineWidth + token.measured_width > availableLineWidth();
 
                 // Closing punctuation hangs on the current line. Never move a text
                 // token across the boundary to make room for punctuation. If the
@@ -290,26 +405,114 @@
         return lines;
     }
 
+    function measuredRowMetrics(line, options = {}) {
+        const baseFontSizePx = Math.max(1, Number(options.baseFontSizePx) || 28);
+        const baseLineHeightPx = Math.max(1, Number(options.baseLineHeightPx) || baseFontSizePx * DEFAULT_LINE_HEIGHT_RATIO);
+        const type = normalizeNodeType(line?.node_type) || 'paragraph';
+        const level = normalizedHeadingLevel(line?.heading_level);
+        const scale = fontScaleFor(type, level);
+        const fontSizePx = baseFontSizePx * scale;
+        let lineHeightPx;
+        let marginBlockPx = 0;
+
+        if (type === 'title') {
+            lineHeightPx = fontSizePx * 1.3;
+            marginBlockPx = fontSizePx * 0.16;
+        } else if (type === 'heading') {
+            lineHeightPx = fontSizePx * 1.35;
+            marginBlockPx = fontSizePx * 0.10;
+        } else if (type === 'caption' || type === 'reference') {
+            lineHeightPx = baseLineHeightPx * scale;
+        } else {
+            lineHeightPx = baseLineHeightPx;
+        }
+
+        return {
+            font_scale: scale,
+            font_size_px: fontSizePx,
+            line_height_px: lineHeightPx,
+            margin_block_px: marginBlockPx,
+            row_height_px: lineHeightPx + marginBlockPx,
+        };
+    }
+
+    function annotateMeasuredRows(lines, options = {}) {
+        const paragraphGapPx = Math.max(0, Number(options.paragraphGapPx) || 0);
+        return (lines || []).map((line, index, allLines) => {
+            const previous = index > 0 ? allLines[index - 1] : null;
+            const paragraphGapBeforePx = line?.paragraph_start === true
+                && isParagraphFlowElement(previous)
+                ? paragraphGapPx
+                : 0;
+            return {
+                ...line,
+                ...measuredRowMetrics(line, options),
+                paragraph_gap_before_px: paragraphGapBeforePx,
+            };
+        });
+    }
+
+    function measuredPageHeight(lines, rowGapPx = 0) {
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        return (lines || []).reduce((sum, line, index) => {
+            const paragraphGap = index > 0 ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            return sum + (index > 0 ? gap : 0) + paragraphGap + Math.max(1, Number(line?.row_height_px) || 1);
+        }, 0);
+    }
+
+    function packMeasuredPageRows(lines, pageHeightPx, rowGapPx = 0) {
+        const budget = Math.max(1, Number(pageHeightPx) || 1);
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        const pages = [];
+        let page = [];
+        let used = 0;
+
+        const flush = () => {
+            if (page.length) pages.push(page);
+            page = [];
+            used = 0;
+        };
+
+        for (const line of lines || []) {
+            const rowHeight = Math.max(1, Number(line?.row_height_px) || 1);
+            const paragraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const separator = page.length ? gap + paragraphGap : 0;
+            if (page.length && used + separator + rowHeight > budget + 0.01) flush();
+            const nextParagraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const nextSeparator = page.length ? gap + nextParagraphGap : 0;
+            page.push(line);
+            used += nextSeparator + rowHeight;
+        }
+        flush();
+        return pages;
+    }
+
     function splitMeasuredLineIntoBlocks(line, maxBlockWidthPx) {
         if (!line?.text) return [];
         if (line.structural_single_row) {
-            return [{
-                ...line,
-                block_index: 0,
-                block_count: 1,
-                x_offset_px: 0,
-            }];
+            return [{ ...line, block_index: 0, block_count: 1, x_offset_px: 0 }];
         }
 
         const width = Math.max(1, Number(maxBlockWidthPx) || 1);
         const blocks = [];
+        const paragraphIndentPx = line?.paragraph_start === true
+            ? Math.max(0, Number(line?.paragraph_indent_px) || 0)
+            : 0;
         let blockTokens = [];
         let blockWidth = 0;
-        let blockStartX = 0;
-        let absoluteX = 0;
+        let blockStartX = paragraphIndentPx;
+        let absoluteX = paragraphIndentPx;
 
         const flush = () => {
-            const block = structuredLine(blockTokens, { x_offset_px: blockStartX });
+            const firstBlock = blocks.length === 0;
+            const block = structuredLine(blockTokens, {
+                x_offset_px: blockStartX,
+                paragraph_start: firstBlock && line?.paragraph_start === true,
+                paragraph_id: firstBlock ? (line?.paragraph_id || null) : null,
+                paragraph_indent_px: 0,
+                paragraph_source_indent_px: firstBlock ? paragraphIndentPx : 0,
+                paragraph_gap_before_px: firstBlock ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0,
+            });
             if (block.text.trim()) blocks.push(block);
             blockTokens = [];
             blockWidth = 0;
@@ -403,16 +606,42 @@
     }
 
     function buildMeasuredPlaybackFrames(adapter, documentView, nodes, options = {}) {
-        const elements = adapter.buildReadingElements(documentView, nodes);
         const displayScope = ['block', 'line', 'page'].includes(options.displayScope) ? options.displayScope : 'line';
+        const rawElements = adapter.buildReadingElements(documentView, nodes);
+        const elements = decorateMeasuredElements(adapter, rawElements, nodes, displayScope);
         const widthPercent = clampWidthPercent(options.widthPercent);
         const contentWidthPx = Math.max(1, Number(options.maxWidthPx) || 1);
         const configuredWidthPx = Math.max(1, contentWidthPx * widthPercent / 100);
         const lineWidthPx = displayScope === 'block' ? contentWidthPx : configuredWidthPx;
         const blockWidthPx = configuredWidthPx;
-        const lineCount = Math.max(1, Number(options.lineCount || options.maxLines) || 3);
-        const capacity = Math.max(1, Number(options.pageLineCapacity) || lineCount);
+        const configuredLineCount = displayScope === 'page'
+            ? Math.max(1, Number(options.lineCount) || 3)
+            : Math.max(1, Number(options.lineCount || options.maxLines) || 3);
         const lineHeightPx = Math.max(1, Number(options.lineHeightPx) || 1);
+        const explicitCapacity = Number(options.pageLineCapacity);
+        const capacity = Number.isFinite(explicitCapacity) && explicitCapacity > 0
+            ? Math.max(1, Math.floor(explicitCapacity))
+            : 1;
+        const baseFontSizePx = Math.max(
+            1,
+            Number(options.fontSizePx) || lineHeightPx / DEFAULT_LINE_HEIGHT_RATIO,
+        );
+        const paragraphLayout = options.paragraphLayout !== false;
+        const configuredParagraphIndentPx = Number(options.paragraphIndentPx);
+        const configuredParagraphGapPx = Number(options.paragraphGapPx);
+        const paragraphIndentPx = paragraphLayout
+            ? Math.max(0, Number.isFinite(configuredParagraphIndentPx)
+                ? configuredParagraphIndentPx
+                : baseFontSizePx * PARAGRAPH_FIRST_LINE_INDENT_EM)
+            : 0;
+        const paragraphGapPx = paragraphLayout
+            ? Math.max(0, Number.isFinite(configuredParagraphGapPx)
+                ? configuredParagraphGapPx
+                : baseFontSizePx * PARAGRAPH_GAP_EM)
+            : 0;
+        const rowGapPx = Math.max(0, Number(options.rowGapPx) || baseFontSizePx * STRUCTURED_ROW_GAP_EM);
+        const fallbackPageHeightPx = capacity * lineHeightPx + Math.max(0, capacity - 1) * rowGapPx;
+        const pageHeightPx = Math.max(1, Number(options.pageHeightPx) || fallbackPageHeightPx);
         const speedPerMinute = Number(options.speedPerMinute) || 5000;
         const measureText = options.measureText;
         if (typeof measureText !== 'function') return adapter.buildPlaybackFrames(documentView, nodes, options);
@@ -422,17 +651,18 @@
         let ordinal = 0;
         let virtualPageIndex = 0;
         let lineCursor = 0;
+        let movingParagraphOffsetPx = 0;
         const lineOriginX = Math.max(0, (contentWidthPx - lineWidthPx) / 2);
 
         const advanceToFreshPage = () => {
             if (lineCursor > 0) virtualPageIndex += 1;
             lineCursor = 0;
+            movingParagraphOffsetPx = 0;
         };
 
         const emitPageFrames = (anchor, lines) => {
-            let index = 0;
-            while (index < lines.length) {
-                const slice = lines.slice(index, index + capacity);
+            const pages = packMeasuredPageRows(lines, pageHeightPx, rowGapPx);
+            for (const slice of pages) {
                 frames.push(timedFrame(adapter, anchor, ordinal, slice, speedPerMinute, {
                     display_scope: 'page',
                     virtual_page_index: virtualPageIndex,
@@ -443,10 +673,12 @@
                     width_px: lineWidthPx,
                     line_width_px: lineWidthPx,
                     content_width_px: contentWidthPx,
+                    page_height_px: pageHeightPx,
+                    content_height_px: measuredPageHeight(slice, rowGapPx),
+                    row_gap_px: rowGapPx,
                 }));
                 ordinal += 1;
                 virtualPageIndex += 1;
-                index += slice.length;
             }
             lineCursor = 0;
         };
@@ -455,31 +687,46 @@
             let index = 0;
             while (index < lines.length) {
                 const availableOnPage = Math.max(1, capacity - lineCursor);
-                const take = Math.min(lineCount, availableOnPage, lines.length - index);
+                const take = Math.min(configuredLineCount, availableOnPage, lines.length - index);
                 const slice = lines.slice(index, index + take);
+                const leadingParagraphGap = lineCursor > 0
+                    ? Math.max(0, Number(slice[0]?.paragraph_gap_before_px) || 0)
+                    : 0;
+                const yPx = lineCursor * lineHeightPx + movingParagraphOffsetPx + leadingParagraphGap;
                 frames.push(timedFrame(adapter, anchor, ordinal, slice, speedPerMinute, {
                     display_scope: 'line',
                     virtual_page_index: virtualPageIndex,
                     line_index: lineCursor,
                     line_span: slice.length,
                     x_px: lineOriginX,
-                    y_px: lineCursor * lineHeightPx,
+                    y_px: yPx,
                     width_px: lineWidthPx,
                     line_width_px: lineWidthPx,
                     content_width_px: contentWidthPx,
                 }));
+                const paragraphGapsInSlice = slice.reduce((sum, line, localIndex) => {
+                    const pageLineIndex = lineCursor + localIndex;
+                    if (pageLineIndex <= 0) return sum;
+                    return sum + Math.max(0, Number(line?.paragraph_gap_before_px) || 0);
+                }, 0);
+                movingParagraphOffsetPx += paragraphGapsInSlice;
                 ordinal += 1;
                 index += take;
                 lineCursor += take;
                 if (lineCursor >= capacity) {
                     virtualPageIndex += 1;
                     lineCursor = 0;
+                    movingParagraphOffsetPx = 0;
                 }
             }
         };
 
         const emitBlockFrames = (anchor, lines) => {
             for (const line of lines) {
+                const paragraphGap = lineCursor > 0
+                    ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0)
+                    : 0;
+                const lineY = lineCursor * lineHeightPx + movingParagraphOffsetPx + paragraphGap;
                 const blocks = splitMeasuredLineIntoBlocks(line, blockWidthPx);
                 for (const block of blocks) {
                     const atomicStructure = Boolean(line.structural_single_row);
@@ -489,7 +736,7 @@
                         line_index: lineCursor,
                         line_span: 1,
                         x_px: lineOriginX + Math.max(0, Number(block.x_offset_px) || 0),
-                        y_px: lineCursor * lineHeightPx,
+                        y_px: lineY,
                         width_px: atomicStructure ? lineWidthPx : Math.max(1, block.measured_width_px),
                         block_width_px: blockWidthPx,
                         line_width_px: lineWidthPx,
@@ -500,10 +747,12 @@
                     }));
                     ordinal += 1;
                 }
+                movingParagraphOffsetPx += paragraphGap;
                 lineCursor += 1;
                 if (lineCursor >= capacity) {
                     virtualPageIndex += 1;
                     lineCursor = 0;
+                    movingParagraphOffsetPx = 0;
                 }
             }
         };
@@ -511,7 +760,13 @@
         const flushRun = () => {
             if (!run.length) return;
             const anchor = run[0];
-            const lines = buildMeasuredLines(adapter, run, lineWidthPx, measureText);
+            const lines = annotateMeasuredRows(
+                buildMeasuredLines(adapter, run, lineWidthPx, measureText, {
+                    paragraphLayout,
+                    paragraphIndentPx,
+                }),
+                { baseFontSizePx, baseLineHeightPx: lineHeightPx, paragraphGapPx },
+            );
             if (displayScope === 'page') emitPageFrames(anchor, lines);
             else if (displayScope === 'line') emitLineFrames(anchor, lines);
             else emitBlockFrames(anchor, lines);
@@ -525,6 +780,7 @@
                 frames.push(manualFrame(element, virtualPageIndex));
                 virtualPageIndex += 1;
                 lineCursor = 0;
+                movingParagraphOffsetPx = 0;
             } else if (element.text) {
                 run.push(element);
             }
@@ -540,9 +796,15 @@
                 maxWidthPx: contentWidthPx,
                 lineWidthPx,
                 blockWidthPx,
-                lineCount,
-                maxLines: lineCount,
+                lineCount: configuredLineCount,
+                ...(displayScope === 'page' ? {} : { maxLines: configuredLineCount }),
                 pageLineCapacity: capacity,
+                pageHeightPx,
+                rowGapPx,
+                paragraphLayout,
+                paragraphIndentPx,
+                paragraphGapPx,
+                fontSizePx: baseFontSizePx,
                 lineHeightPx,
                 speedPerMinute,
             },
@@ -585,13 +847,25 @@
 
         Controller.prototype.adapterOptions = function responsiveAdapterOptions() {
             const base = originalAdapterOptions.call(this);
+            const scope = this.displayScope();
             const percent = this.playbackWidthPercent();
-            return {
+            const lineCount = Math.max(1, Number(this.element('linesInput')?.value || 3));
+            const fontSizePx = Math.max(1, Number(this.element('fontInput')?.value || 28));
+            const result = {
                 ...base,
                 widthPercent: percent,
-                lineCount: Math.max(1, Number(this.element('linesInput')?.value || base.maxLines || 3)),
+                lineCount,
                 maxWidthPx: targetWidthPx(this.playbackAvailableWidth(), 100, DEFAULT_SAFE_GUTTER_PX),
+                fontSizePx,
             };
+            if (scope === 'page') {
+                delete result.maxLines;
+                delete result.pageMaxLines;
+                result.pageHeightPx = pageHeightBudget(this.playbackAvailableHeight(), 0, 1);
+            } else {
+                result.maxLines = lineCount;
+            }
+            return result;
         };
 
         Controller.prototype.updateSettingsVisibility = function corePlaybackSettingsVisibility() {
@@ -679,9 +953,28 @@
                 const rows = target.querySelectorAll?.('.reader-playback-line') || [];
                 frame.lines.forEach((line, index) => {
                     const row = rows[index];
-                    if (!row || !Number.isInteger(line.heading_level)) return;
-                    row.dataset.headingLevel = String(line.heading_level);
-                    row.classList.add(`reader-playback-line-heading-level-${line.heading_level}`);
+                    if (!row) return;
+                    if (Number.isInteger(line.heading_level)) {
+                        row.dataset.headingLevel = String(line.heading_level);
+                        row.classList.add(`reader-playback-line-heading-level-${line.heading_level}`);
+                    }
+                    if (line.toc_title === true) row.dataset.tocTitle = '1';
+                    if (line.paragraph_start === true) {
+                        row.dataset.paragraphStart = '1';
+                        if (line.paragraph_id) row.dataset.paragraphId = String(line.paragraph_id);
+                        const paragraphIndentPx = Math.max(0, Number(line.paragraph_indent_px) || 0);
+                        if (scope !== 'block' && paragraphIndentPx > 0) {
+                            if (typeof row.style?.setProperty === 'function') {
+                                row.style.setProperty('text-indent', `${paragraphIndentPx}px`, 'important');
+                            } else if (row.style) {
+                                row.style.textIndent = `${paragraphIndentPx}px`;
+                            }
+                        }
+                        const paragraphGapPx = Math.max(0, Number(line.paragraph_gap_before_px) || 0);
+                        if (index > 0 && paragraphGapPx > 0 && row.style) {
+                            row.style.marginTop = `${paragraphGapPx}px`;
+                        }
+                    }
                 });
             }
             return result;
@@ -706,11 +999,16 @@
                 fontWeight: computed?.fontWeight,
             });
             const lineHeightPx = numericLineHeight(computed, this.element('fontInput')?.value || 28);
-            const capacity = pageLineCapacity(this.playbackAvailableHeight(), lineHeightPx, DEFAULT_SAFE_VERTICAL_GUTTER_PX);
+            const availableHeight = this.playbackAvailableHeight();
+            const verticalGutterPx = this.displayScope() === 'page' ? 0 : DEFAULT_SAFE_VERTICAL_GUTTER_PX;
+            const capacity = pageLineCapacity(availableHeight, lineHeightPx, verticalGutterPx);
+            const pageBudgetPx = pageHeightBudget(availableHeight, verticalGutterPx, lineHeightPx);
             const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
                 pageLineCapacity: capacity,
+                pageHeightPx: pageBudgetPx,
+                fontSizePx: Math.max(1, Number.parseFloat(computed?.fontSize) || Number(settings.fontSizePx) || 28),
                 lineHeightPx,
                 measureText,
             });
@@ -738,15 +1036,21 @@
                     };
                     pending = view?.requestAnimationFrame ? view.requestAnimationFrame(run) : root.setTimeout(run, 0);
                 };
-                for (const id of ['fontInput', 'fontSlider', 'fontWeight', 'linesInput', 'linesSlider', 'widthInput', 'widthSlider', 'displayMode']) {
+                for (const id of [
+                    'fontInput', 'fontSlider', 'fontWeight', 'fontFamily', 'fontFamilyInput', 'fontFamilySelect',
+                    'linesInput', 'linesSlider', 'widthInput', 'widthSlider', 'displayMode',
+                ]) {
                     const element = controller.element(id);
                     element?.addEventListener('input', scheduleReflow);
                     element?.addEventListener('change', scheduleReflow);
                 }
+                controller.document?.addEventListener?.('reader-study-tools-layout-change', scheduleReflow);
                 const panel = controller.document?.querySelector?.('.reading-panel');
-                if (panel && typeof root.ResizeObserver === 'function') {
+                if (typeof root.ResizeObserver === 'function') {
                     controller.__responsiveResizeObserver = new root.ResizeObserver(scheduleReflow);
-                    controller.__responsiveResizeObserver.observe(panel);
+                    for (const observed of [panel, controller.element('focusModeDisplay'), controller.element('pageModeDisplay')]) {
+                        if (observed) controller.__responsiveResizeObserver.observe(observed);
+                    }
                 }
             }
         }
@@ -759,19 +1063,34 @@
         DEFAULT_SAFE_GUTTER_PX,
         DEFAULT_SAFE_VERTICAL_GUTTER_PX,
         DEFAULT_WIDTH_PERCENT,
+        HEADING_FONT_SCALE_BY_LEVEL,
         MAX_WIDTH_PERCENT,
         MIN_WIDTH_PERCENT,
+        PARAGRAPH_FIRST_LINE_INDENT_EM,
+        PARAGRAPH_FLOW_TYPES,
+        PARAGRAPH_GAP_EM,
         SINGLE_ROW_TYPES,
+        STRUCTURED_ROW_GAP_EM,
+        annotateMeasuredRows,
         buildMeasuredLines,
         buildMeasuredPlaybackFrames,
+        canonicalMeasuredHints,
         clampWidthPercent,
         contentBoxHeight,
         contentBoxWidth,
         createCanvasMeasurer,
         cssVariablePx,
+        decorateMeasuredElements,
         elementRenderedWidth,
+        fontScaleFor,
         install,
         isClosingPunctuationToken,
+        isParagraphFlowElement,
+        measuredPageHeight,
+        measuredRowMetrics,
+        normalizeNodeType,
+        packMeasuredPageRows,
+        pageHeightBudget,
         pageLineCapacity,
         playbackSurfaceContentHeight,
         playbackSurfaceContentWidth,
