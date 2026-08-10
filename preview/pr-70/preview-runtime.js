@@ -11,6 +11,7 @@
     const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
     const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
     const AUTO_LOAD_THRESHOLD_PX = 600;
+    const AUTO_LOAD_MIN_SCROLL_ADVANCE_PX = 120;
 
     root.SPEED_READING_CONFIG = Object.freeze({
         environment: 'preview',
@@ -45,6 +46,96 @@
         return nativeFetch(input, init);
     };
 
+    function presentationPageSignature(page) {
+        return [
+            String(page?.presentation_id || ''),
+            String(page?.kind || ''),
+            ...(page?.nodes || []).map((node) => String(node?.node_id || '')),
+        ].join('\u001f');
+    }
+
+    function renderIncrementalReflow(controller, previousState) {
+        const container = controller.element?.('readerV2Pages');
+        if (!container) return;
+
+        const pages = controller.presentationState?.pages || [];
+        const previousPages = previousState?.pages || [];
+        let stablePrefix = 0;
+        const childCount = Number(container.children?.length || 0);
+        const comparable = Math.min(previousPages.length, pages.length, childCount);
+
+        while (stablePrefix < comparable) {
+            const previousPage = previousPages[stablePrefix];
+            const nextPage = pages[stablePrefix];
+            const child = container.children?.[stablePrefix];
+            if (!child) break;
+            if (String(child.dataset?.presentationId || '') !== String(nextPage?.presentation_id || '')) break;
+            if (presentationPageSignature(previousPage) !== presentationPageSignature(nextPage)) break;
+            stablePrefix += 1;
+        }
+
+        while (Number(container.children?.length || 0) > stablePrefix) {
+            container.removeChild(container.children[stablePrefix]);
+        }
+
+        for (let index = stablePrefix; index < pages.length; index += 1) {
+            const page = pages[index];
+            const section = controller.document.createElement('section');
+            section.className = `reader-v2-page reader-v2-page-${page.kind}`;
+            section.dataset.presentationId = page.presentation_id;
+            for (const node of page.nodes || []) section.appendChild(controller.renderNode(node));
+            container.appendChild(section);
+        }
+
+        if (!pages.length) {
+            const empty = controller.document.createElement('p');
+            empty.className = 'reader-v2-empty';
+            empty.textContent = '当前文档没有可显示的语义内容。';
+            container.appendChild(empty);
+        }
+    }
+
+    function installIncrementalReaderChunkRendering() {
+        const prototype = root.ReaderUIV2?.ReaderV2Controller?.prototype;
+        if (!prototype || prototype.__previewIncrementalChunkRenderingInstalled) return false;
+
+        const originalLoadMore = prototype.loadMore;
+        prototype.loadMore = async function previewIncrementalLoadMore(options = {}) {
+            const canAppendIncrementally = Boolean(
+                !options.replace
+                && !options.deferRender
+                && this.openResponse
+                && this.presentationState?.mode === 'reflow'
+            );
+            if (!canAppendIncrementally) return originalLoadMore.call(this, options);
+
+            const previousState = this.presentationState;
+            const chunk = await originalLoadMore.call(this, { ...options, deferRender: true });
+            if (!chunk || !this.openResponse) return chunk;
+
+            this.activateReaderSurface?.();
+            this.presentationState = this.presentation.presentationForDocument(
+                this.openResponse,
+                this.nodes,
+                this.presentationOptions(),
+            );
+            renderIncrementalReflow(this, previousState);
+            return chunk;
+        };
+
+        Object.defineProperty(prototype, '__previewIncrementalChunkRenderingInstalled', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        root.__TXT_PREVIEW_READER_INCREMENTAL_RENDER__ = Object.freeze({
+            presentationPageSignature,
+            renderIncrementalReflow,
+        });
+        return true;
+    }
+
     function installBoundedReaderAutoPagination() {
         const documentObject = root.document;
         if (!documentObject) return false;
@@ -53,6 +144,8 @@
 
         main.dataset.previewAutoPaginationBound = '1';
         let pending = null;
+        let candidateKey = null;
+        let lastTriggerScrollTop = null;
 
         const nearLoadedEnd = () => {
             const remaining = Number(main.scrollHeight || 0)
@@ -62,9 +155,24 @@
         };
 
         const maybeLoadNextChunk = () => {
-            if (!nearLoadedEnd() || pending) return pending;
             const controller = root.ReaderUIV2?.getDefaultController?.();
             if (!controller?.openResponse || !controller.hasMore) return null;
+
+            const nextCandidateKey = String(controller.candidateId || controller.openResponse?.candidate_id || '');
+            if (candidateKey !== nextCandidateKey) {
+                candidateKey = nextCandidateKey;
+                lastTriggerScrollTop = null;
+            }
+
+            if (!nearLoadedEnd() || pending) return pending;
+            const scrollTop = Number(main.scrollTop || 0);
+            if (
+                lastTriggerScrollTop !== null
+                && scrollTop < lastTriggerScrollTop + AUTO_LOAD_MIN_SCROLL_ADVANCE_PX
+            ) {
+                return null;
+            }
+            lastTriggerScrollTop = scrollTop;
 
             pending = Promise.resolve(controller.loadMore({ silent: true }))
                 .catch((error) => controller.renderError?.(error))
@@ -82,11 +190,16 @@
         return true;
     }
 
+    function installPreviewReaderEnhancements() {
+        installIncrementalReaderChunkRendering();
+        installBoundedReaderAutoPagination();
+    }
+
     if (root.document) {
         if (root.document.readyState === 'loading') {
-            root.document.addEventListener('DOMContentLoaded', installBoundedReaderAutoPagination, { once: true });
+            root.document.addEventListener('DOMContentLoaded', installPreviewReaderEnhancements, { once: true });
         } else {
-            installBoundedReaderAutoPagination();
+            installPreviewReaderEnhancements();
         }
     }
 
