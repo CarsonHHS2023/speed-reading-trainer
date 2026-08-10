@@ -83,9 +83,10 @@ test('fixed-viewpoint blocks reflow continuously instead of preserving visual-li
     assert.ok(result.frames.every((frame) => frame.placement.display_scope === 'block'));
     assert.ok(result.frames.every((frame) => frame.placement.fixed_block_reflow === true));
     assert.equal(result.options.readingMode, 'focus');
+    assert.equal(result.options.paragraphLayout, false);
 });
 
-test('moving-viewpoint blocks retain visual-line boundaries and line-tail short blocks', () => {
+test('moving-viewpoint blocks retain visual-line boundaries, paragraph indent, and line-tail short blocks', () => {
     const result = build([node('p1', 0, 'paragraph', '汉'.repeat(14))], {
         readingMode: 'moving',
     });
@@ -93,13 +94,21 @@ test('moving-viewpoint blocks retain visual-line boundaries and line-tail short 
     assert.deepEqual(result.frames.map((frame) => frame.text), [
         '汉'.repeat(3),
         '汉'.repeat(3),
-        '汉'.repeat(3),
         '汉',
+        '汉'.repeat(3),
         '汉'.repeat(3),
         '汉',
     ]);
-    assert.deepEqual(result.frames.map((frame) => frame.placement.line_index), [0, 0, 0, 0, 1, 1]);
-    assert.deepEqual(result.frames.map((frame) => frame.placement.x_px), [0, 30, 60, 90, 0, 30]);
+    assert.deepEqual(result.frames.map((frame) => frame.placement.line_index), [0, 0, 0, 1, 1, 1]);
+
+    const indent = result.options.paragraphIndentPx;
+    const expectedX = [indent, indent + 30, indent + 60, 0, 30, 60];
+    result.frames.forEach((frame, index) => {
+        assert.ok(Math.abs(frame.placement.x_px - expectedX[index]) < 0.001, `frame ${index} x`);
+    });
+    assert.equal(result.frames[0].lines[0].paragraph_start, true);
+    assert.equal(result.frames[0].lines[0].paragraph_id, 'p1');
+    assert.ok(result.frames.slice(1).every((frame) => frame.lines[0].paragraph_start !== true));
 });
 
 test('fixed-viewpoint structural rows use intrinsic width so canonical TOC entries center like body blocks', () => {
