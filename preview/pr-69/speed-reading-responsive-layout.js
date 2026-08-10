@@ -14,6 +14,7 @@
     ]);
     const SINGLE_ROW_TYPES = new Set(['title', 'heading', 'list', 'list_item', 'toc', 'toc_item']);
     const REFLOW_CONTINUATION_TYPES = new Set(['paragraph', 'unknown']);
+    const PARAGRAPH_FLOW_TYPES = new Set(['paragraph', 'unknown']);
     const SENTENCE_END = /[。！？!?；;：:]\s*$/u;
     const CLOSING_PUNCTUATION = new Set([
         ',', '.', ';', ':', '!', '?', '%', ')', ']', '}', '>',
@@ -27,6 +28,8 @@
     const DEFAULT_SAFE_VERTICAL_GUTTER_PX = 72;
     const DEFAULT_LINE_HEIGHT_RATIO = 1.55;
     const STRUCTURED_ROW_GAP_EM = 0.18;
+    const PARAGRAPH_FIRST_LINE_INDENT_EM = 2;
+    const PARAGRAPH_GAP_EM = 0.45;
     const FONT_SCALE_BY_TYPE = Object.freeze({ title: 1.5, heading: 1.22, caption: 0.82, reference: 0.82 });
     const HEADING_FONT_SCALE_BY_LEVEL = Object.freeze({ 1: 1.32, 2: 1.22, 3: 1.12, 4: 1.04, 5: 1.04, 6: 1.04 });
 
@@ -205,10 +208,28 @@
         return !SENTENCE_END.test(previous.text || '');
     }
 
-    function shouldForceNodeBoundary(previous, current) {
+    function isParagraphFlowElement(element) {
+        return PARAGRAPH_FLOW_TYPES.has(normalizeNodeType(element?.node_type));
+    }
+
+    function shouldForceNodeBoundary(previous, current, options = {}) {
         if (!previous) return false;
         if (HARD_STRUCTURE_TYPES.has(previous.node_type) || HARD_STRUCTURE_TYPES.has(current.node_type)) return true;
         if (REFLOW_CONTINUATION_TYPES.has(previous.node_type) && REFLOW_CONTINUATION_TYPES.has(current.node_type)) {
+            const preserveParagraphBoundaries = options.preserveParagraphBoundaries !== false;
+            const sameSourceUnit = Boolean(
+                previous.identity?.source_unit_id
+                && previous.identity.source_unit_id === current.identity?.source_unit_id
+            );
+            const previousNodeId = String(previous.identity?.node_id || '').trim();
+            const currentNodeId = String(current.identity?.node_id || '').trim();
+            if (
+                preserveParagraphBoundaries
+                && sameSourceUnit
+                && previousNodeId
+                && currentNodeId
+                && previousNodeId !== currentNodeId
+            ) return true;
             return !shouldContinueAcrossPage(previous, current);
         }
         return true;
@@ -280,21 +301,40 @@
         };
     }
 
-    function buildMeasuredLines(adapter, elements, maxWidthPx, measureText) {
+    function buildMeasuredLines(adapter, elements, maxWidthPx, measureText, options = {}) {
         const width = Math.max(1, Number(maxWidthPx) || 1);
+        const paragraphLayout = options.paragraphLayout !== false;
+        const paragraphIndentPx = paragraphLayout
+            ? Math.max(0, Number(options.paragraphIndentPx) || 0)
+            : 0;
         const lines = [];
         let lineTokens = [];
         let lineWidth = 0;
+        let lineMeta = {};
         let previousElement = null;
 
         const recalculateWidth = () => {
             lineWidth = lineTokens.reduce((sum, token) => sum + token.measured_width, 0);
         };
+        const availableLineWidth = () => Math.max(
+            1,
+            width - (lineMeta.paragraph_start === true ? paragraphIndentPx : 0),
+        );
+        const markParagraphStart = (element) => {
+            if (!paragraphLayout || !isParagraphFlowElement(element) || lineTokens.length) return;
+            lineMeta = {
+                ...lineMeta,
+                paragraph_start: true,
+                paragraph_id: String(element?.identity?.node_id || '').trim() || null,
+                paragraph_indent_px: paragraphIndentPx,
+            };
+        };
         const flush = (extra = {}) => {
-            const line = structuredLine(lineTokens, extra);
+            const line = structuredLine(lineTokens, { ...lineMeta, ...extra });
             if (line.text.trim()) lines.push(line);
             lineTokens = [];
             lineWidth = 0;
+            lineMeta = {};
         };
 
         for (const element of elements) {
@@ -310,13 +350,16 @@
                 continue;
             }
 
-            if (shouldForceNodeBoundary(previousElement, element)) flush();
+            const forceBoundary = shouldForceNodeBoundary(previousElement, element, {
+                preserveParagraphBoundaries: paragraphLayout,
+            });
+            if (forceBoundary) flush();
             else if (previousElement && lineTokens.length) {
                 const before = lastCharacter(previousElement.text);
                 const after = firstCharacter(element.text);
                 if (!(isCjk(before) && isCjk(after))) {
                     const spaceWidth = Math.max(0, Number(measureText(' ', element.node_type, element.heading_level)) || 0);
-                    if (lineWidth + spaceWidth > width) flush();
+                    if (lineWidth + spaceWidth > availableLineWidth()) flush();
                     if (lineTokens.length) {
                         lineTokens.push({
                             kind: 'space', text: ' ', reading_units: 0, measured_width: spaceWidth,
@@ -328,13 +371,24 @@
                 }
             }
 
+            const startsParagraph = paragraphLayout
+                && isParagraphFlowElement(element)
+                && (!previousElement || forceBoundary || !isParagraphFlowElement(previousElement));
+            if (startsParagraph) markParagraphStart(element);
+
+            let newlineRun = 0;
             for (const token of measuredTokensForElement(adapter, element, measureText)) {
                 if (token.kind === 'newline') {
                     flush();
+                    newlineRun += 1;
+                    if (newlineRun >= 2) markParagraphStart(element);
                     continue;
                 }
+                newlineRun = 0;
                 if (token.kind === 'space' && !lineTokens.length) continue;
-                const wouldOverflow = lineTokens.length && token.measured_width > 0 && lineWidth + token.measured_width > width;
+                const wouldOverflow = lineTokens.length
+                    && token.measured_width > 0
+                    && lineWidth + token.measured_width > availableLineWidth();
 
                 // Closing punctuation hangs on the current line. Never move a text
                 // token across the boundary to make room for punctuation. If the
@@ -383,17 +437,27 @@
     }
 
     function annotateMeasuredRows(lines, options = {}) {
-        return (lines || []).map((line) => ({
-            ...line,
-            ...measuredRowMetrics(line, options),
-        }));
+        const paragraphGapPx = Math.max(0, Number(options.paragraphGapPx) || 0);
+        return (lines || []).map((line, index, allLines) => {
+            const previous = index > 0 ? allLines[index - 1] : null;
+            const paragraphGapBeforePx = line?.paragraph_start === true
+                && isParagraphFlowElement(previous)
+                ? paragraphGapPx
+                : 0;
+            return {
+                ...line,
+                ...measuredRowMetrics(line, options),
+                paragraph_gap_before_px: paragraphGapBeforePx,
+            };
+        });
     }
 
     function measuredPageHeight(lines, rowGapPx = 0) {
         const gap = Math.max(0, Number(rowGapPx) || 0);
-        return (lines || []).reduce((sum, line, index) => (
-            sum + (index > 0 ? gap : 0) + Math.max(1, Number(line?.row_height_px) || 1)
-        ), 0);
+        return (lines || []).reduce((sum, line, index) => {
+            const paragraphGap = index > 0 ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            return sum + (index > 0 ? gap : 0) + paragraphGap + Math.max(1, Number(line?.row_height_px) || 1);
+        }, 0);
     }
 
     function packMeasuredPageRows(lines, pageHeightPx, rowGapPx = 0) {
@@ -411,9 +475,11 @@
 
         for (const line of lines || []) {
             const rowHeight = Math.max(1, Number(line?.row_height_px) || 1);
-            const separator = page.length ? gap : 0;
+            const paragraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const separator = page.length ? gap + paragraphGap : 0;
             if (page.length && used + separator + rowHeight > budget + 0.01) flush();
-            const nextSeparator = page.length ? gap : 0;
+            const nextParagraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const nextSeparator = page.length ? gap + nextParagraphGap : 0;
             page.push(line);
             used += nextSeparator + rowHeight;
         }
@@ -429,13 +495,24 @@
 
         const width = Math.max(1, Number(maxBlockWidthPx) || 1);
         const blocks = [];
+        const paragraphIndentPx = line?.paragraph_start === true
+            ? Math.max(0, Number(line?.paragraph_indent_px) || 0)
+            : 0;
         let blockTokens = [];
         let blockWidth = 0;
-        let blockStartX = 0;
-        let absoluteX = 0;
+        let blockStartX = paragraphIndentPx;
+        let absoluteX = paragraphIndentPx;
 
         const flush = () => {
-            const block = structuredLine(blockTokens, { x_offset_px: blockStartX });
+            const firstBlock = blocks.length === 0;
+            const block = structuredLine(blockTokens, {
+                x_offset_px: blockStartX,
+                paragraph_start: firstBlock && line?.paragraph_start === true,
+                paragraph_id: firstBlock ? (line?.paragraph_id || null) : null,
+                paragraph_indent_px: 0,
+                paragraph_source_indent_px: firstBlock ? paragraphIndentPx : 0,
+                paragraph_gap_before_px: firstBlock ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0,
+            });
             if (block.text.trim()) blocks.push(block);
             blockTokens = [];
             blockWidth = 0;
@@ -549,6 +626,19 @@
             1,
             Number(options.fontSizePx) || lineHeightPx / DEFAULT_LINE_HEIGHT_RATIO,
         );
+        const paragraphLayout = options.paragraphLayout !== false;
+        const configuredParagraphIndentPx = Number(options.paragraphIndentPx);
+        const configuredParagraphGapPx = Number(options.paragraphGapPx);
+        const paragraphIndentPx = paragraphLayout
+            ? Math.max(0, Number.isFinite(configuredParagraphIndentPx)
+                ? configuredParagraphIndentPx
+                : baseFontSizePx * PARAGRAPH_FIRST_LINE_INDENT_EM)
+            : 0;
+        const paragraphGapPx = paragraphLayout
+            ? Math.max(0, Number.isFinite(configuredParagraphGapPx)
+                ? configuredParagraphGapPx
+                : baseFontSizePx * PARAGRAPH_GAP_EM)
+            : 0;
         const rowGapPx = Math.max(0, Number(options.rowGapPx) || baseFontSizePx * STRUCTURED_ROW_GAP_EM);
         const fallbackPageHeightPx = capacity * lineHeightPx + Math.max(0, capacity - 1) * rowGapPx;
         const pageHeightPx = Math.max(1, Number(options.pageHeightPx) || fallbackPageHeightPx);
@@ -561,11 +651,13 @@
         let ordinal = 0;
         let virtualPageIndex = 0;
         let lineCursor = 0;
+        let movingParagraphOffsetPx = 0;
         const lineOriginX = Math.max(0, (contentWidthPx - lineWidthPx) / 2);
 
         const advanceToFreshPage = () => {
             if (lineCursor > 0) virtualPageIndex += 1;
             lineCursor = 0;
+            movingParagraphOffsetPx = 0;
         };
 
         const emitPageFrames = (anchor, lines) => {
@@ -597,29 +689,44 @@
                 const availableOnPage = Math.max(1, capacity - lineCursor);
                 const take = Math.min(configuredLineCount, availableOnPage, lines.length - index);
                 const slice = lines.slice(index, index + take);
+                const leadingParagraphGap = lineCursor > 0
+                    ? Math.max(0, Number(slice[0]?.paragraph_gap_before_px) || 0)
+                    : 0;
+                const yPx = lineCursor * lineHeightPx + movingParagraphOffsetPx + leadingParagraphGap;
                 frames.push(timedFrame(adapter, anchor, ordinal, slice, speedPerMinute, {
                     display_scope: 'line',
                     virtual_page_index: virtualPageIndex,
                     line_index: lineCursor,
                     line_span: slice.length,
                     x_px: lineOriginX,
-                    y_px: lineCursor * lineHeightPx,
+                    y_px: yPx,
                     width_px: lineWidthPx,
                     line_width_px: lineWidthPx,
                     content_width_px: contentWidthPx,
                 }));
+                const paragraphGapsInSlice = slice.reduce((sum, line, localIndex) => {
+                    const pageLineIndex = lineCursor + localIndex;
+                    if (pageLineIndex <= 0) return sum;
+                    return sum + Math.max(0, Number(line?.paragraph_gap_before_px) || 0);
+                }, 0);
+                movingParagraphOffsetPx += paragraphGapsInSlice;
                 ordinal += 1;
                 index += take;
                 lineCursor += take;
                 if (lineCursor >= capacity) {
                     virtualPageIndex += 1;
                     lineCursor = 0;
+                    movingParagraphOffsetPx = 0;
                 }
             }
         };
 
         const emitBlockFrames = (anchor, lines) => {
             for (const line of lines) {
+                const paragraphGap = lineCursor > 0
+                    ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0)
+                    : 0;
+                const lineY = lineCursor * lineHeightPx + movingParagraphOffsetPx + paragraphGap;
                 const blocks = splitMeasuredLineIntoBlocks(line, blockWidthPx);
                 for (const block of blocks) {
                     const atomicStructure = Boolean(line.structural_single_row);
@@ -629,7 +736,7 @@
                         line_index: lineCursor,
                         line_span: 1,
                         x_px: lineOriginX + Math.max(0, Number(block.x_offset_px) || 0),
-                        y_px: lineCursor * lineHeightPx,
+                        y_px: lineY,
                         width_px: atomicStructure ? lineWidthPx : Math.max(1, block.measured_width_px),
                         block_width_px: blockWidthPx,
                         line_width_px: lineWidthPx,
@@ -640,10 +747,12 @@
                     }));
                     ordinal += 1;
                 }
+                movingParagraphOffsetPx += paragraphGap;
                 lineCursor += 1;
                 if (lineCursor >= capacity) {
                     virtualPageIndex += 1;
                     lineCursor = 0;
+                    movingParagraphOffsetPx = 0;
                 }
             }
         };
@@ -652,8 +761,11 @@
             if (!run.length) return;
             const anchor = run[0];
             const lines = annotateMeasuredRows(
-                buildMeasuredLines(adapter, run, lineWidthPx, measureText),
-                { baseFontSizePx, baseLineHeightPx: lineHeightPx },
+                buildMeasuredLines(adapter, run, lineWidthPx, measureText, {
+                    paragraphLayout,
+                    paragraphIndentPx,
+                }),
+                { baseFontSizePx, baseLineHeightPx: lineHeightPx, paragraphGapPx },
             );
             if (displayScope === 'page') emitPageFrames(anchor, lines);
             else if (displayScope === 'line') emitLineFrames(anchor, lines);
@@ -668,6 +780,7 @@
                 frames.push(manualFrame(element, virtualPageIndex));
                 virtualPageIndex += 1;
                 lineCursor = 0;
+                movingParagraphOffsetPx = 0;
             } else if (element.text) {
                 run.push(element);
             }
@@ -688,6 +801,9 @@
                 pageLineCapacity: capacity,
                 pageHeightPx,
                 rowGapPx,
+                paragraphLayout,
+                paragraphIndentPx,
+                paragraphGapPx,
                 fontSizePx: baseFontSizePx,
                 lineHeightPx,
                 speedPerMinute,
@@ -843,6 +959,22 @@
                         row.classList.add(`reader-playback-line-heading-level-${line.heading_level}`);
                     }
                     if (line.toc_title === true) row.dataset.tocTitle = '1';
+                    if (line.paragraph_start === true) {
+                        row.dataset.paragraphStart = '1';
+                        if (line.paragraph_id) row.dataset.paragraphId = String(line.paragraph_id);
+                        const paragraphIndentPx = Math.max(0, Number(line.paragraph_indent_px) || 0);
+                        if (scope !== 'block' && paragraphIndentPx > 0) {
+                            if (typeof row.style?.setProperty === 'function') {
+                                row.style.setProperty('text-indent', `${paragraphIndentPx}px`, 'important');
+                            } else if (row.style) {
+                                row.style.textIndent = `${paragraphIndentPx}px`;
+                            }
+                        }
+                        const paragraphGapPx = Math.max(0, Number(line.paragraph_gap_before_px) || 0);
+                        if (index > 0 && paragraphGapPx > 0 && row.style) {
+                            row.style.marginTop = `${paragraphGapPx}px`;
+                        }
+                    }
                 });
             }
             return result;
@@ -934,6 +1066,9 @@
         HEADING_FONT_SCALE_BY_LEVEL,
         MAX_WIDTH_PERCENT,
         MIN_WIDTH_PERCENT,
+        PARAGRAPH_FIRST_LINE_INDENT_EM,
+        PARAGRAPH_FLOW_TYPES,
+        PARAGRAPH_GAP_EM,
         SINGLE_ROW_TYPES,
         STRUCTURED_ROW_GAP_EM,
         annotateMeasuredRows,
@@ -950,6 +1085,7 @@
         fontScaleFor,
         install,
         isClosingPunctuationToken,
+        isParagraphFlowElement,
         measuredPageHeight,
         measuredRowMetrics,
         normalizeNodeType,
