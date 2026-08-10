@@ -21,6 +21,15 @@
         };
     }
 
+    function frameContainsNode(frame, nodeId) {
+        const expected = String(nodeId || '').trim();
+        if (!expected || !frame) return false;
+        if (String(frame?.identity?.node_id || '').trim() === expected) return true;
+        return (frame.source_spans || []).some((identity) => (
+            String(identity?.node_id || '').trim() === expected
+        ));
+    }
+
     class PlaybackController {
         constructor(options = {}) {
             this.scheduler = options.scheduler || defaultScheduler();
@@ -68,10 +77,13 @@
             this.frames = Array.isArray(frames) ? [...frames] : [];
             let nextIndex = 0;
             if (previousId) {
-                const exact = this.frames.findIndex((frame) => frame.frame_id === previousId);
+                const exact = this.frames.findIndex((frame) => (
+                    frame.frame_id === previousId
+                    && (!previousNodeId || frameContainsNode(frame, previousNodeId))
+                ));
                 if (exact >= 0) nextIndex = exact;
                 else if (previousNodeId) {
-                    const nodeMatch = this.frames.findIndex((frame) => frame?.identity?.node_id === previousNodeId);
+                    const nodeMatch = this.frames.findIndex((frame) => frameContainsNode(frame, previousNodeId));
                     if (nodeMatch >= 0) nextIndex = nodeMatch;
                 }
             }
@@ -239,5 +251,5 @@
         }
     }
 
-    return { PlaybackController, STATES };
+    return { PlaybackController, STATES, frameContainsNode };
 });
