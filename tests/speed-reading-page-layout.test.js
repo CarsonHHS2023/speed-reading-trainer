@@ -154,12 +154,13 @@ test('Figure, Table, and display Formula terminate a partial Page and following 
         const result = build([
             node(`before-${type}`, 0, 'paragraph', '汉'.repeat(15)),
             node(`visual-${type}`, 1, type, `${type} visual`, { metadata }),
-            node(`after-${type}`, 2, 'paragraph', '汉'.repeat(10)),
+            node(`after-${type}`, 2, 'paragraph', '汉'.repeat(6)),
         ], { pageHeightPx: 100 });
         assert.deepEqual(result.frames.map((frame) => frame.kind), ['timed_text', 'manual', 'timed_text'], type);
         assert.deepEqual(result.frames.map((frame) => frame.placement.virtual_page_index), [0, 1, 2], type);
         assert.equal(result.frames[0].lines.length, 2, `${type} ends the partial text page`);
         assert.equal(result.frames[2].lines.length, 1, `${type} after-text starts on a new page`);
+        assert.equal(result.frames[2].lines[0].paragraph_start, true, `${type} after-text begins a paragraph`);
     }
 });
 
