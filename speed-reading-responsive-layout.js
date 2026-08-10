@@ -220,14 +220,9 @@
             const nodeId = String(node?.node_id || '').trim();
             if (!nodeId) continue;
             const semanticType = normalizeNodeType(node?.node_type);
-            const rawType = normalizeNodeType(node?.raw_node_type);
-            const resolved = typeof adapter?.resolvedTypeForNode === 'function'
-                ? normalizeNodeType(adapter.resolvedTypeForNode(node)?.type)
-                : '';
             hints.set(nodeId, {
                 heading_level: normalizedHeadingLevel(node?.heading_level),
                 toc_title: semanticType === 'toc',
-                canonical_type: semanticType || resolved || rawType || 'unknown',
             });
         }
         return hints;
@@ -745,12 +740,12 @@
                 widthPercent: percent,
                 lineCount,
                 maxWidthPx: targetWidthPx(this.playbackAvailableWidth(), 100, DEFAULT_SAFE_GUTTER_PX),
-                pageHeightPx: pageHeightBudget(this.playbackAvailableHeight(), DEFAULT_SAFE_VERTICAL_GUTTER_PX, 1),
                 fontSizePx,
             };
             if (scope === 'page') {
                 delete result.maxLines;
                 delete result.pageMaxLines;
+                result.pageHeightPx = pageHeightBudget(this.playbackAvailableHeight(), 0, 1);
             } else {
                 result.maxLines = lineCount;
             }
@@ -873,8 +868,9 @@
             });
             const lineHeightPx = numericLineHeight(computed, this.element('fontInput')?.value || 28);
             const availableHeight = this.playbackAvailableHeight();
-            const capacity = pageLineCapacity(availableHeight, lineHeightPx, DEFAULT_SAFE_VERTICAL_GUTTER_PX);
-            const pageBudgetPx = pageHeightBudget(availableHeight, DEFAULT_SAFE_VERTICAL_GUTTER_PX, lineHeightPx);
+            const verticalGutterPx = this.displayScope() === 'page' ? 0 : DEFAULT_SAFE_VERTICAL_GUTTER_PX;
+            const capacity = pageLineCapacity(availableHeight, lineHeightPx, verticalGutterPx);
+            const pageBudgetPx = pageHeightBudget(availableHeight, verticalGutterPx, lineHeightPx);
             const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
