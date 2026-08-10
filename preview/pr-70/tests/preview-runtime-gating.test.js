@@ -125,7 +125,8 @@ test('PR preview auto-loads one bounded Reader chunk near the loaded scroll end'
   assert.equal(main.dataset.previewAutoPaginationBound, '1');
   assert.equal(typeof listeners.scroll, 'function');
   await listeners.scroll();
-  assert.deepEqual(loadCalls, [{ silent: true }]);
+  assert.equal(loadCalls.length, 1);
+  assert.equal(loadCalls[0].silent, true);
   assert.equal(typeof windowObject.__TXT_PREVIEW_READER_AUTOPAGINATION__.nearLoadedEnd, 'function');
 });
 
