@@ -122,15 +122,17 @@
         }
 
         // Fixed-viewpoint Block is a continuous measured stream: soft visual-line
-        // endings do not constrain grouping. Reuse the authoritative one-line
-        // measured builder at exactly the configured block width so tokenization,
-        // punctuation hanging, English-word atomicity, structure boundaries, timing,
-        // identity, and manual-frame boundaries remain owned by the existing layout.
+        // endings and canonical paragraph boundaries do not constrain grouping.
+        // Reuse the authoritative one-line measured builder at exactly the configured
+        // block width so tokenization, punctuation hanging, English-word atomicity,
+        // structure boundaries, timing, identity, and manual-frame boundaries remain
+        // owned by the existing layout.
         const built = originalBuild.call(responsive, adapter, documentView, nodes, {
             ...options,
             displayScope: 'line',
             lineCount: 1,
             maxLines: 1,
+            paragraphLayout: false,
         });
         restoreCanonicalTocTitleTypography(built, nodes, options.measureText);
         return convertLineBuildToFixedBlocks(built, options);
