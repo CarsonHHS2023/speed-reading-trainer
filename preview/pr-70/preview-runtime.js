@@ -181,9 +181,72 @@
         return Promise.resolve();
     }
 
+    function navigationButtons(controller) {
+        const nav = controller?.element?.('readerV2Navigation');
+        return Array.from(nav?.querySelectorAll?.('.reader-v2-nav-item') || []);
+    }
+
+    function navigationButtonFor(controller, nodeId) {
+        const buttons = navigationButtons(controller);
+        const byIdentity = buttons.find((button) => (
+            String(button?.dataset?.readerNavNodeId || '') === String(nodeId || '')
+        ));
+        if (byIdentity) return byIdentity;
+        const active = controller?.document?.activeElement;
+        if (active && buttons.includes(active)) return active;
+        return null;
+    }
+
+    function setNavigationBusy(controller, sourceButton, busy, loadedCount = 0) {
+        if (!sourceButton) return;
+        const buttons = navigationButtons(controller);
+        if (!sourceButton.dataset.readerNavLabel) {
+            sourceButton.dataset.readerNavLabel = String(sourceButton.textContent || '目标章节');
+        }
+        const label = sourceButton.dataset.readerNavLabel;
+        if (busy) {
+            buttons.forEach((button) => {
+                if (button.dataset.readerNavWasDisabled === undefined) {
+                    button.dataset.readerNavWasDisabled = button.disabled ? '1' : '0';
+                }
+                button.disabled = true;
+            });
+            sourceButton.setAttribute?.('aria-busy', 'true');
+            sourceButton.dataset.readerNavLoading = '1';
+            sourceButton.textContent = loadedCount > 0
+                ? `⏳ ${label} · 已加载 ${loadedCount} 个内容块`
+                : `⏳ ${label} · 正在定位…`;
+            return;
+        }
+
+        sourceButton.removeAttribute?.('aria-busy');
+        delete sourceButton.dataset.readerNavLoading;
+        sourceButton.textContent = label;
+        buttons.forEach((button) => {
+            const wasDisabled = button.dataset.readerNavWasDisabled === '1';
+            button.disabled = wasDisabled;
+            delete button.dataset.readerNavWasDisabled;
+        });
+    }
+
     function installAsyncReaderNavigation() {
         const prototype = root.ReaderUIV2?.ReaderV2Controller?.prototype;
         if (!prototype || prototype.__previewAsyncNavigationInstalled) return false;
+
+        const originalRenderNavigation = prototype.renderNavigation;
+        if (typeof originalRenderNavigation === 'function') {
+            prototype.renderNavigation = function previewRenderNavigationWithIdentity(...args) {
+                const result = originalRenderNavigation.apply(this, args);
+                const buttons = navigationButtons(this);
+                buttons.forEach((button, index) => {
+                    const entry = this.navigation?.[index];
+                    const nodeId = entry?.location?.node_id;
+                    if (nodeId) button.dataset.readerNavNodeId = String(nodeId);
+                    button.dataset.readerNavLabel = String(entry?.label || button.textContent || '未命名标题');
+                });
+                return result;
+            };
+        }
 
         prototype.navigateTo = async function previewNavigateTo(location, options = {}) {
             const nodeId = location?.node_id;
@@ -191,14 +254,17 @@
             const selector = `[data-reader-node-id="${escapeNodeId(nodeId)}"]`;
             const findTarget = () => this.document?.querySelector?.(selector) || null;
             let nodeEl = findTarget();
+            const sourceButton = options.sourceButton || navigationButtonFor(this, nodeId);
 
             this.__previewNavigationPending = true;
             try {
                 if (!nodeEl && this.hasMore) {
                     this.setStatus?.('正在定位章节…');
+                    setNavigationBusy(this, sourceButton, true, 0);
                     let node = this.model?.findNodeById?.(this.nodes, nodeId) || null;
                     while (!node && this.hasMore) {
                         await this.loadMore({ silent: true });
+                        setNavigationBusy(this, sourceButton, true, Number(this.nodes?.length || 0));
                         await yieldToBrowser();
                         node = this.model?.findNodeById?.(this.nodes, nodeId) || null;
                     }
@@ -221,6 +287,7 @@
                 this.renderError?.(error);
                 return false;
             } finally {
+                setNavigationBusy(this, sourceButton, false);
                 this.__previewNavigationPending = false;
             }
         };
