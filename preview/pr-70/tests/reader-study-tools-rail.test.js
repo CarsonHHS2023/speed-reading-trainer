@@ -39,6 +39,53 @@ test('tool registry exposes navigation, notes, highlights, and study context', (
   ]);
 });
 
+test('study tools layout change never activates or refreshes idle speed-reading playback', () => {
+  let refreshCount = 0;
+  let showCount = 0;
+  const playbackController = {
+    isReaderActive: () => true,
+    playback: {
+      state: 'paused',
+      currentFrame: () => ({ frame_id: 'f1' }),
+    },
+    trainingClock: { state: 'idle' },
+    refreshFrames() { refreshCount += 1; },
+    showPlaybackSurface() { showCount += 1; },
+  };
+  const windowObject = {
+    ReaderSpeedPlaybackUI: { getDefaultController: () => playbackController },
+    setTimeout(callback) { callback(); },
+  };
+  const controller = new Rail.StudyToolsRailController({ documentObject: {}, windowObject });
+  controller.requestPlaybackReflow();
+  assert.equal(refreshCount, 0);
+  assert.equal(showCount, 0);
+});
+
+test('study tools layout change reflows an actually engaged speed-reading session', () => {
+  let refreshCount = 0;
+  let showCount = 0;
+  const frame = { frame_id: 'f1' };
+  const playbackController = {
+    isReaderActive: () => true,
+    playback: {
+      state: 'paused',
+      currentFrame: () => frame,
+    },
+    trainingClock: { state: 'running' },
+    refreshFrames() { refreshCount += 1; },
+    showPlaybackSurface(value) { assert.equal(value, frame); showCount += 1; },
+  };
+  const windowObject = {
+    ReaderSpeedPlaybackUI: { getDefaultController: () => playbackController },
+    setTimeout(callback) { callback(); },
+  };
+  const controller = new Rail.StudyToolsRailController({ documentObject: {}, windowObject });
+  controller.requestPlaybackReflow();
+  assert.equal(refreshCount, 1);
+  assert.equal(showCount, 1);
+});
+
 test('rail CSS keeps a narrow visible strip, removes the legacy sidebar, pushes wide layouts, and overlays on small screens', () => {
   const css = fs.readFileSync(require.resolve('../speed-reading-v2.css'), 'utf8');
   assert.match(css, /--study-tools-rail-width:\s*46px/);
