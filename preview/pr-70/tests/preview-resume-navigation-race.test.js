@@ -125,6 +125,10 @@ test('first explicit TOC click wins over an in-flight saved-location restore', a
       return this.restoreResumeLocation();
     }
 
+    async restoreResumeLocation() {
+      throw new Error('preview runtime should replace restoreResumeLocation');
+    }
+
     renderNavigation() {
       buttons.forEach((button, index) => {
         const entry = this.navigation[index];
@@ -178,6 +182,7 @@ test('first explicit TOC click wins over an in-flight saved-location restore', a
 
   const controller = new FakeReaderController();
   const opening = controller.openBook();
+  await Promise.resolve();
   assert.equal(typeof releaseResumeLoad, 'function');
 
   chapter37Button.click();
