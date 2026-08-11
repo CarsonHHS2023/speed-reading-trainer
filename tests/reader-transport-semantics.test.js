@@ -3,226 +3,327 @@ const assert = require('node:assert/strict');
 
 const Transport = require('../reader-transport-semantics.js');
 
-function button() {
+function node(order) {
   return {
-    disabled: false,
-    title: '',
-    textContent: '',
-    attributes: {},
-    setAttribute(name, value) { this.attributes[name] = String(value); },
+    node_id: `n${order}`,
+    node_type: 'paragraph',
+    order,
+    text: `text ${order}`,
+    location: { node_id: `n${order}` },
   };
 }
 
-function makeHarness(options = {}) {
-  const main = {
-    scrollTop: Number(options.scrollTop || 0),
-    clientHeight: 500,
-    listeners: {},
-    addEventListener(type, handler) { this.listeners[type] = handler; },
+const model = {
+  orderedNodes(nodes) {
+    return [...nodes].sort((a, b) => a.order - b.order);
+  },
+  mergeNodes(existing, incoming) {
+    const byId = new Map(existing.map((item) => [item.node_id, item]));
+    for (const item of incoming) byId.set(item.node_id, item);
+    return [...byId.values()].sort((a, b) => a.order - b.order);
+  },
+  findNodeById(nodes, nodeId) {
+    return (nodes || []).find((item) => item.node_id === nodeId) || null;
+  },
+};
+
+function makeChunk(start, total = 1000) {
+  const end = Math.min(total, start + Transport.WINDOW_SIZE);
+  return {
+    nodes: Array.from({ length: Math.max(0, end - start) }, (_, index) => node(start + index)),
+    has_more: end < total,
+    next_node_order: end < total ? end : null,
   };
-  const controls = {
-    speedReadingFirst: button(),
-    speedReadingPrev: button(),
-    speedReadingNext: button(),
-    speedReadingLast: button(),
-    readingToggleBtn: button(),
-  };
-  const toolbar = { querySelector: () => null };
-  const pages = [];
-  const presentationPages = [];
+}
 
-  function addPage(index) {
-    const node = { node_id: `node-${index}`, location: { node_id: `node-${index}` } };
-    presentationPages.push({ presentation_id: `reflow:${index}`, nodes: [node] });
-    pages.push({
-      className: 'reader-v2-page reader-v2-page-reflow_page',
-      offsetTop: index * 1000,
-      offsetHeight: 1000,
-      scrollIntoView() { main.scrollTop = index * 1000; },
-    });
-  }
-
-  const initialPages = Number(options.initialPages || 3);
-  for (let index = 0; index < initialPages; index += 1) addPage(index);
-
-  const container = {
-    get children() { return pages; },
-    querySelectorAll(selector) { return selector === '.reader-v2-page' ? pages : []; },
-  };
-
-  let remainingChunks = Number(options.remainingChunks || 0);
-  const statuses = [];
-  const persisted = [];
+function makeReader(total = 1000) {
+  const requests = [];
+  const status = [];
+  const pagesElement = { querySelectorAll() { return []; } };
+  const loadMoreButton = { hidden: false };
+  const nodeElements = new Map();
   const reader = {
-    openResponse: { candidate_id: 'candidate-1' },
-    hasMore: remainingChunks > 0,
-    nodes: presentationPages.flatMap((page) => page.nodes),
-    presentationState: { pages: presentationPages },
+    documentRef: 'doc-1',
+    candidateId: 'cand-1',
+    openResponse: {
+      document_ref: 'doc-1',
+      candidate_id: 'cand-1',
+      contract_version: '2',
+      candidate_schema_id: 'schema',
+      candidate_schema_version: 2,
+    },
+    model,
+    nodes: [],
+    presentationState: { pages: [] },
     document: {
-      querySelector(selector) { return selector === '.reader-v2-main' ? main : null; },
-    },
-    element(id) { return id === 'readerV2Pages' ? container : null; },
-    locationForNode(nodeId) { return { node_id: nodeId }; },
-    persistLocation(location) { persisted.push(location.node_id); },
-    setStatus(message) { statuses.push(message); },
-    renderError(error) { throw error; },
-    async loadMore(optionsArg) {
-      assert.equal(optionsArg.silent, true);
-      if (remainingChunks <= 0) return null;
-      addPage(presentationPages.length);
-      this.nodes = presentationPages.flatMap((page) => page.nodes);
-      remainingChunks -= 1;
-      this.hasMore = remainingChunks > 0;
-      return {};
-    },
-  };
-
-  const controller = {
-    reader,
-    playback: { state: options.playbackState || 'idle' },
-    trainingClock: { state: options.clockState || 'idle' },
-    isReaderActive: () => true,
-    element(id) {
-      if (id === 'speedReadingV2Toolbar') return toolbar;
-      return controls[id] || null;
-    },
-  };
-  const rootObject = {
-    requestAnimationFrame(callback) { callback(); },
-    ReaderPlaybackPolish: {
-      isPlaybackSessionEngaged(ctrl) {
-        return ['playing', 'paused', 'manual'].includes(ctrl.playback.state)
-          && ['running', 'paused'].includes(ctrl.trainingClock.state);
+      querySelector(selector) {
+        const match = String(selector).match(/data-reader-node-id="([^"]+)"/);
+        return match ? nodeElements.get(match[1]) || null : null;
       },
     },
+    api: {
+      async content(_documentRef, options) {
+        requests.push({ ...options });
+        return makeChunk(options.startNodeOrder, total);
+      },
+    },
+    element(id) {
+      if (id === 'readerV2Pages') return pagesElement;
+      if (id === 'readerV2LoadMore') return loadMoreButton;
+      return null;
+    },
+    reflowAndRender() {
+      this.presentationState = {
+        pages: this.nodes.map((item) => ({ nodes: [item] })),
+      };
+      for (const item of this.nodes) {
+        nodeElements.set(item.node_id, {
+          scrollIntoView() { this.scrolled = true; },
+          focus() {},
+        });
+      }
+    },
+    locationForNode(nodeId) {
+      const found = model.findNodeById(this.nodes, nodeId);
+      return found ? found.location : null;
+    },
+    persistLocation(location, extra) {
+      this.persisted = { location, extra };
+      return { ...location, node_order: extra?.nodeOrder ?? null };
+    },
+    setStatus(message) { status.push(message); },
   };
-
-  return { addPage, container, controller, controls, main, pages, persisted, reader, rootObject, statuses };
+  return { loadMoreButton, reader, requests, status };
 }
 
-test('ordinary Reader transport uses presentation pages instead of playback frames', async () => {
-  const harness = makeHarness({ scrollTop: 1000, initialPages: 3 });
-
-  Transport.applyReaderPageControlState(harness.controller, harness.rootObject);
-  assert.equal(harness.controls.speedReadingFirst.title, '首页');
-  assert.equal(harness.controls.speedReadingPrev.title, '上一页');
-  assert.equal(harness.controls.speedReadingNext.title, '下一页');
-  assert.equal(harness.controls.speedReadingLast.title, '尾页');
-  assert.equal(harness.controls.speedReadingPrev.disabled, false);
-  assert.equal(harness.controls.speedReadingNext.disabled, false);
-
-  assert.equal(await Transport.navigateReaderPage(harness.controller, 'previous', harness.rootObject), true);
-  assert.equal(harness.main.scrollTop, 0);
-  assert.equal(harness.persisted.at(-1), 'node-0');
-
-  assert.equal(await Transport.navigateReaderPage(harness.controller, 'next', harness.rootObject), true);
-  assert.equal(harness.main.scrollTop, 1000);
-  assert.equal(harness.persisted.at(-1), 'node-1');
+test('Reader windows are aligned to 150-node boundaries', () => {
+  assert.equal(Transport.WINDOW_SIZE, 150);
+  assert.equal(Transport.windowStartForOrder(0), 0);
+  assert.equal(Transport.windowStartForOrder(149), 0);
+  assert.equal(Transport.windowStartForOrder(150), 150);
+  assert.equal(Transport.windowStartForOrder(620), 600);
 });
 
-test('ordinary Reader next page loads one bounded chunk when the next page is not loaded yet', async () => {
-  const harness = makeHarness({ scrollTop: 1000, initialPages: 2, remainingChunks: 1 });
+test('resume with node_order loads only its 150-node window plus the following window', async () => {
+  const { reader, requests } = makeReader(1000);
+  reader.resume = { sameCandidate() { return true; } };
+  reader.resumeRecord = null;
 
-  Transport.applyReaderPageControlState(harness.controller, harness.rootObject);
-  assert.equal(harness.controls.speedReadingNext.disabled, false);
-  assert.equal(await Transport.navigateReaderPage(harness.controller, 'next', harness.rootObject), true);
-  assert.equal(harness.pages.length, 3);
-  assert.equal(harness.reader.hasMore, false);
-  assert.equal(harness.main.scrollTop, 2000);
-  assert.equal(harness.persisted.at(-1), 'node-2');
+  const record = {
+    node_id: 'n620',
+    node_order: 620,
+    frame_id: null,
+    frame_ordinal: null,
+  };
+  const restored = await Transport.restoreWindowedResume(reader, record, {});
+
+  assert.equal(restored, true);
+  assert.deepEqual(requests.map((item) => [item.startNodeOrder, item.limit]), [
+    [600, 150],
+    [750, 150],
+  ]);
+  assert.equal(reader.nodes.length, 300);
+  assert.equal(reader.nodes[0].order, 600);
+  assert.equal(reader.nodes.at(-1).order, 899);
+  assert.equal(reader.lastLocation.node_id, 'n620');
 });
 
-test('ordinary Reader tail loads all remaining chunks before navigating to the true last page', async () => {
-  const harness = makeHarness({ scrollTop: 0, initialPages: 2, remainingChunks: 3 });
+test('legacy resume without node_order is probed once and then upgraded with node_order', async () => {
+  const { reader, requests } = makeReader(500);
+  reader.resume = { sameCandidate() { return true; } };
+  const record = {
+    node_id: 'n320',
+    node_order: null,
+    frame_id: 'frame-old',
+    frame_ordinal: 2,
+  };
 
-  assert.equal(await Transport.navigateReaderPage(harness.controller, 'last', harness.rootObject), true);
-  assert.equal(harness.pages.length, 5);
-  assert.equal(harness.reader.hasMore, false);
-  assert.equal(harness.main.scrollTop, 4000);
-  assert.equal(harness.persisted.at(-1), 'node-4');
-  assert.equal(harness.statuses.some((message) => message.includes('正在定位尾页')), true);
-  assert.equal(harness.statuses.at(-1), '');
+  const restored = await Transport.restoreWindowedResume(reader, record, {});
+  assert.equal(restored, true);
+  assert.deepEqual(requests.slice(0, 3).map((item) => item.startNodeOrder), [0, 150, 300]);
+  assert.equal(reader.persisted.extra.nodeOrder, 320);
+  assert.equal(reader.persisted.extra.frameId, 'frame-old');
+  assert.equal(reader.persisted.extra.frameOrdinal, 2);
+  assert.equal(reader.nodes[0].order, 300);
 });
 
-test('active speed-reading session keeps frame semantics and rejects ordinary page navigation', async () => {
-  const harness = makeHarness({
-    scrollTop: 1000,
-    initialPages: 3,
-    playbackState: 'playing',
-    clockState: 'running',
-  });
-  harness.controls.speedReadingPrev.disabled = true;
-
-  assert.equal(Transport.applyReaderPageControlState(harness.controller, harness.rootObject), false);
-  assert.equal(harness.controls.speedReadingPrev.title, '上一帧');
-  assert.equal(harness.controls.speedReadingPrev.disabled, true);
-  assert.equal(await Transport.navigateReaderPage(harness.controller, 'previous', harness.rootObject), false);
-  assert.equal(harness.main.scrollTop, 1000);
-});
-
-test('Reader surface activation returns play-button readiness ownership to the speed controller', () => {
-  const play = button();
-  class FakeReaderController {
-    activateReaderSurface() {
-      play.disabled = true;
-      return 'reader-active';
+function makeReaderControllerClass(resumeRecord = null, total = 1000) {
+  return class FakeReaderController {
+    constructor() {
+      this.model = model;
+      this.nodes = [];
+      this.navigation = [];
+      this.presentationState = { pages: [] };
+      this.resume = { sameCandidate() { return true; } };
+      this.resumeStore = {
+        read() { return resumeRecord; },
+        clear() {},
+      };
+      this.elements = new Map([
+        ['readerV2Navigation', { children: [], querySelectorAll() { return this.children; } }],
+        ['readerV2Pages', { children: [], querySelectorAll() { return this.children; } }],
+        ['readerV2LoadMore', { hidden: false }],
+      ]);
+      this.document = { querySelector() { return null; } };
+      this.requests = [];
+      this.api = {
+        open: async () => ({
+          document_ref: 'doc-1', candidate_id: 'cand-1', contract_version: '2',
+          candidate_schema_id: 'schema', candidate_schema_version: 2,
+        }),
+        navigation: async () => ({ navigation: [] }),
+        content: async (_doc, options) => {
+          this.requests.push(options.startNodeOrder);
+          return makeChunk(options.startNodeOrder, total);
+        },
+      };
     }
-  }
-  const reader = new FakeReaderController();
-  let updateCalls = 0;
-  const speed = {
-    reader,
-    updateControls() {
-      updateCalls += 1;
-      play.disabled = false;
-      play.textContent = '▶';
-    },
+    reset() {
+      this.nodes = [];
+      this.navigation = [];
+      this.presentationState = { pages: [] };
+      this.lastLocation = null;
+      this.resumeRecord = null;
+    }
+    activateReaderSurface() {}
+    setStatus() {}
+    clear() {}
+    element(id) { return this.elements.get(id) || null; }
+    renderHeader() {}
+    renderNavigation() {}
+    persistLocation(location, extra = {}) {
+      this.persisted = { location, extra };
+      this.resumeRecord = { ...location, node_order: extra.nodeOrder ?? null };
+      return this.resumeRecord;
+    }
+    locationForNode(nodeId) {
+      return model.findNodeById(this.nodes, nodeId)?.location || null;
+    }
+    reflowAndRender() {
+      this.presentationState = { pages: this.nodes.map((item) => ({ nodes: [item] })) };
+    }
+    renderError(error) { throw error; }
   };
-  const rootObject = {
-    ReaderUIV2: { ReaderV2Controller: FakeReaderController },
-    ReaderSpeedPlaybackUI: { getDefaultController: () => speed },
-  };
+}
 
-  assert.equal(Transport.wrapReaderSurfaceActivation(rootObject), true);
-  assert.equal(reader.activateReaderSurface(), 'reader-active');
-  assert.equal(updateCalls, 1);
-  assert.equal(play.disabled, false);
-  assert.equal(play.textContent, '▶');
+test('first-time open requests only the first 150-node window', async () => {
+  const ReaderController = makeReaderControllerClass(null, 1000);
+  const root = { ReaderUIV2: { ReaderV2Controller: ReaderController } };
+  Transport.installReaderWindowing(root);
+  const reader = new ReaderController();
+  await reader.openBook({ id: 'doc-1', name: 'Demo' });
+  assert.deepEqual(reader.requests, [0]);
+  assert.equal(reader.nodes.length, 150);
+  assert.equal(reader.nodes[0].order, 0);
+  assert.equal(reader.nodes.at(-1).order, 149);
 });
 
-test('starting speed reading exposes preparation feedback and restores controls when ready', async () => {
-  const play = button();
-  const statuses = [];
-  let releaseStart;
-  const controller = {
-    __readerSpeedStartPending: false,
-    reader: { setStatus(message) { statuses.push(message); } },
-    element(id) { return id === 'readingToggleBtn' ? play : null; },
-    updateControls() {
-      play.disabled = false;
-      play.textContent = '⏸';
-      play.title = '暂停速度阅读';
-    },
-    async start() {
-      await new Promise((resolve) => { releaseStart = resolve; });
-      return true;
+test('open with ordered history requests the history window and following window, not the prefix', async () => {
+  const resumeRecord = { node_id: 'n620', node_order: 620 };
+  const ReaderController = makeReaderControllerClass(resumeRecord, 1000);
+  const root = { ReaderUIV2: { ReaderV2Controller: ReaderController } };
+  Transport.installReaderWindowing(root);
+  const reader = new ReaderController();
+  reader.document = {
+    querySelector(selector) {
+      if (String(selector).includes('n620')) return { scrollIntoView() {}, focus() {} };
+      return null;
     },
   };
+  await reader.openBook({ id: 'doc-1', name: 'Demo' });
+  assert.deepEqual(reader.requests, [600, 750]);
+  assert.equal(reader.nodes.length, 300);
+  assert.equal(reader.lastLocation.node_id, 'n620');
+});
 
-  assert.equal(Transport.wrapStartReadiness(controller, {}), true);
-  const starting = controller.start();
-  assert.equal(controller.__readerSpeedStartPending, true);
-  assert.equal(play.disabled, true);
-  assert.equal(play.textContent, '⏳');
-  assert.equal(play.title, '正在准备速度阅读…');
-  assert.equal(statuses[0], '正在准备速度阅读…');
+function makePlaybackHarness() {
+  class PlaybackController {
+    constructor() {
+      this.frames = [];
+      this.index = 0;
+      this.state = 'idle';
+    }
+    setFrames(frames) { this.frames = [...frames]; this.index = 0; this.state = 'idle'; }
+    currentFrame() { return this.frames[this.index] || null; }
+    seek(progress, options = {}) {
+      this.index = Math.min(this.frames.length - 1, Math.floor(Number(progress) * this.frames.length));
+      if (options.activate === false) this.state = 'idle';
+      return this.currentFrame();
+    }
+    play() { this.state = 'playing'; return this.frames.length > 0; }
+    snapshot() { return { state: this.state, index: this.index, frame_count: this.frames.length, frame: this.currentFrame() }; }
+  }
 
-  await Promise.resolve();
-  assert.equal(typeof releaseStart, 'function');
-  releaseStart();
-  assert.equal(await starting, true);
-  assert.equal(controller.__readerSpeedStartPending, false);
-  assert.equal(play.disabled, false);
-  assert.equal(play.textContent, '⏸');
-  assert.equal(statuses.at(-1), '');
+  class SpeedController {
+    constructor(reader) {
+      this.reader = reader;
+      this.playback = new PlaybackController();
+      this.adapter = {
+        buildPlaybackFrames(_open, nodes) {
+          this.lastBuiltOrders = nodes.map((item) => item.order);
+          return {
+            frames: nodes.map((item) => ({
+              frame_id: `f${item.order}`,
+              identity: { node_id: item.node_id },
+              source_spans: [{ node_id: item.node_id }],
+              kind: 'timed_text',
+            })),
+          };
+        },
+      };
+      this.trainingClock = { state: 'idle', start() { this.state = 'running'; }, stop() { this.state = 'stopped'; } };
+    }
+    isReaderActive() { return true; }
+    adapterOptions() { return { displayScope: 'line', lineWidth: 35, maxLines: 3, speedPerMinute: 600 }; }
+    applyVisualSettings() {}
+    beginTrainingSession() { this.trainingClock.start(); }
+    stopTrainingTicker() {}
+    updateControls() {}
+    refreshFrames() { throw new Error('original full Reader refresh must not run'); }
+    async start() { throw new Error('original ensure-all start must not run'); }
+    stop() { this.playback.state = 'idle'; }
+  }
+
+  const first = Array.from({ length: 150 }, (_, index) => node(index));
+  const second = Array.from({ length: 150 }, (_, index) => node(150 + index));
+  const pagesElement = {
+    querySelectorAll() {
+      return [{ getBoundingClientRect() { return { top: 0, bottom: 800 }; }, scrollIntoView() {} }];
+    },
+  };
+  const main = { getBoundingClientRect() { return { top: 0, bottom: 800, height: 800 }; } };
+  const reader = {
+    openResponse: { candidate_id: 'cand-1' },
+    nodes: first.concat(second),
+    presentationState: { pages: [{ nodes: [node(170), node(171)] }] },
+    __readerContentWindows: new Map([
+      [0, { start: 0, nodes: first, hasMore: true, nextNodeOrder: 150 }],
+      [150, { start: 150, nodes: second, hasMore: true, nextNodeOrder: 300 }],
+    ]),
+    element(id) { return id === 'readerV2Pages' ? pagesElement : null; },
+    document: { querySelector(selector) { return selector === '.reader-v2-main' ? main : null; } },
+    setStatus() {},
+  };
+  const root = {
+    ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: SpeedController },
+    ReaderPlaybackController: {
+      frameContainsNode(frame, nodeId) { return frame?.identity?.node_id === nodeId; },
+    },
+  };
+  Transport.installPlaybackBatchStart(root);
+  return { reader, SpeedController };
+}
+
+test('speed reading converts only the current 150-node batch and starts at the ordinary page first node', async () => {
+  const { reader, SpeedController } = makePlaybackHarness();
+  const controller = new SpeedController(reader);
+  const started = await controller.start();
+
+  assert.equal(started, true);
+  assert.equal(controller.playback.state, 'playing');
+  assert.equal(controller.playback.frames.length, 150);
+  assert.equal(controller.adapter.lastBuiltOrders[0], 150);
+  assert.equal(controller.adapter.lastBuiltOrders.at(-1), 299);
+  assert.equal(controller.playback.currentFrame().identity.node_id, 'n170');
+  assert.equal(controller.__readerSpeedBatchStart, 150);
 });
