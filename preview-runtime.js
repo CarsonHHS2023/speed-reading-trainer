@@ -197,6 +197,17 @@
         return null;
     }
 
+    function explicitNavigationGeneration(controller) {
+        return Number(controller?.__previewExplicitNavigationGeneration || 0);
+    }
+
+    function markExplicitNavigation(controller, nodeId) {
+        const generation = explicitNavigationGeneration(controller) + 1;
+        controller.__previewExplicitNavigationGeneration = generation;
+        controller.__previewExplicitNavigationNodeId = nodeId ? String(nodeId) : null;
+        return generation;
+    }
+
     function setNavigationBusy(controller, sourceButton, busy, loadedCount = 0) {
         if (!sourceButton) return;
         const buttons = navigationButtons(controller);
@@ -233,6 +244,55 @@
         const prototype = root.ReaderUIV2?.ReaderV2Controller?.prototype;
         if (!prototype || prototype.__previewAsyncNavigationInstalled) return false;
 
+        const originalOpenBook = prototype.openBook;
+        if (typeof originalOpenBook === 'function') {
+            prototype.openBook = async function previewOpenBookWithResumeGuard(...args) {
+                this.__previewResumeRestoreBaselineGeneration = explicitNavigationGeneration(this);
+                return originalOpenBook.apply(this, args);
+            };
+        }
+
+        if (typeof prototype.restoreResumeLocation === 'function') {
+            prototype.restoreResumeLocation = async function previewRestoreResumeLocationGuarded() {
+                const baseline = Number(
+                    this.__previewResumeRestoreBaselineGeneration ?? explicitNavigationGeneration(this)
+                );
+                const stillCurrent = () => explicitNavigationGeneration(this) === baseline;
+                if (!this.documentRef || !this.openResponse || !stillCurrent()) return null;
+
+                const record = this.resumeStore?.read?.(this.documentRef);
+                if (!record) return null;
+                if (!this.resume?.sameCandidate?.(record, this.openResponse)) {
+                    this.resumeStore?.clear?.(this.documentRef);
+                    return null;
+                }
+
+                let node = this.model?.findNodeById?.(this.nodes, record.node_id) || null;
+                while (!node && this.hasMore && stillCurrent()) {
+                    await this.loadMore({ silent: true, deferRender: true });
+                    if (!stillCurrent()) return null;
+                    node = this.model?.findNodeById?.(this.nodes, record.node_id) || null;
+                }
+
+                if (!stillCurrent()) return null;
+                if (!node) {
+                    this.resumeStore?.clear?.(this.documentRef);
+                    return null;
+                }
+
+                this.reflowAndRender?.();
+                if (!stillCurrent()) return null;
+
+                this.resumeRecord = record;
+                const location = node.location || record;
+                this.lastLocation = location;
+                await this.navigateTo(location, { persist: false, behavior: 'auto', resumeRestore: true });
+                if (!stillCurrent()) return null;
+                this.setStatus?.('已恢复上次阅读位置。');
+                return record;
+            };
+        }
+
         const originalRenderNavigation = prototype.renderNavigation;
         if (typeof originalRenderNavigation === 'function') {
             prototype.renderNavigation = function previewRenderNavigationWithIdentity(...args) {
@@ -243,6 +303,12 @@
                     const nodeId = entry?.location?.node_id;
                     if (nodeId) button.dataset.readerNavNodeId = String(nodeId);
                     button.dataset.readerNavLabel = String(entry?.label || button.textContent || '未命名标题');
+                    if (nodeId && button.dataset.previewExplicitNavigationBound !== '1') {
+                        button.dataset.previewExplicitNavigationBound = '1';
+                        button.addEventListener?.('click', () => {
+                            markExplicitNavigation(this, nodeId);
+                        }, { capture: true });
+                    }
                 });
                 return result;
             };
@@ -251,6 +317,7 @@
         prototype.navigateTo = async function previewNavigateTo(location, options = {}) {
             const nodeId = location?.node_id;
             if (!nodeId) return false;
+            if (options.userInitiated === true) markExplicitNavigation(this, nodeId);
             const selector = `[data-reader-node-id="${escapeNodeId(nodeId)}"]`;
             const findTarget = () => this.document?.querySelector?.(selector) || null;
             let nodeEl = findTarget();
