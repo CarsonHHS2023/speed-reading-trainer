@@ -53,50 +53,61 @@ function fakeToolbar(children = []) {
   return toolbar;
 }
 
-test('resolveResumeIndex finds exact frame id and falls back to node identity', () => {
-  const frames = [
-    { frame_id: 'f-1', frame_ordinal: 0, identity: { node_id: 'n-1' } },
-    { frame_id: 'f-2', frame_ordinal: 1, identity: { node_id: 'n-2' } },
-  ];
+function makeToolbarController({ engaged = false } = {}) {
+  const prev = fakeButton('speedReadingPrev');
+  const playPause = fakeButton('speedReadingPause');
+  const next = fakeButton('speedReadingNext');
+  const stop = fakeButton('speedReadingStop');
+  const hint = { textContent: '' };
+  const toolbar = fakeToolbar([prev, playPause, next, stop]);
+  toolbar.querySelector = (selector) => selector === '.speed-reading-v2-shortcuts' ? hint : null;
+  const byId = new Map([
+    ['speedReadingV2Toolbar', toolbar],
+    ['speedReadingPrev', prev],
+    ['speedReadingPause', playPause],
+    ['speedReadingNext', next],
+    ['speedReadingStop', stop],
+  ]);
+  const created = [];
+  const controller = {
+    trainingClock: { state: engaged ? 'running' : 'idle' },
+    playback: { state: engaged ? 'playing' : 'idle' },
+    document: {
+      createElement() {
+        const button = fakeButton();
+        created.push(button);
+        byId.set(button.id, button);
+        return button;
+      },
+    },
+    element(id) {
+      if (id === 'speedReadingFirst') return toolbar.children.find((item) => item.id === id) || null;
+      if (id === 'speedReadingLast') return toolbar.children.find((item) => item.id === id) || null;
+      return byId.get(id) || null;
+    },
+    firstFrame() {},
+    lastFrame() {},
+    isPlaybackSessionEngaged() { return engaged; },
+  };
+  return { controller, created, hint, next, prev, toolbar };
+}
 
-  assert.equal(Polish.resolveResumeIndex({
-    reader: { resumeRecord: { frame_id: 'f-2' } },
-    playback: { frames },
-  }), 1);
-
-  assert.equal(Polish.resolveResumeIndex({
-    reader: { resumeRecord: { frame_id: 'missing', node_id: 'n-1', frame_ordinal: 0 } },
-    playback: { frames },
-  }), 0);
-});
-
-test('restoreResumeFrame defers seeking until playback starts', async () => {
-  class Controller {
-    constructor() {
-      this.reader = { resumeRecord: { frame_id: 'manual-frame' } };
-      this.playback = {
-        frames: [
-          { frame_id: 'text-frame', kind: 'timed' },
-          { frame_id: 'manual-frame', kind: 'manual' },
-        ],
-        index: 0,
-        play() { this.playedIndex = this.index; return true; },
-      };
-    }
-    async start() { return this.playback.play(); }
-    renderManualFrame() {}
+test('playback polish exports presentation concerns only', () => {
+  for (const removedCoreOwner of [
+    'resolveResumeIndex',
+    'playPause',
+    'togglePlayPause',
+    'navigateBy',
+    'moveToBoundary',
+    'continueManualRespectingSession',
+    'applyPlaybackControlState',
+    'wrapPlaybackSurface',
+  ]) {
+    assert.equal(Polish[removedCoreOwner], undefined, removedCoreOwner);
   }
-
-  assert.equal(Polish.install({ ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: Controller } }), true);
-  const controller = new Controller();
-
-  assert.equal(controller.restoreResumeFrame(), true);
-  assert.equal(controller.playback.index, 0, 'opening the book does not seek into the image');
-  assert.equal(controller.pendingResumeFrameIndex, 1);
-
-  assert.equal(await controller.start(), true);
-  assert.equal(controller.playback.playedIndex, 1, 'resume position is applied only when playback starts');
-  assert.equal(controller.pendingResumeFrameIndex, null);
+  assert.equal(typeof Polish.upgradeToolbar, 'function');
+  assert.equal(typeof Polish.applyTransportLabels, 'function');
+  assert.equal(typeof Polish.widenWidthInput, 'function');
 });
 
 test('terminal manual frame is labelled as the last frame and returns to reader view', () => {
@@ -105,11 +116,11 @@ test('terminal manual frame is labelled as the last frame and returns to reader 
       this.playback = { frames: [{ kind: 'manual' }], index: 0 };
       this.stopped = false;
     }
-    async start() { return true; }
     stop() { this.stopped = true; }
     renderManualFrame(_frame, target) {
       target.button = { textContent: '继续', onclick: null };
     }
+    updateControls() {}
   }
 
   Polish.install({ ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: Controller } });
@@ -131,32 +142,8 @@ test('width percentage input is wide enough to display three digits', () => {
   assert.equal(widthInput.style.minWidth, '48px');
 });
 
-test('toolbar upgrade adds first/last controls and distinguishes frame arrows from boundaries', () => {
-  const prev = fakeButton('speedReadingPrev');
-  const playPause = fakeButton('speedReadingPause');
-  const next = fakeButton('speedReadingNext');
-  const stop = fakeButton('speedReadingStop');
-  const toolbar = fakeToolbar([prev, playPause, next, stop]);
-  const byId = new Map([
-    ['speedReadingV2Toolbar', toolbar],
-    ['speedReadingPrev', prev],
-    ['speedReadingPause', playPause],
-    ['speedReadingNext', next],
-    ['speedReadingStop', stop],
-  ]);
-  const created = [];
-  const controller = {
-    document: {
-      createElement() {
-        const button = fakeButton();
-        created.push(button);
-        return button;
-      },
-    },
-    element(id) { return byId.get(id) || null; },
-    firstFrame() {},
-    lastFrame() {},
-  };
+test('toolbar upgrade adds first/last controls without owning their transport semantics', () => {
+  const { controller, created, next, prev, toolbar } = makeToolbarController();
 
   assert.equal(Polish.upgradeToolbar(controller), true);
   assert.deepEqual(toolbar.children.map((item) => item.id), [
@@ -170,105 +157,18 @@ test('toolbar upgrade adds first/last controls and distinguishes frame arrows fr
   assert.equal(created.length, 2);
 });
 
-test('paused frame navigation presents Play rather than Pause/Stop', () => {
-  const toggle = fakeButton('readingToggleBtn');
-  const hiddenPlayPause = fakeButton('speedReadingPause');
-  const first = fakeButton('speedReadingFirst');
-  const prev = fakeButton('speedReadingPrev');
-  const next = fakeButton('speedReadingNext');
-  const last = fakeButton('speedReadingLast');
-  const byId = new Map([
-    ['readingToggleBtn', toggle], ['speedReadingPause', hiddenPlayPause],
-    ['speedReadingFirst', first], ['speedReadingPrev', prev],
-    ['speedReadingNext', next], ['speedReadingLast', last],
-  ]);
-  const controller = {
-    trainingPaused: true,
-    trainingClock: { state: 'paused' },
-    isReaderActive: () => true,
-    element: (id) => byId.get(id) || null,
-  };
+test('ordinary Reader labels use pages while an engaged session uses frames', () => {
+  const ordinary = makeToolbarController({ engaged: false });
+  Polish.upgradeToolbar(ordinary.controller);
+  Polish.applyTransportLabels(ordinary.controller);
+  assert.equal(ordinary.prev.title, '上一页');
+  assert.equal(ordinary.next.title, '下一页');
+  assert.match(ordinary.hint.textContent, /上一页\/下一页/);
 
-  Polish.applyPlaybackControlState(controller, {
-    state: 'paused', index: 3, frame_count: 10,
-  });
-  assert.equal(toggle.textContent, '▶');
-  assert.equal(toggle.title, '播放速度阅读');
-  assert.equal(toggle.classList.contains('active'), false);
-  assert.equal(hiddenPlayPause.textContent, '▶');
-  assert.equal(prev.disabled, false);
-  assert.equal(next.disabled, false);
-});
-
-test('running training session presents Pause while a dedicated Stop remains separate', () => {
-  const toggle = fakeButton('readingToggleBtn');
-  const hiddenPlayPause = fakeButton('speedReadingPause');
-  const controller = {
-    trainingPaused: false,
-    trainingClock: { state: 'running' },
-    isReaderActive: () => true,
-    element(id) {
-      if (id === 'readingToggleBtn') return toggle;
-      if (id === 'speedReadingPause') return hiddenPlayPause;
-      return null;
-    },
-  };
-  Polish.applyPlaybackControlState(controller, {
-    state: 'playing', index: 1, frame_count: 5,
-  });
-  assert.equal(toggle.textContent, '⏸');
-  assert.equal(toggle.title, '暂停速度阅读');
-  assert.equal(toggle.classList.contains('active'), true);
-  assert.equal(hiddenPlayPause.textContent, '⏸');
-});
-
-test('play control resumes training and autoplay from a frame-navigation pause', () => {
-  let resumeCalls = 0;
-  let clockResumeCalls = 0;
-  const controller = {
-    isReaderActive: () => true,
-    trainingPaused: true,
-    comprehensionPaused: false,
-    resumePlaybackAfterTrainingPause: true,
-    trainingClock: {
-      state: 'paused',
-      resume() { this.state = 'running'; clockResumeCalls += 1; return true; },
-    },
-    playback: {
-      state: 'paused',
-      frames: [{}, {}, {}],
-      resume() { this.state = 'playing'; resumeCalls += 1; return true; },
-    },
-    toggleTrainingPause() {
-      this.trainingPaused = false;
-      this.trainingClock.resume();
-      const shouldResume = this.resumePlaybackAfterTrainingPause;
-      this.resumePlaybackAfterTrainingPause = false;
-      if (shouldResume) return this.playback.resume();
-      return true;
-    },
-  };
-
-  assert.equal(Polish.playPause(controller), true);
-  assert.equal(resumeCalls, 1);
-  assert.equal(controller.playback.state, 'playing');
-  assert.equal(clockResumeCalls, 1);
-  assert.equal(controller.trainingClock.state, 'running');
-});
-
-test('first/last navigation uses frame stepping semantics and does not continue autoplay', () => {
-  const calls = [];
-  const controller = {
-    isReaderActive: () => true,
-    trainingPaused: true,
-    trainingClock: { state: 'paused' },
-    playback: {
-      frames: new Array(10).fill({}),
-      snapshot: () => ({ state: 'paused', index: 4, frame_count: 10 }),
-      moveBy(delta) { calls.push(delta); return delta; },
-    },
-  };
-  assert.equal(Polish.moveToBoundary(controller, false), -4);
-  assert.equal(Polish.moveToBoundary(controller, true), 5);
-  assert.deepEqual(calls, [-4, 5]);
+  const active = makeToolbarController({ engaged: true });
+  Polish.upgradeToolbar(active.controller);
+  Polish.applyTransportLabels(active.controller);
+  assert.equal(active.prev.title, '上一帧');
+  assert.equal(active.next.title, '下一帧');
+  assert.match(active.hint.textContent, /上一帧\/下一帧/);
 });
