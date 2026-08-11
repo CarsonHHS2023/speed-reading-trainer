@@ -108,7 +108,6 @@ if (typeof document !== 'undefined') {
     appendEnhancementScript('speedReadingStructurePolicyScript', 'speed-reading-structure-policy.js', { lifecycleManaged: true });
     appendEnhancementScript('speedReadingFormulaRenderingScript', 'speed-reading-formula-rendering.js');
     appendEnhancementScript('speedReadingResponsiveLayoutScript', 'speed-reading-responsive-layout.js', { lifecycleManaged: true });
-    appendEnhancementScript('speedReadingPageRuntimeScript', 'speed-reading-page-runtime.js', { lifecycleManaged: true });
     appendEnhancementScript('readerPunctuationHangingPolicyScript', 'reader-punctuation-hanging-policy.js', { lifecycleManaged: true });
     appendEnhancementScript('speedReadingLayoutIntegrityScript', 'speed-reading-layout-integrity.js');
     appendEnhancementScript('speedReadingBlockLayoutPolicyScript', 'speed-reading-block-layout-policy.js');
