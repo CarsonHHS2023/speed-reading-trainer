@@ -30,6 +30,7 @@
     }
 
     function normalizeNodeOrder(value) {
+        if (value === null || value === undefined || value === '') return null;
         const numeric = Number(value);
         return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
     }
