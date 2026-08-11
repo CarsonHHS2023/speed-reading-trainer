@@ -77,6 +77,7 @@ test('keyboard controls map only to semantic playback actions and ignore editabl
     const calls = [];
     controller.playback.frames = [{ frame_id: 'f1' }, { frame_id: 'f2' }];
     controller.playback.state = 'paused';
+    controller.trainingClock.state = 'running';
     controller.previousFrame = () => calls.push('previous');
     controller.nextFrame = () => calls.push('next');
     controller.togglePause = () => calls.push('pause');
