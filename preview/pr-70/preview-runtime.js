@@ -95,6 +95,36 @@
         }
     }
 
+    function installPlaybackBrowsingIsolation() {
+        const prototype = root.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController?.prototype;
+        if (!prototype || prototype.__previewBrowsingIsolationInstalled) return false;
+
+        prototype.restoreResumeFrame = function previewRestoreResumeFrame() {
+            const record = this.reader?.resumeRecord;
+            if ((!record?.frame_id && record?.frame_ordinal == null) || !this.playback.frames.length) return false;
+            let index = record.frame_id
+                ? this.playback.frames.findIndex((frame) => frame.frame_id === record.frame_id)
+                : -1;
+            if (index < 0 && record.node_id) {
+                index = this.playback.frames.findIndex((frame) => (
+                    frame?.identity?.node_id === record.node_id
+                    && (record.frame_ordinal == null || frame.frame_ordinal === record.frame_ordinal)
+                ));
+            }
+            if (index < 0) return false;
+            this.playback.seek(index / this.playback.frames.length, { activate: false });
+            return true;
+        };
+
+        Object.defineProperty(prototype, '__previewBrowsingIsolationInstalled', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
+    }
+
     function installIncrementalReaderChunkRendering() {
         const prototype = root.ReaderUIV2?.ReaderV2Controller?.prototype;
         if (!prototype || prototype.__previewIncrementalChunkRenderingInstalled) return false;
@@ -136,6 +166,74 @@
         return true;
     }
 
+    function escapeNodeId(value) {
+        if (root.CSS?.escape) return root.CSS.escape(String(value));
+        return String(value).replace(/["\\]/g, '\\$&');
+    }
+
+    function yieldToBrowser() {
+        if (typeof root.requestAnimationFrame === 'function') {
+            return new Promise((resolve) => root.requestAnimationFrame(() => resolve()));
+        }
+        if (typeof root.setTimeout === 'function') {
+            return new Promise((resolve) => root.setTimeout(resolve, 0));
+        }
+        return Promise.resolve();
+    }
+
+    function installAsyncReaderNavigation() {
+        const prototype = root.ReaderUIV2?.ReaderV2Controller?.prototype;
+        if (!prototype || prototype.__previewAsyncNavigationInstalled) return false;
+
+        prototype.navigateTo = async function previewNavigateTo(location, options = {}) {
+            const nodeId = location?.node_id;
+            if (!nodeId) return false;
+            const selector = `[data-reader-node-id="${escapeNodeId(nodeId)}"]`;
+            const findTarget = () => this.document?.querySelector?.(selector) || null;
+            let nodeEl = findTarget();
+
+            this.__previewNavigationPending = true;
+            try {
+                if (!nodeEl && this.hasMore) {
+                    this.setStatus?.('正在定位章节…');
+                    let node = this.model?.findNodeById?.(this.nodes, nodeId) || null;
+                    while (!node && this.hasMore) {
+                        await this.loadMore({ silent: true });
+                        await yieldToBrowser();
+                        node = this.model?.findNodeById?.(this.nodes, nodeId) || null;
+                    }
+                    nodeEl = findTarget();
+                }
+
+                if (!nodeEl) {
+                    this.setStatus?.('未能定位到该章节。', 'info');
+                    return false;
+                }
+
+                nodeEl.scrollIntoView?.({ block: 'center', behavior: options.behavior || 'auto' });
+                nodeEl.focus?.({ preventScroll: true });
+                const resolved = this.locationForNode?.(nodeId) || location;
+                this.lastLocation = resolved;
+                if (options.persist !== false) this.persistLocation?.(resolved);
+                this.setStatus?.('');
+                return true;
+            } catch (error) {
+                this.renderError?.(error);
+                return false;
+            } finally {
+                this.__previewNavigationPending = false;
+            }
+        };
+
+        Object.defineProperty(prototype, '__previewAsyncNavigationInstalled', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
+    }
+
     function installBoundedReaderAutoPagination() {
         const documentObject = root.document;
         if (!documentObject) return false;
@@ -156,7 +254,7 @@
 
         const maybeLoadNextChunk = () => {
             const controller = root.ReaderUIV2?.getDefaultController?.();
-            if (!controller?.openResponse || !controller.hasMore) return null;
+            if (!controller?.openResponse || !controller.hasMore || controller.__previewNavigationPending) return null;
 
             const nextCandidateKey = String(controller.candidateId || controller.openResponse?.candidate_id || '');
             if (candidateKey !== nextCandidateKey) {
@@ -191,7 +289,9 @@
     }
 
     function installPreviewReaderEnhancements() {
+        installPlaybackBrowsingIsolation();
         installIncrementalReaderChunkRendering();
+        installAsyncReaderNavigation();
         installBoundedReaderAutoPagination();
     }
 
