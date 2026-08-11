@@ -116,11 +116,24 @@
         }
     }
 
+    function applyStartPendingVisual(controller, pending = Boolean(controller?.__readerSpeedStartPending)) {
+        const button = controller?.element?.('readingToggleBtn');
+        if (!button || !pending) return false;
+        button.disabled = true;
+        button.textContent = '⏳';
+        button.title = '正在准备速度阅读…';
+        button.setAttribute?.('aria-label', button.title);
+        return true;
+    }
+
     function applyReaderPageControlState(controller, rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
         if (!controller) return false;
         const ordinary = !isPlaybackSessionEngaged(controller, rootObject);
         setTransportLabels(controller, ordinary);
-        if (!ordinary) return false;
+        if (!ordinary) {
+            applyStartPendingVisual(controller);
+            return false;
+        }
 
         const reader = controller.reader;
         const pages = readerPageElements(controller);
@@ -140,6 +153,7 @@
         if (prev) prev.disabled = !readable || pending || atFirst;
         if (next) next.disabled = !readable || pending || atTrueLast;
         if (last) last.disabled = !readable || pending || atTrueLast;
+        applyStartPendingVisual(controller);
         return true;
     }
 
@@ -241,6 +255,65 @@
         }
     }
 
+    function wrapStartReadiness(target, rootObject) {
+        if (!target || typeof target.start !== 'function') return false;
+        if (Object.prototype.hasOwnProperty.call(target, '__readerStartReadinessWrapped')) return false;
+        const original = target.start;
+        target.start = function startWithReadinessFeedback(...args) {
+            if (this.__readerSpeedStartPromise) return this.__readerSpeedStartPromise;
+            this.__readerSpeedStartPending = true;
+            this.reader?.setStatus?.('正在准备速度阅读…');
+            applyStartPendingVisual(this, true);
+
+            const pending = Promise.resolve()
+                .then(() => original.apply(this, args))
+                .then((started) => {
+                    if (started) this.reader?.setStatus?.('');
+                    else this.reader?.setStatus?.('当前内容没有可播放的速度阅读帧。', 'info');
+                    return started;
+                })
+                .finally(() => {
+                    this.__readerSpeedStartPending = false;
+                    this.__readerSpeedStartPromise = null;
+                    this.updateControls?.();
+                    applyReaderPageControlState(this, rootObject);
+                });
+            this.__readerSpeedStartPromise = pending;
+            return pending;
+        };
+        Object.defineProperty(target, '__readerStartReadinessWrapped', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
+    }
+
+    function wrapReaderSurfaceActivation(rootObject) {
+        const ReaderController = rootObject?.ReaderUIV2?.ReaderV2Controller;
+        const prototype = ReaderController?.prototype;
+        if (!prototype || typeof prototype.activateReaderSurface !== 'function') return false;
+        if (Object.prototype.hasOwnProperty.call(prototype, '__readerSurfacePlaybackReadinessWrapped')) return false;
+        const original = prototype.activateReaderSurface;
+        prototype.activateReaderSurface = function activateReaderSurfaceWithPlaybackReadiness(...args) {
+            const result = original.apply(this, args);
+            const playbackController = rootObject?.ReaderSpeedPlaybackUI?.getDefaultController?.();
+            if (playbackController?.reader === this) {
+                playbackController.updateControls?.();
+                applyReaderPageControlState(playbackController, rootObject);
+            }
+            return result;
+        };
+        Object.defineProperty(prototype, '__readerSurfacePlaybackReadinessWrapped', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
+    }
+
     function wrapUpdateControls(target, rootObject) {
         if (!target || typeof target.updateControls !== 'function') return false;
         if (Object.prototype.hasOwnProperty.call(target, '__readerTransportSemanticsWrapped')) return false;
@@ -248,6 +321,7 @@
         target.updateControls = function updateControlsWithReaderPageSemantics(...args) {
             const result = original.apply(this, args);
             applyReaderPageControlState(this, rootObject);
+            applyStartPendingVisual(this);
             return result;
         };
         Object.defineProperty(target, '__readerTransportSemanticsWrapped', {
@@ -325,12 +399,15 @@
         const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         if (!Controller) return false;
+        wrapReaderSurfaceActivation(rootObject);
+        wrapStartReadiness(Controller.prototype, rootObject);
         wrapUpdateControls(Controller.prototype, rootObject);
         const controller = PlaybackUI?.getDefaultController?.();
         if (!controller) return false;
         wrapUpdateControls(controller, rootObject);
         bindWindowTransportCapture(controller, rootObject);
         bindReaderScroll(controller, rootObject);
+        controller.updateControls?.();
         applyReaderPageControlState(controller, rootObject);
         return true;
     }
@@ -342,6 +419,7 @@
         ORDINARY_ACTIONS,
         PREV_CONTROL_ID,
         applyReaderPageControlState,
+        applyStartPendingVisual,
         bindReaderScroll,
         bindWindowTransportCapture,
         currentReaderPageIndex,
@@ -355,6 +433,8 @@
         readerPageElements,
         scrollToReaderPage,
         setTransportLabels,
+        wrapReaderSurfaceActivation,
+        wrapStartReadiness,
         wrapUpdateControls,
         yieldToBrowser,
     };
