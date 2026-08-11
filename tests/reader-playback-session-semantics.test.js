@@ -1,91 +1,78 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const Polish = require('../reader-playback-polish.js');
+const { ReaderSpeedPlaybackUIController } = require('../reader-speed-playback-ui.js');
 
-function button() {
-  const classes = new Set();
-  return {
-    textContent: '',
-    title: '',
-    disabled: false,
-    attributes: {},
-    setAttribute(name, value) { this.attributes[name] = String(value); },
-    classList: {
-      toggle(name, force) {
-        if (force) classes.add(name);
-        else classes.delete(name);
-      },
-      contains(name) { return classes.has(name); },
-    },
-  };
-}
-
-function activeController(options = {}) {
+function makeController(options = {}) {
   const calls = [];
-  const controller = {
-    trainingPaused: Boolean(options.trainingPaused),
-    comprehensionPaused: Boolean(options.comprehensionPaused),
-    resumePlaybackAfterTrainingPause: Boolean(options.resumePlaybackAfterTrainingPause),
-    trainingClock: {
-      state: options.clockState || 'running',
-      pause() {
-        if (this.state !== 'running') return false;
-        this.state = 'paused';
-        calls.push('clock.pause');
-        return true;
-      },
-      resume() {
-        if (this.state !== 'paused') return false;
-        this.state = 'running';
-        calls.push('clock.resume');
-        return true;
-      },
-    },
-    playback: {
-      state: options.playbackState || 'playing',
-      frames: options.frames || [{}, {}, {}],
-      index: options.index || 0,
-      pause() {
-        if (this.state !== 'playing') return false;
-        this.state = 'paused';
-        calls.push('playback.pause');
-        return true;
-      },
-      moveBy(delta) {
-        this.index = Math.max(0, Math.min(this.frames.length - 1, this.index + delta));
-        this.state = options.targetManual ? 'manual' : 'paused';
-        calls.push(`moveBy:${delta}`);
-        return this.frames[this.index];
-      },
-      next() {
-        calls.push('playback.next');
-        this.index = Math.min(this.frames.length - 1, this.index + 1);
-        this.state = options.nextManual ? 'manual' : 'paused';
-        return this.frames[this.index];
-      },
-      continueManual() {
-        calls.push('playback.continueManual');
-        this.index = Math.min(this.frames.length - 1, this.index + 1);
-        this.state = 'playing';
-        return true;
-      },
-      snapshot() {
-        return { state: this.state, index: this.index, frame_count: this.frames.length, frame: this.frames[this.index] };
-      },
-    },
-    isReaderActive: () => true,
-    updateTrainingTime() { calls.push('time.update'); },
-    updateControls() { calls.push('controls.update'); },
+  const controller = Object.create(ReaderSpeedPlaybackUIController.prototype);
+  controller.document = { body: { dataset: { readerV2Active: '1' } } };
+  controller.reader = {
+    openResponse: { candidate_id: 'cand' },
+    previousPage() { calls.push('reader.previousPage'); return true; },
+    nextPage() { calls.push('reader.nextPage'); return true; },
+    firstPage() { calls.push('reader.firstPage'); return true; },
+    lastPage() { calls.push('reader.lastPage'); return true; },
+    renderError() {},
   };
+  controller.trainingPaused = Boolean(options.trainingPaused);
+  controller.comprehensionPaused = Boolean(options.comprehensionPaused);
+  controller.resumePlaybackAfterTrainingPause = Boolean(options.resumePlaybackAfterTrainingPause);
+  controller.trainingClock = {
+    state: options.clockState || 'running',
+    pause() {
+      if (this.state !== 'running') return false;
+      this.state = 'paused';
+      calls.push('clock.pause');
+      return true;
+    },
+    resume() {
+      if (this.state !== 'paused') return false;
+      this.state = 'running';
+      calls.push('clock.resume');
+      return true;
+    },
+    start() { this.state = 'running'; calls.push('clock.start'); },
+    stop() { this.state = 'stopped'; calls.push('clock.stop'); },
+  };
+  const frames = options.frames || [{ frame_id: 'f0' }, { frame_id: 'f1' }, { frame_id: 'f2' }];
+  controller.playback = {
+    state: options.playbackState || 'playing',
+    frames,
+    index: options.index || 0,
+    pause() {
+      if (this.state !== 'playing') return false;
+      this.state = 'paused';
+      calls.push('playback.pause');
+      return true;
+    },
+    resume() {
+      if (this.state !== 'paused') return false;
+      this.state = 'playing';
+      calls.push('playback.resume');
+      return true;
+    },
+    moveBy(delta) {
+      this.index = Math.max(0, Math.min(this.frames.length - 1, this.index + delta));
+      this.state = 'paused';
+      calls.push(`moveBy:${delta}`);
+      return this.frames[this.index];
+    },
+    snapshot() {
+      return { state: this.state, index: this.index, frame_count: this.frames.length, frame: this.frames[this.index] };
+    },
+    continueManual() { calls.push('playback.continueManual'); return true; },
+  };
+  controller.updateTrainingTime = () => calls.push('time.update');
+  controller.updateControls = () => calls.push('controls.update');
+  controller.startTrainingTicker = () => calls.push('ticker.start');
   controller.calls = calls;
   return controller;
 }
 
-test('frame navigation from an active session pauses clock and autoplay before moving', () => {
-  const controller = activeController({ playbackState: 'playing', clockState: 'running' });
-
-  const frame = Polish.navigateBy(controller, 1);
+test('frame navigation pauses a running training session before moving', () => {
+  const controller = makeController({ playbackState: 'playing', clockState: 'running' });
+  const frame = controller.navigateFrameBy(1);
 
   assert.ok(frame);
   assert.equal(controller.trainingPaused, true);
@@ -96,101 +83,62 @@ test('frame navigation from an active session pauses clock and autoplay before m
   assert.deepEqual(controller.calls, ['clock.pause', 'playback.pause', 'moveBy:1']);
 });
 
-test('frame navigation from a natural manual wait also pauses the running clock before moving', () => {
-  const controller = activeController({ playbackState: 'manual', clockState: 'running', index: 1 });
-
-  Polish.navigateBy(controller, 1);
+test('manual-frame navigation pauses the running clock and then moves exactly one frame', () => {
+  const controller = makeController({ playbackState: 'manual', clockState: 'running', index: 1 });
+  controller.navigateFrameBy(1);
 
   assert.equal(controller.trainingPaused, true);
   assert.equal(controller.trainingClock.state, 'paused');
   assert.equal(controller.playback.index, 2);
   assert.equal(controller.playback.state, 'paused');
+  assert.equal(controller.resumePlaybackAfterTrainingPause, true);
   assert.deepEqual(controller.calls, ['clock.pause', 'time.update', 'controls.update', 'moveBy:1']);
 });
 
-test('frame navigation while the training clock is already paused does not restart or re-pause it', () => {
-  const controller = activeController({
+test('frame navigation while training is already paused does not pause twice', () => {
+  const controller = makeController({
     playbackState: 'paused',
     clockState: 'paused',
     trainingPaused: true,
     resumePlaybackAfterTrainingPause: true,
   });
-
-  Polish.navigateBy(controller, 1);
+  controller.navigateFrameBy(1);
 
   assert.equal(controller.trainingClock.state, 'paused');
   assert.equal(controller.trainingPaused, true);
   assert.deepEqual(controller.calls, ['moveBy:1']);
 });
 
-test('stopped browsing on a manual visual advances one frame without starting autoplay or the clock', () => {
-  const controller = activeController({ playbackState: 'manual', clockState: 'stopped', index: 1 });
+test('resuming after manual frame navigation resumes both clock and autoplay', () => {
+  const controller = makeController({ playbackState: 'manual', clockState: 'running', index: 1 });
+  controller.navigateFrameBy(1);
+  controller.calls.length = 0;
 
-  assert.equal(Polish.continueManualRespectingSession(controller), true);
-  assert.equal(controller.playback.index, 2);
-  assert.equal(controller.playback.state, 'paused');
-  assert.equal(controller.trainingClock.state, 'stopped');
-  assert.deepEqual(controller.calls, ['playback.next']);
-});
-
-test('paused browsing on a manual visual advances one frame without resuming autoplay', () => {
-  const controller = activeController({
-    playbackState: 'manual',
-    clockState: 'paused',
-    trainingPaused: true,
-    index: 1,
-  });
-
-  assert.equal(Polish.continueManualRespectingSession(controller), true);
-  assert.equal(controller.playback.index, 2);
-  assert.equal(controller.playback.state, 'paused');
-  assert.equal(controller.trainingClock.state, 'paused');
-  assert.deepEqual(controller.calls, ['playback.next']);
-});
-
-test('natural manual visual Continue resumes autoplay only while the training session is running', () => {
-  const controller = activeController({ playbackState: 'manual', clockState: 'running', index: 1 });
-
-  assert.equal(Polish.continueManualRespectingSession(controller), true);
-  assert.equal(controller.playback.index, 2);
-  assert.equal(controller.playback.state, 'playing');
+  assert.equal(controller.toggleTrainingPause(), true);
   assert.equal(controller.trainingClock.state, 'running');
-  assert.deepEqual(controller.calls, ['playback.continueManual']);
+  assert.equal(controller.playback.state, 'playing');
+  assert.equal(controller.trainingPaused, false);
+  assert.deepEqual(controller.calls, ['clock.resume', 'playback.resume']);
 });
 
-test('manual visual shows Pause while training runs and Play while browsing is paused', () => {
-  const toggle = button();
-  const hidden = button();
-  const controller = activeController({ playbackState: 'manual', clockState: 'running' });
-  controller.element = (id) => {
-    if (id === 'readingToggleBtn') return toggle;
-    if (id === 'speedReadingPause') return hidden;
-    return null;
-  };
-
-  Polish.applyPlaybackControlState(controller, { state: 'manual', index: 1, frame_count: 3 });
-  assert.equal(toggle.textContent, '⏸');
-  assert.equal(hidden.textContent, '⏸');
-
-  controller.trainingClock.state = 'paused';
-  controller.trainingPaused = true;
-  Polish.applyPlaybackControlState(controller, { state: 'manual', index: 1, frame_count: 3 });
-  assert.equal(toggle.textContent, '▶');
-  assert.equal(hidden.textContent, '▶');
+test('ordinary transport uses Reader pages until a real speed session is engaged', async () => {
+  const controller = makeController({ playbackState: 'idle', clockState: 'idle' });
+  await controller.previousFrame();
+  await controller.nextFrame();
+  await controller.firstFrame();
+  await controller.lastFrame();
+  assert.deepEqual(controller.calls, [
+    'reader.previousPage', 'reader.nextPage', 'reader.firstPage', 'reader.lastPage',
+  ]);
 });
 
-test('central control on a running manual visual pauses training instead of advancing the visual', () => {
-  let toggleTrainingPauseCalls = 0;
-  let continueManualCalls = 0;
-  const controller = {
-    isReaderActive: () => true,
-    trainingClock: { state: 'running' },
-    playback: { state: 'manual', frames: [{}] },
-    toggleTrainingPause() { toggleTrainingPauseCalls += 1; return true; },
-    continueManual() { continueManualCalls += 1; return true; },
-  };
+test('central control on a running manual frame pauses training instead of advancing manual content', () => {
+  const controller = makeController({ playbackState: 'manual', clockState: 'running' });
+  let startCalls = 0;
+  controller.start = async () => { startCalls += 1; return true; };
 
-  assert.equal(Polish.togglePlayPause(controller), true);
-  assert.equal(toggleTrainingPauseCalls, 1);
-  assert.equal(continueManualCalls, 0);
+  assert.equal(controller.togglePause(), true);
+  assert.equal(controller.trainingPaused, true);
+  assert.equal(startCalls, 0);
+  assert.equal(controller.calls.includes('playback.continueManual'), false);
 });
