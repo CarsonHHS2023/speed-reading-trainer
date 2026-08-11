@@ -7,6 +7,7 @@ function button() {
   return {
     disabled: false,
     title: '',
+    textContent: '',
     attributes: {},
     setAttribute(name, value) { this.attributes[name] = String(value); },
   };
@@ -24,6 +25,7 @@ function makeHarness(options = {}) {
     speedReadingPrev: button(),
     speedReadingNext: button(),
     speedReadingLast: button(),
+    readingToggleBtn: button(),
   };
   const toolbar = { querySelector: () => null };
   const pages = [];
@@ -156,4 +158,71 @@ test('active speed-reading session keeps frame semantics and rejects ordinary pa
   assert.equal(harness.controls.speedReadingPrev.disabled, true);
   assert.equal(await Transport.navigateReaderPage(harness.controller, 'previous', harness.rootObject), false);
   assert.equal(harness.main.scrollTop, 1000);
+});
+
+test('Reader surface activation returns play-button readiness ownership to the speed controller', () => {
+  const play = button();
+  class FakeReaderController {
+    activateReaderSurface() {
+      play.disabled = true;
+      return 'reader-active';
+    }
+  }
+  const reader = new FakeReaderController();
+  let updateCalls = 0;
+  const speed = {
+    reader,
+    updateControls() {
+      updateCalls += 1;
+      play.disabled = false;
+      play.textContent = '▶';
+    },
+  };
+  const rootObject = {
+    ReaderUIV2: { ReaderV2Controller: FakeReaderController },
+    ReaderSpeedPlaybackUI: { getDefaultController: () => speed },
+  };
+
+  assert.equal(Transport.wrapReaderSurfaceActivation(rootObject), true);
+  assert.equal(reader.activateReaderSurface(), 'reader-active');
+  assert.equal(updateCalls, 1);
+  assert.equal(play.disabled, false);
+  assert.equal(play.textContent, '▶');
+});
+
+test('starting speed reading exposes preparation feedback and restores controls when ready', async () => {
+  const play = button();
+  const statuses = [];
+  let releaseStart;
+  const controller = {
+    __readerSpeedStartPending: false,
+    reader: { setStatus(message) { statuses.push(message); } },
+    element(id) { return id === 'readingToggleBtn' ? play : null; },
+    updateControls() {
+      play.disabled = false;
+      play.textContent = '⏸';
+      play.title = '暂停速度阅读';
+    },
+    async start() {
+      await new Promise((resolve) => { releaseStart = resolve; });
+      return true;
+    },
+  };
+
+  assert.equal(Transport.wrapStartReadiness(controller, {}), true);
+  const starting = controller.start();
+  assert.equal(controller.__readerSpeedStartPending, true);
+  assert.equal(play.disabled, true);
+  assert.equal(play.textContent, '⏳');
+  assert.equal(play.title, '正在准备速度阅读…');
+  assert.equal(statuses[0], '正在准备速度阅读…');
+
+  await Promise.resolve();
+  assert.equal(typeof releaseStart, 'function');
+  releaseStart();
+  assert.equal(await starting, true);
+  assert.equal(controller.__readerSpeedStartPending, false);
+  assert.equal(play.disabled, false);
+  assert.equal(play.textContent, '⏸');
+  assert.equal(statuses.at(-1), '');
 });
