@@ -29,6 +29,11 @@
         }
     }
 
+    function normalizeNodeOrder(value) {
+        const numeric = Number(value);
+        return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
+    }
+
     function normalizeRecord(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
         if (Number(value.version) !== STORE_VERSION) return null;
@@ -47,6 +52,7 @@
             candidate_schema_id: candidateSchemaId,
             candidate_schema_version: candidateSchemaVersion,
             node_id: nodeId,
+            node_order: normalizeNodeOrder(value.node_order),
             source_unit_id: value.source_unit_id ? String(value.source_unit_id) : null,
             source_anchor: normalizeAnchor(value.source_anchor),
             frame_id: value.frame_id ? String(value.frame_id) : null,
@@ -65,6 +71,7 @@
             candidate_schema_id: documentView.candidate_schema_id,
             candidate_schema_version: documentView.candidate_schema_version,
             node_id: location.node_id,
+            node_order: extra.nodeOrder,
             source_unit_id: location.source_unit_id || null,
             source_anchor: location.source_anchor || null,
             frame_id: extra.frameId || null,
@@ -126,6 +133,7 @@
         KEY_PREFIX,
         STORE_VERSION,
         ReaderResumeStoreV2,
+        normalizeNodeOrder,
         normalizeRecord,
         recordForLocation,
         sameCandidate,
