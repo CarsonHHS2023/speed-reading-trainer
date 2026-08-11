@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+const ReaderModel = require('../reader-model.js');
 const { ReaderV2Controller, safeMessage, NODE_LIMIT, MAX_VISIBLE_WINDOWS } = require('../reader-ui-v2.js');
 
 class FakeElement {
@@ -38,6 +39,7 @@ test('Reader v2 UI exposes the authoritative bounded window contract', () => {
 test('Reader v2 active find result renders a mark without rewriting canonical node text', () => {
   const controller = Object.create(ReaderV2Controller.prototype);
   controller.document = new FakeDocument();
+  controller.model = ReaderModel;
   controller.assets = { defaultLabel() { return ''; } };
   controller.findResults = [{ node_id: 'n1', match_start: 9, match_end: 15 }];
   controller.findIndex = 0;
