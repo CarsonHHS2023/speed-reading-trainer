@@ -95,6 +95,122 @@
         }
     }
 
+    function playbackFrameContainsNode(frame, nodeId) {
+        const expected = String(nodeId || '').trim();
+        if (!expected || !frame) return false;
+        const sharedMatcher = root.ReaderPlaybackController?.frameContainsNode;
+        if (typeof sharedMatcher === 'function') return Boolean(sharedMatcher(frame, expected));
+        if (String(frame?.identity?.node_id || '').trim() === expected) return true;
+        return (frame?.source_spans || []).some((identity) => (
+            String(identity?.node_id || '').trim() === expected
+        ));
+    }
+
+    function playbackControllerForReader(readerController) {
+        const controller = root.ReaderSpeedPlaybackUI?.getDefaultController?.();
+        if (!controller?.playback || !controller?.adapter || !readerController?.openResponse) return null;
+        if (controller.reader !== readerController) controller.reader = readerController;
+        return controller;
+    }
+
+    function isPlaybackBrowseOnly(controller) {
+        const clockState = controller?.trainingClock?.state;
+        if (clockState === 'running' || clockState === 'paused') return false;
+        if (!controller?.trainingClock && controller?.playback?.state === 'playing') return false;
+        return true;
+    }
+
+    function syncPlaybackCursorToReaderNode(readerController, nodeId) {
+        try {
+            const controller = playbackControllerForReader(readerController);
+            if (!controller || !isPlaybackBrowseOnly(controller)) return false;
+
+            const findFrameIndex = () => (controller.playback?.frames || []).findIndex((frame) => (
+                playbackFrameContainsNode(frame, nodeId)
+            ));
+            let index = findFrameIndex();
+            if (index < 0 && typeof controller.refreshFrames === 'function') {
+                controller.refreshFrames({ preserveIdentity: false });
+                index = findFrameIndex();
+            }
+
+            const frameCount = Number(controller.playback?.frames?.length || 0);
+            if (index < 0 || frameCount <= 0 || typeof controller.playback?.seek !== 'function') return false;
+            controller.pendingResumeFrameIndex = null;
+            controller.playback.seek(index / frameCount, { activate: false });
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function playbackFrameLocation(frame) {
+        if (frame?.identity?.node_id) return frame.identity;
+        return (frame?.source_spans || []).find((identity) => identity?.node_id) || null;
+    }
+
+    function settlePlaybackBrowseAtCurrentFrame(controller, frame) {
+        if (!controller || !frame || !isPlaybackBrowseOnly(controller)) return frame;
+        const snapshot = controller.playback?.snapshot?.();
+        if (snapshot?.frame_count > 0 && typeof controller.playback?.seek === 'function') {
+            controller.playback.seek(snapshot.index / snapshot.frame_count, { activate: false });
+        }
+
+        const location = playbackFrameLocation(frame);
+        const reader = controller.reader;
+        if (!location?.node_id || typeof reader?.navigateTo !== 'function') return frame;
+        Promise.resolve(reader.navigateTo(location, {
+            persist: false,
+            behavior: 'auto',
+            playbackBrowse: true,
+        })).then((navigated) => {
+            if (navigated === false) return;
+            reader.persistLocation?.(location, {
+                frameId: frame.frame_id || null,
+                frameOrdinal: Number.isInteger(frame.frame_ordinal) ? frame.frame_ordinal : null,
+            });
+        }).catch((error) => reader.renderError?.(error));
+        return frame;
+    }
+
+    function installPlaybackBrowseTransportCapture() {
+        const documentObject = root.document;
+        if (!documentObject?.addEventListener || documentObject.__previewPlaybackBrowseTransportBound) return false;
+        documentObject.__previewPlaybackBrowseTransportBound = true;
+        const destinations = Object.freeze({
+            speedReadingFirst: 'first',
+            speedReadingPrev: 'previous',
+            speedReadingNext: 'next',
+            speedReadingLast: 'last',
+        });
+
+        documentObject.addEventListener('click', (event) => {
+            const target = event?.target;
+            const button = target?.id && destinations[target.id]
+                ? target
+                : target?.closest?.('#speedReadingFirst, #speedReadingPrev, #speedReadingNext, #speedReadingLast');
+            const action = button?.id ? destinations[button.id] : null;
+            if (!action) return;
+
+            const controller = root.ReaderSpeedPlaybackUI?.getDefaultController?.();
+            if (!controller?.isReaderActive?.() || !isPlaybackBrowseOnly(controller)) return;
+            const snapshot = controller.playback?.snapshot?.();
+            if (!snapshot?.frame_count || typeof controller.playback?.moveBy !== 'function') return;
+
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            let destination = snapshot.index;
+            if (action === 'first') destination = 0;
+            else if (action === 'previous') destination = Math.max(0, snapshot.index - 1);
+            else if (action === 'next') destination = Math.min(snapshot.frame_count - 1, snapshot.index + 1);
+            else if (action === 'last') destination = snapshot.frame_count - 1;
+            const frame = controller.playback.moveBy(destination - snapshot.index);
+            settlePlaybackBrowseAtCurrentFrame(controller, frame);
+        }, true);
+        return true;
+    }
+
     function installPlaybackBrowsingIsolation() {
         const prototype = root.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController?.prototype;
         if (!prototype || prototype.__previewBrowsingIsolationInstalled) return false;
@@ -318,6 +434,11 @@
             const nodeId = location?.node_id;
             if (!nodeId) return false;
             if (options.userInitiated === true) markExplicitNavigation(this, nodeId);
+            const explicitGeneration = explicitNavigationGeneration(this);
+            const syncExplicitPlayback = Boolean(
+                !options.resumeRestore
+                && String(this.__previewExplicitNavigationNodeId || '') === String(nodeId)
+            );
             const selector = `[data-reader-node-id="${escapeNodeId(nodeId)}"]`;
             const findTarget = () => this.document?.querySelector?.(selector) || null;
             let nodeEl = findTarget();
@@ -348,6 +469,17 @@
                 const resolved = this.locationForNode?.(nodeId) || location;
                 this.lastLocation = resolved;
                 if (options.persist !== false) this.persistLocation?.(resolved);
+                if (syncExplicitPlayback && explicitNavigationGeneration(this) === explicitGeneration) {
+                    await yieldToBrowser();
+                    syncPlaybackCursorToReaderNode(this, nodeId);
+                }
+                if (
+                    syncExplicitPlayback
+                    && String(this.__previewExplicitNavigationNodeId || '') === String(nodeId)
+                    && explicitNavigationGeneration(this) === explicitGeneration
+                ) {
+                    this.__previewExplicitNavigationNodeId = null;
+                }
                 this.setStatus?.('');
                 return true;
             } catch (error) {
@@ -424,6 +556,7 @@
 
     function installPreviewReaderEnhancements() {
         installPlaybackBrowsingIsolation();
+        installPlaybackBrowseTransportCapture();
         installIncrementalReaderChunkRendering();
         installAsyncReaderNavigation();
         installBoundedReaderAutoPagination();
