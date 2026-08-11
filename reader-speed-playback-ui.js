@@ -367,6 +367,29 @@
             return true;
         }
 
+        pauseTrainingForFrameNavigation() {
+            if (!this.isPlaybackSessionEngaged()) return false;
+            if (this.trainingPaused || this.trainingClock?.state !== 'running') return false;
+            this.trainingPaused = true;
+            this.comprehensionPaused = false;
+            this.resumePlaybackAfterTrainingPause = true;
+            this.trainingClock.pause?.();
+            const pausedPlayback = this.playback?.state === 'playing'
+                ? Boolean(this.playback.pause?.())
+                : false;
+            if (!pausedPlayback) {
+                this.updateTrainingTime();
+                this.updateControls();
+            }
+            return true;
+        }
+
+        navigateFrameBy(delta) {
+            if (!this.isReaderActive() || !this.isPlaybackSessionEngaged() || !this.playback?.frames?.length) return null;
+            this.pauseTrainingForFrameNavigation();
+            return this.playback.moveBy?.(delta) || null;
+        }
+
         togglePause() {
             if (this.isPlaybackSessionEngaged()) return this.toggleTrainingPause();
             this.start().catch((error) => this.reader?.renderError?.(error));
@@ -381,32 +404,27 @@
         previousFrame() {
             if (!this.isReaderActive()) return null;
             if (!this.isPlaybackSessionEngaged()) return this.reader?.previousPage?.();
-            return this.playback.previous();
+            return this.navigateFrameBy(-1);
         }
 
         nextFrame() {
             if (!this.isReaderActive()) return null;
             if (!this.isPlaybackSessionEngaged()) return this.reader?.nextPage?.();
-            if (this.playback.state === 'manual') {
-                this.continueManual();
-                if (this.playback.state === 'playing') this.playback.pause();
-                return this.playback.currentFrame();
-            }
-            return this.playback.next();
+            return this.navigateFrameBy(1);
         }
 
         firstFrame() {
             if (!this.isReaderActive()) return null;
             if (!this.isPlaybackSessionEngaged()) return this.reader?.firstPage?.();
             const snapshot = this.playback.snapshot();
-            return this.playback.moveBy(-snapshot.index);
+            return this.navigateFrameBy(-snapshot.index);
         }
 
         lastFrame() {
             if (!this.isReaderActive()) return null;
             if (!this.isPlaybackSessionEngaged()) return this.reader?.lastPage?.();
             const snapshot = this.playback.snapshot();
-            return this.playback.moveBy(snapshot.frame_count - 1 - snapshot.index);
+            return this.navigateFrameBy(snapshot.frame_count - 1 - snapshot.index);
         }
 
         showReaderSurface() {
@@ -535,9 +553,11 @@
             const button = this.element('readingToggleBtn');
             if (button) {
                 button.disabled = !playable;
-                button.textContent = engaged ? '⏸' : '▶';
-                button.classList.toggle('active', engaged);
-                button.title = engaged ? '暂停速度阅读' : '开始速度阅读';
+                button.textContent = engaged ? (this.trainingPaused ? '▶' : '⏸') : '▶';
+                button.classList.toggle('active', engaged && !this.trainingPaused);
+                button.title = engaged
+                    ? (this.trainingPaused ? '继续速度阅读' : '暂停速度阅读')
+                    : '开始速度阅读';
                 button.setAttribute?.('aria-label', button.title);
             }
             const prev = this.element('speedReadingPrev');
@@ -561,7 +581,7 @@
             }
             if (pause) {
                 pause.disabled = engaged ? false : !canStart;
-                pause.textContent = engaged && !this.trainingPaused ? '⏸' : '▶';
+                pause.textContent = engaged ? (this.trainingPaused ? '▶' : '⏸') : '▶';
                 pause.title = engaged
                     ? (this.trainingPaused ? '继续训练（恢复计时）' : '暂停训练（暂停计时）')
                     : '开始速度阅读';
@@ -576,6 +596,7 @@
         seekFromSlider() {
             const slider = this.element('progressSlider');
             if (!slider || !this.isReaderActive() || !this.isPlaybackSessionEngaged()) return;
+            this.pauseTrainingForFrameNavigation();
             const max = Math.max(1, Number(slider.max || 1000));
             this.playback.seek(Number(slider.value || 0) / max);
         }
@@ -583,7 +604,9 @@
         onSettingChanged(options = {}) {
             if (!this.isReaderActive()) return;
             this.applyVisualSettings();
-            if (options.frames !== false) this.refreshFrames({ preserveIdentity: true });
+            if (options.frames !== false && this.isPlaybackSessionEngaged()) {
+                this.refreshFrames({ preserveIdentity: true });
+            }
         }
 
         onDisplayModeChanged(event) {
@@ -701,9 +724,9 @@
                 self.stopTrainingTicker();
                 self.activeBatchStart = null;
                 self.playback.stop();
+                self.playback.setFrames?.([], { preserveIdentity: false });
                 const result = await original(book);
                 self.reader = ReaderUI.getDefaultController();
-                self.refreshFrames({ preserveIdentity: false });
                 self.showReaderSurface();
                 self.updateControls();
                 return result;
