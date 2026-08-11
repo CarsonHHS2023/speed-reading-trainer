@@ -8,10 +8,17 @@ const runtimeSource = fs.readFileSync(path.join(__dirname, '..', 'preview-runtim
 
 function makeButton(label) {
   const attributes = new Map();
+  const textHistory = [];
+  let text = label;
   return {
     dataset: {},
-    textContent: label,
     disabled: false,
+    textHistory,
+    get textContent() { return text; },
+    set textContent(value) {
+      text = String(value);
+      textHistory.push(text);
+    },
     setAttribute(name, value) { attributes.set(name, String(value)); },
     removeAttribute(name) { attributes.delete(name); },
     getAttribute(name) { return attributes.get(name); },
@@ -39,6 +46,14 @@ function installRuntime({ documentObject, readerUI, requestAnimationFrame }) {
   });
   vm.runInContext(runtimeSource, context, { filename: 'preview-runtime.js' });
   return windowObject;
+}
+
+async function waitFor(predicate, attempts = 20) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return false;
 }
 
 test('long TOC navigation reports progress on the clicked chapter itself', async () => {
@@ -123,15 +138,18 @@ test('long TOC navigation reports progress on the clicked chapter itself', async
   assert.equal(navButton.dataset.readerNavNodeId, 'chapter-44');
 
   const navigation = controller.navigateTo({ node_id: 'chapter-44' });
-  await Promise.resolve();
+  assert.equal(await waitFor(() => typeof releaseLoad === 'function'), true);
   assert.equal(navButton.disabled, true);
   assert.equal(navButton.getAttribute('aria-busy'), 'true');
   assert.equal(navButton.textContent, '⏳ 第44章 · 正在定位…');
 
   releaseLoad();
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(navButton.textContent, '⏳ 第44章 · 已加载 2 个内容块');
+  assert.equal(await waitFor(() => typeof releaseFrame === 'function'), true);
+  assert.equal(
+    navButton.textHistory.includes('⏳ 第44章 · 已加载 2 个内容块'),
+    true,
+    'the clicked TOC item records visible progress after a bounded chunk arrives',
+  );
 
   releaseFrame();
   assert.equal(await navigation, true);
