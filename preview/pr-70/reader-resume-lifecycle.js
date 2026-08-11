@@ -33,9 +33,6 @@
         }
     }
 
-    // document.currentScript is only reliable while this entrypoint is executing.
-    // Capture its deployment SHA now so later Promise-chain loads inherit the same
-    // production version even after currentScript becomes null.
     const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
         typeof document !== 'undefined' ? document : null,
     );
@@ -294,8 +291,6 @@
             .then(() => loadScript('reader-playback-polish.js', 'ReaderPlaybackPolish'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-transport-semantics.js', 'ReaderTransportSemantics'))
-            .then((module) => module?.install?.(root))
-            .then(() => loadScript('reader-speed-prefetch.js', 'ReaderSpeedPrefetch'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-study-tools-rail.js', 'ReaderStudyToolsRail'))
             .then((module) => module?.install?.())
