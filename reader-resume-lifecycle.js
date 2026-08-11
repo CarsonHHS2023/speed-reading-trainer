@@ -295,6 +295,8 @@
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-transport-semantics.js', 'ReaderTransportSemantics'))
             .then((module) => module?.install?.(root))
+            .then(() => loadScript('reader-speed-prefetch.js', 'ReaderSpeedPrefetch'))
+            .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-study-tools-rail.js', 'ReaderStudyToolsRail'))
             .then((module) => module?.install?.())
             .catch((error) => console.error('[Reader enhancements]', error));
