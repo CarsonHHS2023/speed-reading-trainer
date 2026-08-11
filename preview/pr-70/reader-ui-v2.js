@@ -13,7 +13,10 @@
     'use strict';
 
     const NODE_LIMIT = 150;
+    const MAX_VISIBLE_WINDOWS = 2;
     const FIND_RESULT_LIMIT = 200;
+    const AUTO_LOAD_THRESHOLD_PX = 600;
+    const AUTO_LOAD_MIN_SCROLL_ADVANCE_PX = 120;
 
     function resolveDeps() {
         if (typeof require === 'function') {
@@ -48,6 +51,11 @@
         return el;
     }
 
+    function windowStartForOrder(order) {
+        const normalized = Math.max(0, Math.trunc(Number(order) || 0));
+        return Math.floor(normalized / NODE_LIMIT) * NODE_LIMIT;
+    }
+
     class ReaderV2Controller {
         constructor(options = {}) {
             const deps = resolveDeps();
@@ -69,6 +77,8 @@
             this.openResponse = null;
             this.navigation = [];
             this.nodes = [];
+            this.contentWindows = new Map();
+            this.visibleWindowStarts = [];
             this.hasMore = false;
             this.nextNodeOrder = 0;
             this.presentationState = { mode: 'reflow', pages: [] };
@@ -79,6 +89,10 @@
             this.findGeneration = (this.findGeneration || 0) + 1;
             this.lastLocation = null;
             this.resumeRecord = null;
+            this.navigationPending = false;
+            this.opening = false;
+            this.autoLoadPromise = null;
+            this.autoLoadScrollTop = null;
             this.assetResolver?.reset?.();
             const input = this.element('readerV2FindInput');
             if (input) input.value = '';
@@ -113,8 +127,6 @@
             if (page) page.classList.remove('active');
             if (chart) chart.classList.remove('active');
             if (reader) reader.classList.add('active');
-            const start = this.element('readingToggleBtn');
-            if (start) start.disabled = true;
         }
 
         setStatus(message, kind = 'info') {
@@ -124,9 +136,108 @@
             el.dataset.kind = kind;
         }
 
+        visibleStarts() {
+            return [...new Set(this.visibleWindowStarts || [])]
+                .filter((value) => Number.isInteger(value) && value >= 0)
+                .sort((a, b) => a - b);
+        }
+
+        windowRecord(start) {
+            return this.contentWindows.get(Number(start)) || null;
+        }
+
+        cachedNode(nodeId) {
+            const visible = this.model.findNodeById(this.nodes, nodeId);
+            if (visible) return visible;
+            for (const record of this.contentWindows.values()) {
+                const found = this.model.findNodeById(record.nodes || [], nodeId);
+                if (found) return found;
+            }
+            return null;
+        }
+
+        nodeOrder(nodeId) {
+            const order = Number(this.cachedNode(nodeId)?.order);
+            return Number.isInteger(order) && order >= 0 ? order : null;
+        }
+
+        async requestWindow(start, options = {}) {
+            if (!this.documentRef || !this.candidateId) return null;
+            const normalizedStart = windowStartForOrder(start);
+            if (options.cache !== false && options.force !== true && this.contentWindows.has(normalizedStart)) {
+                return this.contentWindows.get(normalizedStart);
+            }
+            const chunk = await this.api.content(this.documentRef, {
+                candidateId: this.candidateId,
+                startNodeOrder: normalizedStart,
+                limit: NODE_LIMIT,
+            });
+            const record = Object.freeze({
+                start: normalizedStart,
+                nodes: this.model.orderedNodes(chunk?.nodes || []),
+                hasMore: Boolean(chunk?.has_more),
+                nextNodeOrder: chunk?.next_node_order == null ? null : Number(chunk.next_node_order),
+            });
+            if (options.cache !== false) this.contentWindows.set(normalizedStart, record);
+            return record;
+        }
+
+        rebuildVisibleNodes(options = {}) {
+            let nodes = [];
+            const starts = this.visibleStarts();
+            for (const start of starts) {
+                const record = this.windowRecord(start);
+                if (!record?.nodes?.length) continue;
+                nodes = this.model.mergeNodes(nodes, record.nodes);
+            }
+            this.nodes = this.model.orderedNodes(nodes);
+            const tail = starts.length ? this.windowRecord(starts[starts.length - 1]) : null;
+            this.hasMore = Boolean(tail?.hasMore);
+            this.nextNodeOrder = tail?.nextNodeOrder == null
+                ? (tail ? tail.start + tail.nodes.length : 0)
+                : Number(tail.nextNodeOrder);
+            const button = this.element('readerV2LoadMore');
+            if (button) button.hidden = !this.hasMore;
+            if (options.render !== false) {
+                this.reflowAndRender();
+                if (options.anchorNodeId) {
+                    this.scrollLoadedNode(options.anchorNodeId, {
+                        persist: false,
+                        focus: false,
+                        block: options.anchorBlock || 'start',
+                        behavior: 'auto',
+                    });
+                }
+            }
+            return this.nodes;
+        }
+
+        setVisibleWindows(starts, options = {}) {
+            const normalized = [...new Set((starts || []).map(windowStartForOrder))]
+                .filter((start) => this.contentWindows.has(start))
+                .sort((a, b) => a - b);
+            this.visibleWindowStarts = normalized.length > MAX_VISIBLE_WINDOWS
+                ? normalized.slice(normalized.length - MAX_VISIBLE_WINDOWS)
+                : normalized;
+            return this.rebuildVisibleNodes(options);
+        }
+
+        async loadWindowPair(start, options = {}) {
+            const first = await this.requestWindow(start);
+            const starts = [];
+            if (first?.nodes?.length) starts.push(first.start);
+            if (first?.hasMore) {
+                const second = await this.requestWindow(first.start + NODE_LIMIT);
+                if (second?.nodes?.length) starts.push(second.start);
+            }
+            this.setVisibleWindows(starts, options);
+            return starts;
+        }
+
         async openBook(book) {
             this.reset();
             this.documentRef = String(book && book.id !== undefined ? book.id : book);
+            this.opening = true;
             this.activateReaderSurface();
             this.setStatus('正在打开 Reader v2…');
             this.clear(this.element('readerV2Navigation'));
@@ -139,33 +250,68 @@
                 this.navigation = navigationResponse.navigation || [];
                 this.renderHeader(book);
                 this.renderNavigation();
-                await this.loadMore({ replace: true });
-                await this.restoreResumeLocation();
+
+                const record = this.resumeStore.read(this.documentRef);
+                let restored = false;
+                if (record && this.resume.sameCandidate(record, this.openResponse)) {
+                    restored = Boolean(await this.restoreResumeLocation(record));
+                } else if (record) {
+                    this.resumeStore.clear(this.documentRef);
+                }
+
+                if (!restored) {
+                    const first = await this.requestWindow(0);
+                    this.setVisibleWindows(first?.nodes?.length ? [0] : []);
+                    this.setStatus('');
+                }
                 return opened;
             } catch (error) {
                 this.renderError(error);
                 throw error;
+            } finally {
+                this.opening = false;
+                this.setNavigationDisabled(false);
+                this.emitPageChange();
             }
         }
 
         async loadMore(options = {}) {
             if (!this.documentRef || !this.candidateId) return null;
+            const starts = this.visibleStarts();
+            const tail = starts.length ? this.windowRecord(starts[starts.length - 1]) : null;
+            const target = options.replace === true
+                ? 0
+                : (tail?.nextNodeOrder == null ? this.nextNodeOrder : tail.nextNodeOrder);
+            if (!Number.isInteger(Number(target)) || Number(target) < 0) return null;
             if (!options.silent) this.setStatus('正在加载内容…');
-            const chunk = await this.api.content(this.documentRef, {
-                candidateId: this.candidateId,
-                startNodeOrder: options.replace ? 0 : this.nextNodeOrder,
-                limit: NODE_LIMIT,
+            const record = await this.requestWindow(Number(target));
+            if (!record?.nodes?.length) return record;
+            const nextStarts = options.replace === true
+                ? [record.start]
+                : starts.concat(record.start).slice(-MAX_VISIBLE_WINDOWS);
+            this.setVisibleWindows(nextStarts, {
+                render: !options.deferRender,
+                anchorNodeId: options.anchorNodeId || null,
+                anchorBlock: options.anchorBlock || 'start',
             });
-            this.nodes = options.replace
-                ? this.model.orderedNodes(chunk.nodes || [])
-                : this.model.mergeNodes(this.nodes, chunk.nodes || []);
-            this.hasMore = Boolean(chunk.has_more);
-            this.nextNodeOrder = chunk.next_node_order == null ? this.nodes.length : Number(chunk.next_node_order);
-            if (!options.deferRender) this.reflowAndRender();
-            const button = this.element('readerV2LoadMore');
-            if (button) button.hidden = !this.hasMore;
             if (!options.silent) this.setStatus('');
-            return chunk;
+            this.emitPageChange();
+            return record;
+        }
+
+        async loadPreviousWindow(options = {}) {
+            const starts = this.visibleStarts();
+            const firstStart = starts[0] ?? 0;
+            if (firstStart <= 0) return null;
+            const previous = await this.requestWindow(Math.max(0, firstStart - NODE_LIMIT));
+            if (!previous?.nodes?.length) return null;
+            const nextStarts = [previous.start, firstStart];
+            this.setVisibleWindows(nextStarts, {
+                anchorNodeId: options.anchorNodeId || null,
+                anchorBlock: options.anchorBlock || 'start',
+            });
+            this.emitPageChange();
+            return previous;
         }
 
         reflowAndRender() {
@@ -190,6 +336,32 @@
             }
         }
 
+        navigationButtons() {
+            const nav = this.element('readerV2Navigation');
+            return Array.from(nav?.querySelectorAll?.('.reader-v2-nav-item') || []);
+        }
+
+        setNavigationDisabled(disabled) {
+            for (const button of this.navigationButtons()) button.disabled = Boolean(disabled || this.opening);
+        }
+
+        setNavigationBusy(button, busy, scanned = 0) {
+            if (!button) return;
+            if (!button.dataset.readerNavLabel) button.dataset.readerNavLabel = String(button.textContent || '目标章节');
+            const label = button.dataset.readerNavLabel;
+            if (busy) {
+                this.setNavigationDisabled(true);
+                button.setAttribute?.('aria-busy', 'true');
+                button.textContent = scanned > 0
+                    ? `⏳ ${label} · 已扫描 ${scanned} 个内容块`
+                    : `⏳ ${label} · 正在定位…`;
+            } else {
+                button.removeAttribute?.('aria-busy');
+                button.textContent = label;
+                this.setNavigationDisabled(false);
+            }
+        }
+
         renderNavigation() {
             const nav = this.element('readerV2Navigation');
             if (!nav) return;
@@ -197,15 +369,18 @@
             for (const entry of this.navigation) {
                 const button = createElement(this.document, 'button', 'reader-v2-nav-item', entry.label || '未命名标题');
                 button.type = 'button';
+                button.dataset.readerNavNodeId = String(entry?.location?.node_id || '');
+                button.dataset.readerNavLabel = String(entry.label || '未命名标题');
                 button.style.setProperty('--reader-level', String(Math.max(0, Number(entry.heading_level || 1) - 1)));
-                button.addEventListener('click', () => this.navigateTo(entry.location));
+                button.addEventListener('click', () => this.navigateTo(entry.location, { sourceButton: button }).catch((error) => this.renderError(error)));
                 nav.appendChild(button);
             }
             if (!this.navigation.length) nav.appendChild(createElement(this.document, 'p', 'reader-v2-empty', '没有标题导航'));
+            this.setNavigationDisabled(this.opening);
         }
 
         locationForNode(nodeId) {
-            const node = this.model.findNodeById(this.nodes, nodeId);
+            const node = this.cachedNode(nodeId);
             if (!node) return null;
             return node.location || {
                 document_ref: this.documentRef,
@@ -222,7 +397,13 @@
         persistLocation(location, extra = {}) {
             if (!this.openResponse || !location?.node_id) return null;
             this.lastLocation = location;
-            const record = this.resume.recordForLocation(this.openResponse, location, extra);
+            const resolvedOrder = Number.isInteger(extra.nodeOrder)
+                ? extra.nodeOrder
+                : this.nodeOrder(location.node_id);
+            const record = this.resume.recordForLocation(this.openResponse, location, {
+                ...extra,
+                nodeOrder: resolvedOrder,
+            });
             if (!record) return null;
             this.resumeRecord = this.resumeStore.write(record) || record;
             return this.resumeRecord;
@@ -239,52 +420,125 @@
             if (String(documentRef || '') === String(this.documentRef || '')) this.resumeRecord = null;
         }
 
-        async ensureNodeLoaded(nodeId) {
-            if (!nodeId) return null;
-            let node = this.model.findNodeById(this.nodes, nodeId);
-            while (!node && this.hasMore) {
-                await this.loadMore({ silent: true, deferRender: true });
-                node = this.model.findNodeById(this.nodes, nodeId);
+        async probeNodeOrder(nodeId, options = {}) {
+            const expected = String(nodeId || '').trim();
+            if (!expected) return null;
+            const cached = this.nodeOrder(expected);
+            if (cached !== null) return cached;
+            let start = 0;
+            let scanned = 0;
+            while (true) {
+                const record = await this.requestWindow(start, { cache: false });
+                const found = (record?.nodes || []).find((node) => String(node?.node_id || '') === expected) || null;
+                scanned += record?.nodes?.length || 0;
+                options.onProgress?.(scanned);
+                if (found) {
+                    const aligned = windowStartForOrder(found.order);
+                    this.contentWindows.set(aligned, Object.freeze({
+                        ...record,
+                        start: aligned,
+                    }));
+                    return Number(found.order);
+                }
+                if (!record?.hasMore) return null;
+                const next = Number(record.nextNodeOrder);
+                if (!Number.isInteger(next) || next <= start) return null;
+                start = next;
             }
-            if (node) this.reflowAndRender();
-            return node;
         }
 
-        async restoreResumeLocation() {
+        async ensureNodeLoaded(nodeId, options = {}) {
+            const expected = String(nodeId || '').trim();
+            if (!expected) return null;
+            let node = this.model.findNodeById(this.nodes, expected);
+            if (node) return node;
+            const hintedOrder = Number(options.nodeOrder);
+            const order = Number.isInteger(hintedOrder) && hintedOrder >= 0
+                ? hintedOrder
+                : await this.probeNodeOrder(expected, options);
+            if (!Number.isInteger(order) || order < 0) return null;
+            await this.loadWindowPair(windowStartForOrder(order));
+            return this.model.findNodeById(this.nodes, expected);
+        }
+
+        async restoreResumeLocation(record = null) {
             if (!this.documentRef || !this.openResponse) return null;
-            const record = this.resumeStore.read(this.documentRef);
-            if (!record) return null;
-            if (!this.resume.sameCandidate(record, this.openResponse)) {
+            const stored = record || this.resumeStore.read(this.documentRef);
+            if (!stored) return null;
+            if (!this.resume.sameCandidate(stored, this.openResponse)) {
                 this.resumeStore.clear(this.documentRef);
                 return null;
             }
-            const node = await this.ensureNodeLoaded(record.node_id);
-            if (!node) {
-                this.resumeStore.clear(this.documentRef);
-                return null;
+            let order = Number.isInteger(stored.node_order) && stored.node_order >= 0 ? stored.node_order : null;
+            const legacy = order === null;
+            if (legacy) {
+                this.setStatus('正在升级历史阅读位置…');
+                order = await this.probeNodeOrder(stored.node_id, {
+                    onProgress: (scanned) => this.setStatus(`正在升级历史阅读位置… 已扫描 ${scanned} 个内容块`),
+                });
             }
-            this.resumeRecord = record;
-            const location = node.location || record;
+            if (order === null) return null;
+            await this.loadWindowPair(windowStartForOrder(order));
+            const node = this.model.findNodeById(this.nodes, stored.node_id);
+            if (!node) return null;
+            const location = this.locationForNode(node.node_id) || node.location || stored;
+            this.resumeRecord = stored;
             this.lastLocation = location;
-            this.navigateTo(location, { persist: false });
+            this.scrollLoadedNode(node.node_id, { persist: false, behavior: 'auto' });
+            if (legacy) {
+                this.persistLocation(location, {
+                    nodeOrder: Number(node.order),
+                    frameId: stored.frame_id,
+                    frameOrdinal: stored.frame_ordinal,
+                });
+            }
             this.setStatus('已恢复上次阅读位置。');
-            return record;
+            return this.resumeRecord;
         }
 
-        navigateTo(location, options = {}) {
-            const nodeId = location?.node_id;
-            if (!nodeId) return;
-            const nodeEl = this.document.querySelector(`[data-reader-node-id="${escapeSelector(nodeId)}"]`);
-            if (nodeEl) {
-                nodeEl.scrollIntoView({ block: 'center', behavior: options.behavior || 'smooth' });
-                nodeEl.focus({ preventScroll: true });
-                const resolved = this.locationForNode(nodeId) || location;
-                this.lastLocation = resolved;
-                if (options.persist !== false) this.persistLocation(resolved);
-                return;
-            }
-            if (this.hasMore) {
-                this.loadMore().then(() => this.navigateTo(location, options)).catch((error) => this.renderError(error));
+        scrollLoadedNode(nodeId, options = {}) {
+            const node = this.model.findNodeById(this.nodes, nodeId);
+            if (!node) return false;
+            const nodeEl = this.document?.querySelector?.(`[data-reader-node-id="${escapeSelector(nodeId)}"]`);
+            if (!nodeEl) return false;
+            nodeEl.scrollIntoView?.({ block: options.block || 'center', behavior: options.behavior || 'auto' });
+            if (options.focus !== false) nodeEl.focus?.({ preventScroll: true });
+            const resolved = this.locationForNode(nodeId) || node.location || { node_id: nodeId };
+            this.lastLocation = resolved;
+            if (options.persist !== false) this.persistLocation(resolved, { nodeOrder: Number(node.order) });
+            this.emitPageChange();
+            return true;
+        }
+
+        async navigateTo(location, options = {}) {
+            const nodeId = String(location?.node_id || '').trim();
+            if (!nodeId || this.navigationPending) return false;
+            if (this.model.findNodeById(this.nodes, nodeId)) return this.scrollLoadedNode(nodeId, options);
+
+            const sourceButton = options.sourceButton || this.navigationButtons().find((button) => button.dataset.readerNavNodeId === nodeId) || null;
+            this.navigationPending = true;
+            this.setNavigationBusy(sourceButton, true, 0);
+            try {
+                const hinted = Number(location?.node_order);
+                const order = Number.isInteger(hinted) && hinted >= 0
+                    ? hinted
+                    : await this.probeNodeOrder(nodeId, {
+                        onProgress: (scanned) => this.setNavigationBusy(sourceButton, true, scanned),
+                    });
+                if (order === null) {
+                    this.setStatus('未能定位到该章节。', 'info');
+                    return false;
+                }
+                await this.loadWindowPair(windowStartForOrder(order));
+                const found = this.scrollLoadedNode(nodeId, options);
+                if (found) this.setStatus('');
+                return found;
+            } catch (error) {
+                this.renderError(error);
+                return false;
+            } finally {
+                this.navigationPending = false;
+                this.setNavigationBusy(sourceButton, false);
             }
         }
 
@@ -338,40 +592,51 @@
 
             this.setStatus('正在查找…');
             try {
-                let search = this.finder.findInNodes(this.openResponse, this.nodes, normalized, { maxResults: FIND_RESULT_LIMIT });
-                while (generation === this.findGeneration && this.hasMore && search.results.length < FIND_RESULT_LIMIT && !search.truncated) {
-                    await this.loadMore({ silent: true, deferRender: true });
-                    search = this.finder.findInNodes(this.openResponse, this.nodes, normalized, { maxResults: FIND_RESULT_LIMIT });
+                const results = [];
+                let start = 0;
+                let truncated = false;
+                while (generation === this.findGeneration && results.length < FIND_RESULT_LIMIT) {
+                    const record = await this.requestWindow(start, { cache: false });
+                    const remaining = FIND_RESULT_LIMIT - results.length;
+                    const search = this.finder.findInNodes(this.openResponse, record?.nodes || [], normalized, { maxResults: remaining });
+                    results.push(...search.results);
+                    if (search.truncated) {
+                        truncated = true;
+                        break;
+                    }
+                    if (!record?.hasMore) break;
+                    const next = Number(record.nextNodeOrder);
+                    if (!Number.isInteger(next) || next <= start) break;
+                    start = next;
                 }
                 if (generation !== this.findGeneration) return [];
+                if (results.length >= FIND_RESULT_LIMIT) truncated = true;
 
-                this.findResults = search.results;
-                this.findTruncated = Boolean(search.truncated || (this.hasMore && search.results.length >= FIND_RESULT_LIMIT));
-                this.findIndex = this.findResults.length ? 0 : -1;
+                this.findResults = results;
+                this.findTruncated = truncated;
+                this.findIndex = results.length ? 0 : -1;
                 this.updateFindControls();
-                this.reflowAndRender();
                 const active = this.currentFindResult();
-                if (active) this.navigateTo({ node_id: active.node_id });
-                this.setStatus(this.findResults.length ? '' : '没有找到匹配内容。');
-                return this.findResults;
+                if (active) await this.navigateTo({ node_id: active.node_id, node_order: active.node_order });
+                this.setStatus(results.length ? '' : '没有找到匹配内容。');
+                return results;
             } catch (error) {
                 if (generation === this.findGeneration) this.renderError(error);
                 throw error;
             }
         }
 
-        navigateFind(delta) {
-            if (!this.findResults.length) return;
+        async navigateFind(delta) {
+            if (!this.findResults.length) return false;
             const nextIndex = (this.findIndex + Number(delta) + this.findResults.length) % this.findResults.length;
             this.findIndex = nextIndex;
             const active = this.currentFindResult();
             if (!active) {
                 this.clearFind({ clearInput: false });
-                return;
+                return false;
             }
             this.updateFindControls();
-            this.reflowAndRender();
-            this.navigateTo({ node_id: active.node_id });
+            return this.navigateTo({ node_id: active.node_id, node_order: active.node_order });
         }
 
         appendHighlightedText(parent, text, node) {
@@ -459,6 +724,148 @@
             return wrapper;
         }
 
+        currentPageIndex() {
+            const pages = Array.from(this.element('readerV2Pages')?.querySelectorAll?.('.reader-v2-page') || []);
+            if (!pages.length) return -1;
+            const main = this.document?.querySelector?.('.reader-v2-main');
+            if (!main) return 0;
+            const mainRect = main.getBoundingClientRect?.();
+            if (mainRect && Number.isFinite(mainRect.top) && Number.isFinite(mainRect.bottom)) {
+                const probeY = Number(mainRect.top) + Math.min(Math.max(1, Number(mainRect.height || 1)) * 0.35, 180);
+                let nearest = 0;
+                let distance = Number.POSITIVE_INFINITY;
+                for (let index = 0; index < pages.length; index += 1) {
+                    const rect = pages[index]?.getBoundingClientRect?.();
+                    if (!rect) continue;
+                    if (rect.top <= probeY && rect.bottom > probeY) return index;
+                    const nextDistance = Math.min(Math.abs(rect.top - probeY), Math.abs(rect.bottom - probeY));
+                    if (nextDistance < distance) {
+                        distance = nextDistance;
+                        nearest = index;
+                    }
+                }
+                return nearest;
+            }
+            return 0;
+        }
+
+        currentPage() {
+            const index = this.currentPageIndex();
+            return index >= 0 ? this.presentationState.pages?.[index] || null : null;
+        }
+
+        currentPageFirstNode() {
+            return this.currentPage()?.nodes?.[0] || null;
+        }
+
+        pageNavigationState() {
+            const pages = this.presentationState.pages || [];
+            const index = pages.length ? Math.max(0, this.currentPageIndex()) : -1;
+            const starts = this.visibleStarts();
+            const firstStart = starts[0] ?? 0;
+            const tail = starts.length ? this.windowRecord(starts[starts.length - 1]) : null;
+            return {
+                readable: Boolean(this.openResponse && pages.length),
+                index,
+                pageCount: pages.length,
+                atDocumentStart: index <= 0 && firstStart === 0,
+                atDocumentEnd: index >= pages.length - 1 && Boolean(tail && !tail.hasMore),
+                pending: Boolean(this.navigationPending || this.opening || this.autoLoadPromise),
+            };
+        }
+
+        scrollToPage(index, options = {}) {
+            const sections = Array.from(this.element('readerV2Pages')?.querySelectorAll?.('.reader-v2-page') || []);
+            if (!sections.length) return false;
+            const bounded = Math.max(0, Math.min(sections.length - 1, Number(index) || 0));
+            sections[bounded]?.scrollIntoView?.({ block: 'start', behavior: options.behavior || 'smooth' });
+            const node = this.presentationState.pages?.[bounded]?.nodes?.[0];
+            if (node?.node_id) {
+                const location = this.locationForNode(node.node_id) || node.location || { node_id: node.node_id };
+                this.lastLocation = location;
+                if (options.persist !== false) this.persistLocation(location, { nodeOrder: Number(node.order) });
+            }
+            this.emitPageChange();
+            return true;
+        }
+
+        async firstPage() {
+            if (!this.windowRecord(0)) await this.requestWindow(0);
+            this.setVisibleWindows([0]);
+            return this.scrollToPage(0);
+        }
+
+        async lastPage() {
+            let starts = this.visibleStarts();
+            let tail = starts.length ? this.windowRecord(starts[starts.length - 1]) : null;
+            if (!tail) tail = await this.requestWindow(0, { cache: false });
+            let previous = null;
+            while (tail?.hasMore) {
+                const nextStart = Number(tail.nextNodeOrder);
+                if (!Number.isInteger(nextStart) || nextStart <= tail.start) break;
+                previous = tail;
+                tail = await this.requestWindow(nextStart, { cache: false });
+                this.setStatus(`正在定位尾页… 已到第 ${tail.start + tail.nodes.length} 个内容块`);
+            }
+            if (!tail?.nodes?.length) return false;
+            this.contentWindows.set(tail.start, tail);
+            const visible = [];
+            if (previous?.nodes?.length) {
+                this.contentWindows.set(previous.start, previous);
+                visible.push(previous.start);
+            }
+            visible.push(tail.start);
+            this.setVisibleWindows(visible);
+            this.setStatus('');
+            return this.scrollToPage((this.presentationState.pages || []).length - 1);
+        }
+
+        async previousPage() {
+            const current = this.currentPageIndex();
+            if (current > 0) return this.scrollToPage(current - 1);
+            const anchor = this.currentPageFirstNode()?.node_id || null;
+            const previous = await this.loadPreviousWindow({ anchorNodeId: anchor, anchorBlock: 'start' });
+            if (!previous) return false;
+            const anchorIndex = (this.presentationState.pages || []).findIndex((page) => (
+                (page.nodes || []).some((node) => node.node_id === anchor)
+            ));
+            return this.scrollToPage(Math.max(0, anchorIndex - 1));
+        }
+
+        async nextPage() {
+            const current = this.currentPageIndex();
+            const pages = this.presentationState.pages || [];
+            if (current >= 0 && current < pages.length - 1) return this.scrollToPage(current + 1);
+            if (!this.hasMore) return false;
+            const anchor = this.currentPageFirstNode()?.node_id || null;
+            const loaded = await this.loadMore({ silent: true, anchorNodeId: anchor, anchorBlock: 'start' });
+            if (!loaded) return false;
+            const anchorIndex = (this.presentationState.pages || []).findIndex((page) => (
+                (page.nodes || []).some((node) => node.node_id === anchor)
+            ));
+            return this.scrollToPage(Math.max(0, anchorIndex + 1));
+        }
+
+        playbackBatchForCurrentPage() {
+            const firstNode = this.currentPageFirstNode();
+            const order = Number(firstNode?.order);
+            if (!firstNode || !Number.isInteger(order) || order < 0) return null;
+            const start = windowStartForOrder(order);
+            const record = this.windowRecord(start);
+            const nodes = record?.nodes?.length
+                ? record.nodes
+                : this.nodes.filter((node) => Number(node?.order) >= start && Number(node?.order) < start + NODE_LIMIT);
+            return nodes.length ? { start, nodes, firstNodeId: firstNode.node_id } : null;
+        }
+
+        emitPageChange() {
+            const eventCtor = this.document?.defaultView?.CustomEvent || (typeof CustomEvent !== 'undefined' ? CustomEvent : null);
+            if (!eventCtor || !this.document?.dispatchEvent) return;
+            this.document.dispatchEvent(new eventCtor('reader-v2-page-change', {
+                detail: this.pageNavigationState(),
+            }));
+        }
+
         renderError(error) {
             this.activateReaderSurface();
             this.setStatus(safeMessage(error), 'error');
@@ -473,7 +880,10 @@
             const more = this.element('readerV2LoadMore');
             if (more && !more.dataset.bound) {
                 more.dataset.bound = '1';
-                more.addEventListener('click', () => this.loadMore().catch((error) => this.renderError(error)));
+                more.addEventListener('click', () => {
+                    const anchor = this.currentPageFirstNode()?.node_id || null;
+                    this.loadMore({ anchorNodeId: anchor }).catch((error) => this.renderError(error));
+                });
             }
             const findInput = this.element('readerV2FindInput');
             const findButton = this.element('readerV2FindButton');
@@ -495,11 +905,11 @@
             }
             if (findPrev && !findPrev.dataset.readerV2FindBound) {
                 findPrev.dataset.readerV2FindBound = '1';
-                findPrev.addEventListener('click', () => this.navigateFind(-1));
+                findPrev.addEventListener('click', () => this.navigateFind(-1).catch(() => {}));
             }
             if (findNext && !findNext.dataset.readerV2FindBound) {
                 findNext.dataset.readerV2FindBound = '1';
-                findNext.addEventListener('click', () => this.navigateFind(1));
+                findNext.addEventListener('click', () => this.navigateFind(1).catch(() => {}));
             }
             for (const id of ['widthInput', 'widthSlider', 'maxLinesInput', 'maxLinesSlider', 'fontInput', 'fontSlider']) {
                 const el = this.element(id);
@@ -508,6 +918,39 @@
                     el.addEventListener('input', () => this.reflowAndRender());
                     el.addEventListener('change', () => this.reflowAndRender());
                 }
+            }
+            const main = this.document?.querySelector?.('.reader-v2-main');
+            if (main && main.dataset.readerV2AutoWindowBound !== '1') {
+                main.dataset.readerV2AutoWindowBound = '1';
+                let scheduled = false;
+                main.addEventListener('scroll', () => {
+                    if (!scheduled) {
+                        scheduled = true;
+                        const refresh = () => {
+                            scheduled = false;
+                            this.emitPageChange();
+                        };
+                        const raf = this.document?.defaultView?.requestAnimationFrame;
+                        if (typeof raf === 'function') raf(refresh);
+                        else refresh();
+                    }
+                    if (!this.hasMore || this.navigationPending || this.opening || this.autoLoadPromise) return;
+                    const remaining = Number(main.scrollHeight || 0) - Number(main.scrollTop || 0) - Number(main.clientHeight || 0);
+                    const threshold = Math.max(AUTO_LOAD_THRESHOLD_PX, Number(main.clientHeight || 0) * 0.75);
+                    if (remaining > threshold) return;
+                    const scrollTop = Number(main.scrollTop || 0);
+                    if (this.autoLoadScrollTop !== null && scrollTop < this.autoLoadScrollTop + AUTO_LOAD_MIN_SCROLL_ADVANCE_PX) return;
+                    this.autoLoadScrollTop = scrollTop;
+                    const anchor = this.currentPageFirstNode()?.node_id || null;
+                    this.autoLoadPromise = Promise.resolve(this.loadMore({
+                        silent: true,
+                        anchorNodeId: anchor,
+                        anchorBlock: 'start',
+                    })).catch((error) => this.renderError(error)).finally(() => {
+                        this.autoLoadPromise = null;
+                        this.emitPageChange();
+                    });
+                }, { passive: true });
             }
             if (typeof window !== 'undefined' && !window.__readerV2ResizeBound) {
                 window.__readerV2ResizeBound = true;
@@ -536,5 +979,14 @@
         return getDefaultController().openBook(book);
     }
 
-    return { FIND_RESULT_LIMIT, ReaderV2Controller, getDefaultController, openBook, safeMessage };
+    return {
+        FIND_RESULT_LIMIT,
+        MAX_VISIBLE_WINDOWS,
+        NODE_LIMIT,
+        ReaderV2Controller,
+        getDefaultController,
+        openBook,
+        safeMessage,
+        windowStartForOrder,
+    };
 });
