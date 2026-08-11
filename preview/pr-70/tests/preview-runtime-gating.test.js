@@ -47,6 +47,10 @@ function executeRuntime(pathname, options = {}) {
     Request: global.Request,
     document: options.documentObject,
     ReaderUIV2: options.readerUI,
+    ReaderSpeedPlaybackUI: options.readerSpeedUI,
+    CSS: options.css,
+    requestAnimationFrame: options.requestAnimationFrame,
+    setTimeout: options.setTimeout,
     console: {
       info(...args) {
         messages.push(args);
@@ -109,6 +113,41 @@ test('PR preview leaves unrelated fetch destinations untouched', async () => {
   assert.equal(calls[0].input, 'https://example.com/data');
 });
 
+test('PR preview restores saved speed-reading frame position without entering playback state', () => {
+  class FakeSpeedController {
+    constructor() {
+      this.reader = {
+        resumeRecord: { frame_id: 'f2', frame_ordinal: 1, node_id: 'n2' },
+      };
+      this.playback = {
+        state: 'idle',
+        frames: [
+          { frame_id: 'f1', frame_ordinal: 0, identity: { node_id: 'n1' } },
+          { frame_id: 'f2', frame_ordinal: 1, identity: { node_id: 'n2' } },
+        ],
+        seekCalls: [],
+        seek(progress, options) {
+          this.seekCalls.push({ progress, options });
+          this.state = options?.activate === false ? 'idle' : 'paused';
+        },
+      };
+    }
+  }
+
+  const documentObject = { readyState: 'complete', querySelector: () => null };
+  executeRuntime('/speed-reading-trainer/preview/pr-101/', {
+    documentObject,
+    readerSpeedUI: { ReaderSpeedPlaybackUIController: FakeSpeedController },
+  });
+
+  const controller = new FakeSpeedController();
+  assert.equal(controller.restoreResumeFrame(), true);
+  assert.equal(controller.playback.seekCalls.length, 1);
+  assert.equal(controller.playback.seekCalls[0].progress, 0.5);
+  assert.equal(controller.playback.seekCalls[0].options.activate, false);
+  assert.equal(controller.playback.state, 'idle');
+});
+
 test('PR preview auto-load requires real forward scroll progress before another bounded chunk', async () => {
   const listeners = {};
   const main = {
@@ -154,6 +193,40 @@ test('PR preview auto-load requires real forward scroll progress before another 
   await listeners.scroll();
   assert.equal(loadCalls.length, 2);
   assert.equal(typeof windowObject.__TXT_PREVIEW_READER_AUTOPAGINATION__.nearLoadedEnd, 'function');
+});
+
+test('PR preview suppresses scroll auto-load while chapter navigation owns chunk loading', async () => {
+  const listeners = {};
+  const main = {
+    dataset: {},
+    scrollHeight: 2200,
+    scrollTop: 1500,
+    clientHeight: 600,
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    },
+  };
+  let loadCount = 0;
+  const controller = {
+    candidateId: 'candidate-1',
+    openResponse: { candidate_id: 'candidate-1' },
+    hasMore: true,
+    __previewNavigationPending: true,
+    async loadMore() { loadCount += 1; },
+  };
+  const documentObject = {
+    readyState: 'complete',
+    querySelector(selector) {
+      return selector === '.reader-v2-main' ? main : null;
+    },
+  };
+
+  executeRuntime('/speed-reading-trainer/preview/pr-101/', {
+    documentObject,
+    readerUI: { getDefaultController: () => controller },
+  });
+  await listeners.scroll();
+  assert.equal(loadCount, 0);
 });
 
 test('PR preview resets scroll-progress gating for a newly selected candidate', async () => {
@@ -294,4 +367,73 @@ test('PR preview preserves stable reflow page DOM and renders only the changed s
   assert.equal(pagesContainer.children[0], stableSection);
   assert.equal(pagesContainer.children[1].dataset.presentationId, 'reflow:1');
   assert.equal(windowObject.__TXT_PREVIEW_READER_INCREMENTAL_RENDER__ !== undefined, true);
+});
+
+test('PR preview navigation loads bounded chunks until the requested heading exists, then scrolls to it', async () => {
+  const target = {
+    dataset: {},
+    scrollCalls: [],
+    focusCalls: [],
+    scrollIntoView(options) { this.scrollCalls.push(options); },
+    focus(options) { this.focusCalls.push(options); },
+  };
+  let loadedTarget = false;
+  const statuses = [];
+
+  class FakeReaderV2Controller {
+    constructor() {
+      this.nodes = [{ node_id: 'start' }];
+      this.hasMore = true;
+      this.loadCalls = 0;
+      this.presentationState = { mode: 'semantic_full_page', pages: [] };
+      this.model = {
+        findNodeById: (nodes, id) => nodes.find((node) => node.node_id === id) || null,
+      };
+      this.document = documentObject;
+    }
+    async loadMore(options) {
+      this.loadCalls += 1;
+      assert.equal(options.silent, true);
+      if (this.loadCalls === 2) {
+        this.nodes.push({ node_id: 'chapter-20', location: { node_id: 'chapter-20' } });
+        this.hasMore = false;
+        loadedTarget = true;
+      }
+      return {};
+    }
+    setStatus(message) { statuses.push(message); }
+    locationForNode(nodeId) { return { node_id: nodeId }; }
+    persistLocation(location) { this.persisted = location; }
+    renderError(error) { throw error; }
+  }
+
+  const main = { dataset: {}, addEventListener() {}, scrollHeight: 0, scrollTop: 0, clientHeight: 0 };
+  const documentObject = {
+    readyState: 'complete',
+    querySelector(selector) {
+      if (selector === '.reader-v2-main') return main;
+      if (selector.includes('chapter-20') && loadedTarget) return target;
+      return null;
+    },
+  };
+  const readerUI = {
+    ReaderV2Controller: FakeReaderV2Controller,
+    getDefaultController: () => null,
+  };
+  executeRuntime('/speed-reading-trainer/preview/pr-101/', {
+    documentObject,
+    readerUI,
+    requestAnimationFrame: (callback) => callback(),
+  });
+
+  const controller = new FakeReaderV2Controller();
+  const located = await controller.navigateTo({ node_id: 'chapter-20' });
+  assert.equal(located, true);
+  assert.equal(controller.loadCalls, 2);
+  assert.equal(target.scrollCalls.length, 1);
+  assert.equal(target.scrollCalls[0].behavior, 'auto');
+  assert.equal(controller.persisted.node_id, 'chapter-20');
+  assert.equal(statuses[0], '正在定位章节…');
+  assert.equal(statuses.at(-1), '');
+  assert.equal(controller.__previewNavigationPending, false);
 });
