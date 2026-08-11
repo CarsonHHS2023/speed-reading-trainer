@@ -48,6 +48,14 @@
         return controller?.trainingClock?.state === 'running' && !controller?.trainingPaused;
     }
 
+    function isPlaybackSessionEngaged(controller) {
+        const playbackState = controller?.playback?.state;
+        if (!ACTIVE_SESSION_STATES.has(playbackState)) return false;
+        const clock = controller?.trainingClock;
+        if (!clock) return playbackState === 'playing';
+        return clock.state === 'running' || clock.state === 'paused';
+    }
+
     function pauseTrainingForNavigation(controller) {
         if (!controller || !isTrainingRunning(controller)) return false;
         controller.trainingPaused = true;
@@ -256,6 +264,26 @@
         return true;
     }
 
+    function wrapPlaybackSurface(target) {
+        if (!target || typeof target.showPlaybackSurface !== 'function') return false;
+        if (Object.prototype.hasOwnProperty.call(target, '__playbackSurfaceSessionGuarded')) return false;
+        const original = target.showPlaybackSurface;
+        target.showPlaybackSurface = function showPlaybackSurfaceOnlyForActiveSession(frame) {
+            if (!isPlaybackSessionEngaged(this)) {
+                this.showReaderSurface?.();
+                return false;
+            }
+            return original.call(this, frame);
+        };
+        Object.defineProperty(target, '__playbackSurfaceSessionGuarded', {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
+        });
+        return true;
+    }
+
     function install(rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
         const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
@@ -369,6 +397,7 @@
         }
 
         wrapUpdateControls(Controller.prototype);
+        wrapPlaybackSurface(Controller.prototype);
         Controller.prototype.__playbackPolishInstalled = true;
 
         const controller = PlaybackUI?.getDefaultController?.();
@@ -392,6 +421,7 @@
         continueManualRespectingSession,
         createToolbarButton,
         install,
+        isPlaybackSessionEngaged,
         isTrainingRunning,
         moveToBoundary,
         navigateBy,
@@ -404,6 +434,7 @@
         togglePlayPause,
         upgradeToolbar,
         widenWidthInput,
+        wrapPlaybackSurface,
         wrapUpdateControls,
     };
 });
