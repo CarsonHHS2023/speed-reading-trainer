@@ -33,6 +33,9 @@
         }
     }
 
+    // document.currentScript is only reliable while this entrypoint is executing.
+    // Capture its deployment SHA now so later Promise-chain loads inherit the same
+    // production/Preview asset version even after currentScript becomes null.
     const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
         typeof document !== 'undefined' ? document : null,
     );
