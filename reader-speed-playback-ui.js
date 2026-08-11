@@ -237,26 +237,34 @@
             return this.reader?.playbackBatchForCurrentPage?.() || null;
         }
 
+        buildFrames(context = this.playbackContext()) {
+            if (!this.reader?.openResponse || !context?.nodes?.length) {
+                return { elements: [], frames: [], options: this.adapterOptions() };
+            }
+            return this.adapter.buildPlaybackFrames(
+                this.reader.openResponse,
+                context.nodes,
+                this.adapterOptions(),
+            );
+        }
+
         refreshFrames(options = {}) {
             if (!this.reader?.openResponse) {
                 this.playback.setFrames([], { preserveIdentity: false });
                 this.updateControls();
                 return [];
             }
-            const context = this.playbackContext();
+            const context = options.context || this.playbackContext();
             if (!context?.nodes?.length) {
                 this.playback.setFrames([], { preserveIdentity: false });
                 this.updateControls();
                 return [];
             }
-            const built = this.adapter.buildPlaybackFrames(
-                this.reader.openResponse,
-                context.nodes,
-                this.adapterOptions(),
-            );
-            this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
+            const built = this.buildFrames(context);
+            const frames = Array.isArray(built?.frames) ? built.frames : [];
+            this.playback.setFrames(frames, { preserveIdentity: options.preserveIdentity !== false });
             this.updateControls();
-            return built.frames;
+            return frames;
         }
 
         persistResume(snapshot = this.playback.snapshot()) {
@@ -291,15 +299,10 @@
             const context = this.reader?.playbackBatchForCurrentPage?.();
             if (!context?.nodes?.length) return false;
             this.activeBatchStart = context.start;
-            const built = this.adapter.buildPlaybackFrames(
-                this.reader.openResponse,
-                context.nodes,
-                this.adapterOptions(),
-            );
-            this.playback.setFrames(built.frames, { preserveIdentity: false });
-            const startIndex = this.frameIndexForNode(context.firstNodeId, built.frames);
-            if (startIndex > 0 && built.frames.length && typeof this.playback.seek === 'function') {
-                this.playback.seek(startIndex / built.frames.length, { activate: false });
+            const frames = this.refreshFrames({ preserveIdentity: false, context });
+            const startIndex = this.frameIndexForNode(context.firstNodeId, frames);
+            if (startIndex > 0 && frames.length && typeof this.playback.seek === 'function') {
+                this.playback.seek(startIndex / frames.length, { activate: false });
             }
             this.applyVisualSettings();
             this.beginTrainingSession();
