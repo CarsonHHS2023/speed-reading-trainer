@@ -44,6 +44,7 @@
             this.trainingPaused = false;
             this.comprehensionPaused = false;
             this.resumePlaybackAfterTrainingPause = false;
+            this.activeBatchStart = null;
             const view = this.document?.defaultView || null;
             this.setIntervalFn = options.setIntervalFn || (view?.setInterval ? view.setInterval.bind(view) : null);
             this.clearIntervalFn = options.clearIntervalFn || (view?.clearInterval ? view.clearInterval.bind(view) : null);
@@ -90,6 +91,12 @@
 
         isReaderActive() {
             return Boolean(this.document?.body?.dataset?.readerV2Active === '1' && this.reader?.openResponse);
+        }
+
+        isPlaybackSessionEngaged() {
+            if (!ACTIVE_STATES.has(this.playback?.state)) return false;
+            if (!this.trainingClock) return this.playback.state === 'playing';
+            return this.trainingClock.state === 'running' || this.trainingClock.state === 'paused';
         }
 
         displayScope() {
@@ -216,15 +223,35 @@
             panel.dataset.speedReadingScope = this.displayScope();
         }
 
+        playbackContext() {
+            if (Number.isInteger(this.activeBatchStart)) {
+                const record = this.reader?.windowRecord?.(this.activeBatchStart);
+                if (record?.nodes?.length) {
+                    return {
+                        start: this.activeBatchStart,
+                        nodes: record.nodes,
+                        firstNodeId: this.playback?.currentFrame?.()?.identity?.node_id || null,
+                    };
+                }
+            }
+            return this.reader?.playbackBatchForCurrentPage?.() || null;
+        }
+
         refreshFrames(options = {}) {
             if (!this.reader?.openResponse) {
                 this.playback.setFrames([], { preserveIdentity: false });
                 this.updateControls();
                 return [];
             }
+            const context = this.playbackContext();
+            if (!context?.nodes?.length) {
+                this.playback.setFrames([], { preserveIdentity: false });
+                this.updateControls();
+                return [];
+            }
             const built = this.adapter.buildPlaybackFrames(
                 this.reader.openResponse,
-                this.reader.nodes || [],
+                context.nodes,
                 this.adapterOptions(),
             );
             this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
@@ -243,38 +270,46 @@
         }
 
         restoreResumeFrame() {
-            const record = this.reader?.resumeRecord;
-            if ((!record?.frame_id && record?.frame_ordinal == null) || !this.playback.frames.length) return false;
-            let index = record.frame_id
-                ? this.playback.frames.findIndex((frame) => frame.frame_id === record.frame_id)
-                : -1;
-            if (index < 0 && record.node_id) {
-                index = this.playback.frames.findIndex((frame) => (
-                    frame?.identity?.node_id === record.node_id
-                    && (record.frame_ordinal == null || frame.frame_ordinal === record.frame_ordinal)
-                ));
-            }
-            if (index < 0) return false;
-            this.playback.seek(index / this.playback.frames.length);
-            return true;
+            return false;
         }
 
         async ensureAllContent() {
-            while (this.reader?.hasMore) await this.reader.loadMore();
-            return this.reader?.nodes || [];
+            return this.playbackContext()?.nodes || [];
+        }
+
+        frameIndexForNode(nodeId, frames = this.playback.frames || []) {
+            const matcher = PlaybackModule?.frameContainsNode;
+            return frames.findIndex((frame) => {
+                if (typeof matcher === 'function') return matcher(frame, nodeId);
+                if (String(frame?.identity?.node_id || '') === String(nodeId || '')) return true;
+                return (frame?.source_spans || []).some((identity) => String(identity?.node_id || '') === String(nodeId || ''));
+            });
         }
 
         async start() {
             if (!this.isReaderActive()) return false;
-            await this.ensureAllContent();
-            this.refreshFrames();
+            const context = this.reader?.playbackBatchForCurrentPage?.();
+            if (!context?.nodes?.length) return false;
+            this.activeBatchStart = context.start;
+            const built = this.adapter.buildPlaybackFrames(
+                this.reader.openResponse,
+                context.nodes,
+                this.adapterOptions(),
+            );
+            this.playback.setFrames(built.frames, { preserveIdentity: false });
+            const startIndex = this.frameIndexForNode(context.firstNodeId, built.frames);
+            if (startIndex > 0 && built.frames.length && typeof this.playback.seek === 'function') {
+                this.playback.seek(startIndex / built.frames.length, { activate: false });
+            }
             this.applyVisualSettings();
             this.beginTrainingSession();
             const started = this.playback.play();
             if (!started) {
                 this.trainingClock.stop();
                 this.stopTrainingTicker();
+                this.activeBatchStart = null;
             }
+            this.updateControls();
             return started;
         }
 
@@ -285,9 +320,11 @@
             this.trainingPaused = false;
             this.comprehensionPaused = false;
             this.resumePlaybackAfterTrainingPause = false;
+            this.activeBatchStart = null;
             this.updateTrainingTime();
             this.playback.stop();
             this.showReaderSurface();
+            this.updateControls();
         }
 
         toggleComprehensionPause() {
@@ -331,7 +368,9 @@
         }
 
         togglePause() {
-            return this.toggleTrainingPause();
+            if (this.isPlaybackSessionEngaged()) return this.toggleTrainingPause();
+            this.start().catch((error) => this.reader?.renderError?.(error));
+            return true;
         }
 
         continueManual() {
@@ -340,18 +379,34 @@
         }
 
         previousFrame() {
-            if (!this.isReaderActive() || !this.playback.frames.length) return null;
+            if (!this.isReaderActive()) return null;
+            if (!this.isPlaybackSessionEngaged()) return this.reader?.previousPage?.();
             return this.playback.previous();
         }
 
         nextFrame() {
-            if (!this.isReaderActive() || !this.playback.frames.length) return null;
+            if (!this.isReaderActive()) return null;
+            if (!this.isPlaybackSessionEngaged()) return this.reader?.nextPage?.();
             if (this.playback.state === 'manual') {
                 this.continueManual();
                 if (this.playback.state === 'playing') this.playback.pause();
                 return this.playback.currentFrame();
             }
             return this.playback.next();
+        }
+
+        firstFrame() {
+            if (!this.isReaderActive()) return null;
+            if (!this.isPlaybackSessionEngaged()) return this.reader?.firstPage?.();
+            const snapshot = this.playback.snapshot();
+            return this.playback.moveBy(-snapshot.index);
+        }
+
+        lastFrame() {
+            if (!this.isReaderActive()) return null;
+            if (!this.isPlaybackSessionEngaged()) return this.reader?.lastPage?.();
+            const snapshot = this.playback.snapshot();
+            return this.playback.moveBy(snapshot.frame_count - 1 - snapshot.index);
         }
 
         showReaderSurface() {
@@ -366,6 +421,10 @@
         }
 
         showPlaybackSurface(frame) {
+            if (!this.isPlaybackSessionEngaged()) {
+                this.showReaderSurface();
+                return false;
+            }
             const reader = this.element('readerV2Display');
             const focus = this.element('focusModeDisplay');
             const page = this.element('pageModeDisplay');
@@ -377,6 +436,7 @@
             if (page) page.classList.toggle('active', usePage);
             this.applyVisualSettings();
             this.renderFrame(frame, usePage ? this.element('pageText') : this.element('focusText'));
+            return true;
         }
 
         renderManualFrame(frame, target) {
@@ -460,44 +520,62 @@
             }
             this.persistResume(snapshot);
             this.updateControls(snapshot);
-            if (ACTIVE_STATES.has(snapshot.state)) {
-                this.showPlaybackSurface(snapshot.frame);
-            } else {
+            if (ACTIVE_STATES.has(snapshot.state)) this.showPlaybackSurface(snapshot.frame);
+            else {
                 this.showReaderSurface();
                 if (snapshot.state === 'completed') this.reader?.setStatus?.('速度阅读完成。');
             }
         }
 
         updateControls(snapshot = this.playback.snapshot()) {
+            const engaged = this.isPlaybackSessionEngaged();
+            const pageState = this.reader?.pageNavigationState?.() || {};
+            const canStart = Boolean(this.isReaderActive() && this.reader?.playbackBatchForCurrentPage?.()?.nodes?.length);
+            const playable = engaged ? snapshot.frame_count > 0 : canStart;
             const button = this.element('readingToggleBtn');
-            const playable = this.isReaderActive() && snapshot.frame_count > 0;
-            const active = ACTIVE_STATES.has(snapshot.state);
             if (button) {
                 button.disabled = !playable;
-                button.textContent = active ? '⏹' : '▶';
-                button.classList.toggle('active', active);
-                button.title = active ? '停止速度阅读' : '开始速度阅读';
+                button.textContent = engaged ? '⏸' : '▶';
+                button.classList.toggle('active', engaged);
+                button.title = engaged ? '暂停速度阅读' : '开始速度阅读';
+                button.setAttribute?.('aria-label', button.title);
             }
             const prev = this.element('speedReadingPrev');
             const pause = this.element('speedReadingPause');
             const next = this.element('speedReadingNext');
+            const first = this.element('speedReadingFirst');
+            const last = this.element('speedReadingLast');
             const stop = this.element('speedReadingStop');
             const state = this.element('speedReadingState');
-            if (prev) prev.disabled = !playable || snapshot.index <= 0;
-            if (next) next.disabled = !playable || snapshot.index >= snapshot.frame_count - 1;
+
+            if (engaged) {
+                if (first) first.disabled = !snapshot.frame_count || snapshot.index <= 0;
+                if (prev) prev.disabled = !snapshot.frame_count || snapshot.index <= 0;
+                if (next) next.disabled = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
+                if (last) last.disabled = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
+            } else {
+                if (first) first.disabled = !pageState.readable || pageState.pending || pageState.atDocumentStart;
+                if (prev) prev.disabled = !pageState.readable || pageState.pending || pageState.atDocumentStart;
+                if (next) next.disabled = !pageState.readable || pageState.pending || pageState.atDocumentEnd;
+                if (last) last.disabled = !pageState.readable || pageState.pending || pageState.atDocumentEnd;
+            }
             if (pause) {
-                pause.disabled = !active;
-                pause.textContent = this.trainingPaused ? '▶' : '⏸';
-                pause.title = this.trainingPaused ? '继续训练（恢复计时）' : '暂停训练（暂停计时）';
+                pause.disabled = engaged ? false : !canStart;
+                pause.textContent = engaged && !this.trainingPaused ? '⏸' : '▶';
+                pause.title = engaged
+                    ? (this.trainingPaused ? '继续训练（恢复计时）' : '暂停训练（暂停计时）')
+                    : '开始速度阅读';
                 pause.setAttribute?.('aria-label', pause.title);
             }
-            if (stop) stop.disabled = !active && snapshot.state !== 'completed';
-            if (state) state.textContent = `${this.stateLabel(snapshot)} · ${snapshot.frame_count ? snapshot.index + 1 : 0}/${snapshot.frame_count}`;
+            if (stop) stop.disabled = !engaged && snapshot.state !== 'completed';
+            if (state) state.textContent = engaged
+                ? `${this.stateLabel(snapshot)} · ${snapshot.frame_count ? snapshot.index + 1 : 0}/${snapshot.frame_count}`
+                : '普通阅读';
         }
 
         seekFromSlider() {
             const slider = this.element('progressSlider');
-            if (!slider || !this.isReaderActive()) return;
+            if (!slider || !this.isReaderActive() || !this.isPlaybackSessionEngaged()) return;
             const max = Math.max(1, Number(slider.max || 1000));
             this.playback.seek(Number(slider.value || 0) / max);
         }
@@ -512,9 +590,9 @@
             if (!this.isReaderActive()) return;
             event?.stopImmediatePropagation?.();
             this.updateSettingsVisibility();
-            this.reader?.reflowAndRender?.();
+            if (!this.isPlaybackSessionEngaged()) this.reader?.reflowAndRender?.();
             this.onSettingChanged();
-            if (!ACTIVE_STATES.has(this.playback.state)) this.showReaderSurface();
+            if (!this.isPlaybackSessionEngaged()) this.showReaderSurface();
         }
 
         isEditableTarget(target) {
@@ -526,16 +604,20 @@
             if (!this.isReaderActive() || this.isEditableTarget(event.target)) return;
             if (event.code === 'Space') {
                 event.preventDefault();
-                if (this.playback.state === 'idle' || this.playback.state === 'completed') {
-                    this.start().catch((error) => this.reader?.renderError?.(error));
-                } else this.togglePause();
+                this.togglePause();
             } else if (event.key === 'ArrowLeft') {
                 event.preventDefault();
-                this.previousFrame();
+                Promise.resolve(this.previousFrame()).catch((error) => this.reader?.renderError?.(error));
             } else if (event.key === 'ArrowRight') {
                 event.preventDefault();
-                this.nextFrame();
-            } else if (event.key === 'Escape' && ACTIVE_STATES.has(this.playback.state)) {
+                Promise.resolve(this.nextFrame()).catch((error) => this.reader?.renderError?.(error));
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                Promise.resolve(this.firstFrame()).catch((error) => this.reader?.renderError?.(error));
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                Promise.resolve(this.lastFrame()).catch((error) => this.reader?.renderError?.(error));
+            } else if (event.key === 'Escape' && this.isPlaybackSessionEngaged()) {
                 event.preventDefault();
                 this.stop();
             }
@@ -554,8 +636,7 @@
                 if (!this.isReaderActive()) return;
                 event.preventDefault();
                 event.stopImmediatePropagation();
-                if (ACTIVE_STATES.has(this.playback.state)) this.stop();
-                else this.start().catch((error) => this.reader?.renderError?.(error));
+                this.togglePause();
             }, true);
 
             for (const id of ['focusModeDisplay', 'pageModeDisplay']) {
@@ -567,9 +648,9 @@
                 }, true);
             }
 
-            this.element('speedReadingPrev')?.addEventListener('click', () => this.previousFrame());
+            this.element('speedReadingPrev')?.addEventListener('click', () => Promise.resolve(this.previousFrame()).catch((error) => this.reader?.renderError?.(error)));
             this.element('speedReadingPause')?.addEventListener('click', () => this.togglePause());
-            this.element('speedReadingNext')?.addEventListener('click', () => this.nextFrame());
+            this.element('speedReadingNext')?.addEventListener('click', () => Promise.resolve(this.nextFrame()).catch((error) => this.reader?.renderError?.(error)));
             this.element('speedReadingStop')?.addEventListener('click', () => this.stop());
 
             this.element('progressSlider')?.addEventListener('input', (event) => {
@@ -586,7 +667,7 @@
             trainingMode?.addEventListener('input', (event) => {
                 event.stopImmediatePropagation();
                 this.onSettingChanged({ frames: false });
-                if (ACTIVE_STATES.has(this.playback.state)) this.showPlaybackSurface(this.playback.currentFrame());
+                if (this.isPlaybackSessionEngaged()) this.showPlaybackSurface(this.playback.currentFrame());
             }, true);
             trainingMode?.addEventListener('change', (event) => {
                 event.stopImmediatePropagation();
@@ -604,6 +685,7 @@
                 el?.addEventListener('change', () => this.onSettingChanged({ frames: false }));
             }
             this.document.addEventListener('keydown', (event) => this.onKeyDown(event));
+            this.document.addEventListener('reader-v2-page-change', () => this.updateControls());
             this.updateControls();
         }
 
@@ -615,11 +697,15 @@
             const self = this;
             ReaderUI.openBook = async function openBookWithPlayback(book) {
                 self.persistResume();
+                self.trainingClock?.stop?.();
+                self.stopTrainingTicker();
+                self.activeBatchStart = null;
                 self.playback.stop();
                 const result = await original(book);
                 self.reader = ReaderUI.getDefaultController();
                 self.refreshFrames({ preserveIdentity: false });
-                self.restoreResumeFrame();
+                self.showReaderSurface();
+                self.updateControls();
                 return result;
             };
         }
