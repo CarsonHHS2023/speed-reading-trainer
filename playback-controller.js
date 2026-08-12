@@ -154,7 +154,7 @@
             this.emit();
         }
 
-        seek(progress) {
+        seek(progress, options = {}) {
             this.cancelTimer();
             if (!this.frames.length) {
                 this.index = 0;
@@ -166,6 +166,11 @@
             this.index = Math.min(this.frames.length - 1, Math.floor(bounded * this.frames.length));
             this.remainingMs = null;
             const frame = this.currentFrame();
+            if (options.activate === false) {
+                this.state = STATES.IDLE;
+                this.emit();
+                return frame;
+            }
             if (frame.kind === 'manual') {
                 this.state = STATES.MANUAL;
                 this.emit();

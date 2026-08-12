@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { TrainingSessionClock, CLOCK_STATES } = require('../training-session-clock.js');
 
 function fakeNow() {
@@ -47,4 +48,11 @@ test('stop freezes elapsed time and a new start resets the session', () => {
     assert.equal(clock.elapsedMs(), 0);
     time.advance(250);
     assert.equal(clock.elapsedMs(), 250);
+});
+
+test('training clock has no enhancement-bootstrap side effects', () => {
+    const source = fs.readFileSync(require.resolve('../training-session-clock.js'), 'utf8');
+    assert.doesNotMatch(source, /speed-reading-[a-z-]+\.js/u);
+    assert.doesNotMatch(source, /appendEnhancementScript/u);
+    assert.doesNotMatch(source, /data-reader-enhancement/u);
 });

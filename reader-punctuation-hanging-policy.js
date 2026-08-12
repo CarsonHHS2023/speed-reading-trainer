@@ -95,14 +95,14 @@
         const adapter = rootObject?.SpeedReadingAdapter;
         if (!Controller || !adapter || Controller.prototype.__punctuationHangingPolicyInstalled) return false;
 
-        const originalRefreshFrames = Controller.prototype.refreshFrames;
-        Controller.prototype.refreshFrames = function punctuationHangingRefreshFrames(options = {}) {
-            const frames = originalRefreshFrames.call(this, options) || [];
+        const originalBuildFrames = Controller.prototype.buildFrames;
+        if (typeof originalBuildFrames !== 'function') return false;
+        Controller.prototype.buildFrames = function punctuationHangingBuildFrames(context) {
+            const built = originalBuildFrames.call(this, context);
+            if (!built || !Array.isArray(built.frames)) return built;
             const settings = this.adapterOptions?.() || {};
-            repairHangingPunctuation(frames, adapter, settings.speedPerMinute);
-            this.playback?.setFrames?.(frames, { preserveIdentity: options.preserveIdentity !== false });
-            this.updateControls?.();
-            return frames;
+            repairHangingPunctuation(built.frames, adapter, settings.speedPerMinute);
+            return built;
         };
 
         Controller.prototype.__punctuationHangingPolicyInstalled = true;

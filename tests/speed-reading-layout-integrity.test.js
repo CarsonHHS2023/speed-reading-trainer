@@ -138,17 +138,17 @@ test('associated table caption is removed from timed flow and attached to the ta
       };
     },
   };
+  const nodes = [
+    { node_id: 'table-1', node_type: 'table', order: 1 },
+    { node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 2 },
+    { node_id: 'p-1', node_type: 'paragraph', text: '后续正文', order: 3 },
+  ];
+  const playbackContext = { start: 0, firstNodeId: 'table-1', nodes };
   const root = { SpeedReadingAdapter: adapter, SpeedReadingResponsiveLayout: responsive };
   const controller = {
     document: { defaultView: { getComputedStyle() { return { lineHeight: '20px', fontSize: '20px' }; } } },
-    reader: {
-      openResponse: { candidate_id: 'cand' },
-      nodes: [
-        { node_id: 'table-1', node_type: 'table', order: 1 },
-        { node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 2 },
-        { node_id: 'p-1', node_type: 'paragraph', text: '后续正文', order: 3 },
-      ],
-    },
+    reader: { openResponse: { candidate_id: 'cand' } },
+    playbackContext() { return playbackContext; },
     updateSettingsVisibility() {},
     applyVisualSettings() {},
     adapterOptions() { return { displayScope: 'line', lineCount: 3, maxLines: 3, maxWidthPx: 300, speedPerMinute: 600 }; },
@@ -157,7 +157,7 @@ test('associated table caption is removed from timed flow and attached to the ta
     element(id) { return id === 'fontInput' ? { value: '20' } : { clientWidth: 348, clientHeight: 500 }; },
   };
 
-  const built = Integrity.buildIntegrityPlaybackFrames(controller, root);
+  const built = Integrity.buildIntegrityPlaybackFrames(controller, root, playbackContext);
   assert.equal(capturedOptions.pageLineCapacity, 6);
   assert.deepEqual(capturedElements.map((element) => element.identity.node_id), ['table-1', 'p-1']);
   assert.equal(built.frames[0].caption_text, '表1 复利的作用');
@@ -236,11 +236,12 @@ test('manual visual caption renderer keeps caption and visual in the same target
   assert.equal(target.children[1].className, 'reader-playback-asset-slot');
 });
 
-test('versioned enhancement loader places layout integrity after responsive layout', () => {
-  const source = fs.readFileSync('training-session-clock.js', 'utf8');
+test('canonical lifecycle places layout integrity after responsive layout', () => {
+  const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
   const responsive = source.indexOf('speed-reading-responsive-layout.js');
   const integrity = source.indexOf('speed-reading-layout-integrity.js');
   assert.ok(responsive >= 0 && integrity > responsive);
-  assert.match(source, /const versionedSrc = \(src\) => `\$\{src\}\?v=\$\{encodeURIComponent\(assetVersion\)\}`/u);
-  assert.match(source, /script\.src = versionedSrc\(src\)/u);
+  assert.match(source, /function versionedAsset\(src, documentObject/u);
+  assert.match(source, /script\.src = versionedAsset\(src\)/u);
+  assert.match(source, /script\.dataset\.readerEnhancement = src/u);
 });

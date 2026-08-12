@@ -66,36 +66,62 @@ function fakeDocument() {
 }
 
 function fakeReader() {
-    return {
+    const reader = {
         openResponse: { contract_version: '2', document_ref: 'doc', candidate_id: 'cand', candidate_schema_id: 'schema', candidate_schema_version: 2 },
         nodes: [{ node_id: 'n1', order: 0, node_type: 'paragraph', text: 'hello', source_unit_ids: ['su1'] }],
         hasMore: true,
         loadCalls: 0,
         async loadMore() { this.loadCalls += 1; this.hasMore = false; return {}; },
+        playbackBatchForCurrentPage() {
+            return { start: 0, nodes: this.nodes, firstNodeId: 'n1' };
+        },
+        windowRecord(start) {
+            return start === 0 ? { start: 0, nodes: this.nodes } : null;
+        },
+        pageNavigationState() {
+            return { readable: true, pending: false, atDocumentStart: true, atDocumentEnd: false };
+        },
+        async previousPage() { return true; },
+        async nextPage() { return true; },
+        async firstPage() { return true; },
+        async lastPage() { return true; },
+        persistLocation() {},
         setStatus() {},
         renderError() {},
     };
+    return reader;
 }
 
 function fakePlayback() {
     return {
         state: 'idle',
         frames: [],
+        index: 0,
         playCalls: 0,
         pauseCalls: 0,
         resumeCalls: 0,
         manualContinueCalls: 0,
-        setFrames(frames) { this.frames = [...frames]; },
-        snapshot() { return { state: this.state, index: 0, frame: this.frames[0] || null, frame_count: this.frames.length }; },
-        currentFrame() { return this.frames[0] || null; },
-        play() { this.playCalls += 1; this.state = 'playing'; return true; },
-        stop() { this.state = 'idle'; },
-        seek() {},
+        setFrames(frames) { this.frames = [...frames]; this.index = 0; this.state = this.frames.length ? 'idle' : 'idle'; },
+        snapshot() { return { state: this.state, index: this.index, frame: this.frames[this.index] || null, frame_count: this.frames.length }; },
+        currentFrame() { return this.frames[this.index] || null; },
+        play() { this.playCalls += 1; if (!this.frames.length) return false; this.state = 'playing'; return true; },
+        stop() { this.state = 'idle'; this.index = 0; },
+        seek(progress, options = {}) {
+            if (!this.frames.length) return null;
+            this.index = Math.min(this.frames.length - 1, Math.floor(Number(progress || 0) * this.frames.length));
+            if (options.activate === false) this.state = 'idle';
+            return this.currentFrame();
+        },
         pause() { this.pauseCalls += 1; this.state = 'paused'; return true; },
         resume() { this.resumeCalls += 1; this.state = 'playing'; return true; },
         continueManual() { this.manualContinueCalls += 1; return true; },
-        previous() {},
-        next() {},
+        moveBy(delta) {
+            this.index = Math.max(0, Math.min(this.frames.length - 1, this.index + Number(delta || 0)));
+            this.state = 'paused';
+            return this.currentFrame();
+        },
+        previous() { return this.moveBy(-1); },
+        next() { return this.moveBy(1); },
     };
 }
 
@@ -123,7 +149,7 @@ function clickEvent() {
     return { preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {} };
 }
 
-test('Reader v2 playback start loads remaining nodes, starts training clock, and enables play control', async () => {
+test('Reader v2 playback starts from the current Reader batch without loading additional content', async () => {
     const documentObject = fakeDocument();
     const reader = fakeReader();
     const playback = fakePlayback();
@@ -137,11 +163,11 @@ test('Reader v2 playback start loads remaining nodes, starts training clock, and
         },
     };
     const controller = new ReaderSpeedPlaybackUIController({ documentObject, readerController: reader, playback, adapter, trainingClock });
-    controller.refreshFrames({ preserveIdentity: false });
+    controller.updateControls();
     assert.equal(documentObject.elements.get('readingToggleBtn').disabled, false);
     const started = await controller.start();
     assert.equal(started, true);
-    assert.equal(reader.loadCalls, 1);
+    assert.equal(reader.loadCalls, 0);
     assert.equal(playback.playCalls, 1);
     assert.equal(trainingClock.startCalls, 1);
     assert.equal(trainingClock.state, 'running');

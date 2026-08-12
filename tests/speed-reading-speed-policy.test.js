@@ -128,7 +128,7 @@ test('installed policy keeps speed slider and numeric input synchronized after R
     const viewpointLabel = { textContent: '' };
     const trainingMode = eventControl('focus');
     trainingMode.options = [
-        { value: 'focus', textContent: '焦点式' },
+        { value: 'focus', textContent: '固定式' },
         { value: 'moving', textContent: '移动式' },
     ];
     trainingMode.closest = () => ({ querySelector: () => viewpointLabel });
@@ -225,7 +225,7 @@ test('installed policy recomputes maximum from live width and line controls', ()
     const viewpointLabel = { textContent: '' };
     const trainingMode = eventControl('focus');
     trainingMode.options = [
-        { value: 'focus', textContent: '焦点式' },
+        { value: 'focus', textContent: '固定式' },
         { value: 'moving', textContent: '移动式' },
     ];
     trainingMode.closest = () => ({ querySelector: () => viewpointLabel });
@@ -307,9 +307,8 @@ test('installed policy recomputes maximum from live width and line controls', ()
     assert.equal(speedInput.max, '8640');
 });
 
-test('speed policy is loaded from the exact-head enhancement bootstrap', () => {
-    const source = fs.readFileSync(require.resolve('../training-session-clock.js'), 'utf8');
-    assert.match(source, /speedReadingSpeedPolicyScript/u);
+test('speed policy is loaded by the canonical exact-head lifecycle bootstrap', () => {
+    const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
     assert.match(source, /speed-reading-speed-policy\.js/u);
-    assert.match(source, /versionedSrc\(src\)/u);
+    assert.match(source, /versionedAsset\(src\)/u);
 });

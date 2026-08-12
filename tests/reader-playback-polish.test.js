@@ -53,63 +53,85 @@ function fakeToolbar(children = []) {
   return toolbar;
 }
 
-test('resolveResumeIndex finds exact frame id and falls back to node identity', () => {
-  const frames = [
-    { frame_id: 'f-1', frame_ordinal: 0, identity: { node_id: 'n-1' } },
-    { frame_id: 'f-2', frame_ordinal: 1, identity: { node_id: 'n-2' } },
-  ];
+function makeToolbarController({ engaged = false } = {}) {
+  const prev = fakeButton('speedReadingPrev');
+  const playPause = fakeButton('speedReadingPause');
+  const next = fakeButton('speedReadingNext');
+  const stop = fakeButton('speedReadingStop');
+  const hint = { textContent: '' };
+  const toolbar = fakeToolbar([prev, playPause, next, stop]);
+  toolbar.querySelector = (selector) => selector === '.speed-reading-v2-shortcuts' ? hint : null;
+  const byId = new Map([
+    ['speedReadingV2Toolbar', toolbar],
+    ['speedReadingPrev', prev],
+    ['speedReadingPause', playPause],
+    ['speedReadingNext', next],
+    ['speedReadingStop', stop],
+  ]);
+  const created = [];
+  const controller = {
+    trainingClock: { state: engaged ? 'running' : 'idle' },
+    playback: { state: engaged ? 'playing' : 'idle' },
+    document: {
+      createElement() {
+        const button = fakeButton();
+        created.push(button);
+        byId.set(button.id, button);
+        return button;
+      },
+    },
+    element(id) {
+      if (id === 'speedReadingFirst') return toolbar.children.find((item) => item.id === id) || null;
+      if (id === 'speedReadingLast') return toolbar.children.find((item) => item.id === id) || null;
+      return byId.get(id) || null;
+    },
+    firstFrame() {},
+    lastFrame() {},
+    isPlaybackSessionEngaged() { return engaged; },
+  };
+  return { controller, created, hint, next, prev, toolbar };
+}
 
-  assert.equal(Polish.resolveResumeIndex({
-    reader: { resumeRecord: { frame_id: 'f-2' } },
-    playback: { frames },
-  }), 1);
-
-  assert.equal(Polish.resolveResumeIndex({
-    reader: { resumeRecord: { frame_id: 'missing', node_id: 'n-1', frame_ordinal: 0 } },
-    playback: { frames },
-  }), 0);
-});
-
-test('restoreResumeFrame defers seeking until playback starts', async () => {
-  class Controller {
-    constructor() {
-      this.reader = { resumeRecord: { frame_id: 'manual-frame' } };
-      this.playback = {
-        frames: [
-          { frame_id: 'text-frame', kind: 'timed' },
-          { frame_id: 'manual-frame', kind: 'manual' },
-        ],
-        index: 0,
-        play() { this.playedIndex = this.index; return true; },
-      };
-    }
-    async start() { return this.playback.play(); }
-    renderManualFrame() {}
+test('playback polish exports transport/window and presentation helpers without reviving legacy core owners', () => {
+  for (const removedCoreOwner of [
+    'resolveResumeIndex',
+    'playPause',
+    'togglePlayPause',
+    'navigateBy',
+    'moveToBoundary',
+    'continueManualRespectingSession',
+    'applyPlaybackControlState',
+    'wrapPlaybackSurface',
+  ]) {
+    assert.equal(Polish[removedCoreOwner], undefined, removedCoreOwner);
   }
-
-  assert.equal(Polish.install({ ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: Controller } }), true);
-  const controller = new Controller();
-
-  assert.equal(controller.restoreResumeFrame(), true);
-  assert.equal(controller.playback.index, 0, 'opening the book does not seek into the image');
-  assert.equal(controller.pendingResumeFrameIndex, 1);
-
-  assert.equal(await controller.start(), true);
-  assert.equal(controller.playback.playedIndex, 1, 'resume position is applied only when playback starts');
-  assert.equal(controller.pendingResumeFrameIndex, null);
+  assert.equal(typeof Polish.upgradeToolbar, 'function');
+  assert.equal(typeof Polish.applyTransportLabels, 'function');
+  assert.equal(typeof Polish.widenWidthInput, 'function');
+  assert.equal(typeof Polish.repackPageFrames, 'function');
+  assert.equal(typeof Polish.extendPlaybackWindow, 'function');
 });
 
 test('terminal manual frame is labelled as the last frame and returns to reader view', () => {
   class Controller {
     constructor() {
-      this.playback = { frames: [{ kind: 'manual' }], index: 0 };
+      this.playback = {
+        frames: [{ kind: 'manual' }],
+        index: 0,
+        state: 'manual',
+        snapshot() { return { state: this.state, index: this.index, frame_count: this.frames.length }; },
+      };
+      this.reader = { windowRecord: () => ({ start: 0, hasMore: false }) };
+      this.activeBatchStart = 0;
+      this.trainingClock = { state: 'running' };
       this.stopped = false;
     }
-    async start() { return true; }
     stop() { this.stopped = true; }
     renderManualFrame(_frame, target) {
       target.button = { textContent: '继续', onclick: null };
     }
+    updateControls() {}
+    isPlaybackSessionEngaged() { return true; }
   }
 
   Polish.install({ ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: Controller } });
@@ -122,6 +144,30 @@ test('terminal manual frame is labelled as the last frame and returns to reader 
   assert.equal(controller.stopped, true);
 });
 
+test('a loaded batch tail is not labelled as the document tail when another node window exists', () => {
+  class Controller {
+    constructor() {
+      this.playback = {
+        frames: [{ kind: 'manual' }],
+        index: 0,
+        state: 'manual',
+        snapshot() { return { state: this.state, index: 0, frame_count: 1 }; },
+      };
+      this.reader = { windowRecord: () => ({ start: 0, hasMore: true }) };
+      this.activeBatchStart = 0;
+      this.trainingClock = { state: 'running' };
+    }
+    renderManualFrame(_frame, target) { target.button = { textContent: '', onclick: null }; }
+    updateControls() {}
+    isPlaybackSessionEngaged() { return true; }
+  }
+  Polish.install({ ReaderSpeedPlaybackUI: { ReaderSpeedPlaybackUIController: Controller } });
+  const controller = new Controller();
+  const target = { querySelector: () => target.button };
+  controller.renderManualFrame({ kind: 'manual' }, target);
+  assert.equal(target.button.textContent, '继续');
+});
+
 test('width percentage input is wide enough to display three digits', () => {
   const widthInput = fakeButton('widthInput');
   const controller = { element: (id) => id === 'widthInput' ? widthInput : null };
@@ -131,32 +177,8 @@ test('width percentage input is wide enough to display three digits', () => {
   assert.equal(widthInput.style.minWidth, '48px');
 });
 
-test('toolbar upgrade adds first/last controls and distinguishes frame arrows from boundaries', () => {
-  const prev = fakeButton('speedReadingPrev');
-  const playPause = fakeButton('speedReadingPause');
-  const next = fakeButton('speedReadingNext');
-  const stop = fakeButton('speedReadingStop');
-  const toolbar = fakeToolbar([prev, playPause, next, stop]);
-  const byId = new Map([
-    ['speedReadingV2Toolbar', toolbar],
-    ['speedReadingPrev', prev],
-    ['speedReadingPause', playPause],
-    ['speedReadingNext', next],
-    ['speedReadingStop', stop],
-  ]);
-  const created = [];
-  const controller = {
-    document: {
-      createElement() {
-        const button = fakeButton();
-        created.push(button);
-        return button;
-      },
-    },
-    element(id) { return byId.get(id) || null; },
-    firstFrame() {},
-    lastFrame() {},
-  };
+test('toolbar upgrade adds first/last controls without owning ordinary Reader page semantics', () => {
+  const { controller, created, next, prev, toolbar } = makeToolbarController();
 
   assert.equal(Polish.upgradeToolbar(controller), true);
   assert.deepEqual(toolbar.children.map((item) => item.id), [
@@ -170,105 +192,132 @@ test('toolbar upgrade adds first/last controls and distinguishes frame arrows fr
   assert.equal(created.length, 2);
 });
 
-test('paused frame navigation presents Play rather than Pause/Stop', () => {
-  const toggle = fakeButton('readingToggleBtn');
-  const hiddenPlayPause = fakeButton('speedReadingPause');
+test('ordinary Reader labels use pages while an engaged session uses document-wide frames', () => {
+  const ordinary = makeToolbarController({ engaged: false });
+  Polish.upgradeToolbar(ordinary.controller);
+  Polish.applyTransportLabels(ordinary.controller);
+  assert.equal(ordinary.prev.title, '上一页');
+  assert.equal(ordinary.next.title, '下一页');
+  assert.match(ordinary.hint.textContent, /上一页\/下一页/);
+
+  const active = makeToolbarController({ engaged: true });
+  Polish.upgradeToolbar(active.controller);
+  Polish.applyTransportLabels(active.controller);
+  assert.equal(active.prev.title, '上一帧');
+  assert.equal(active.next.title, '下一帧');
+  assert.match(active.hint.textContent, /整本书第一帧\/最后一帧/);
+});
+
+test('Page repacking carries rows across semantic run boundaries instead of emitting an avoidable two-line frame', () => {
+  const controller = {
+    adapter: { frameDurationMs: (units) => units * 10 },
+    element: (id) => id === 'speedInput' ? { value: '600' } : null,
+  };
+  const row = (text, nodeId) => ({
+    text,
+    node_type: 'paragraph',
+    row_height_px: 30,
+    paragraph_gap_before_px: 0,
+    reading_units: 1,
+    identity: { candidate_id: 'c', node_id: nodeId },
+    source_spans: [{ candidate_id: 'c', node_id: nodeId }],
+  });
+  const frame = (id, lines) => ({
+    frame_id: id,
+    kind: 'timed_text',
+    lines,
+    identity: lines[0].identity,
+    source_spans: lines.flatMap((line) => line.source_spans),
+    placement: { display_scope: 'page', page_height_px: 100, row_gap_px: 5, virtual_page_index: 0 },
+  });
+  const packed = Polish.repackPageFrames(controller, [
+    frame('f1', [row('a', 'n1'), row('b', 'n2')]),
+    frame('f2', [row('chapter', 'n3')]),
+    frame('f3', [row('c', 'n4'), row('d', 'n5')]),
+  ]);
+  assert.deepEqual(packed.map((item) => item.lines.length), [3, 2]);
+  assert.equal(packed[0].text, 'a\nb\nchapter');
+});
+
+test('near a loaded tail, the next 150-node window is converted and appended without rebuilding the Reader surface', async () => {
+  const records = new Map([
+    [0, { start: 0, nodes: [{ node_id: 'n0' }], hasMore: true, nextNodeOrder: 150 }],
+    [150, { start: 150, nodes: [{ node_id: 'n150' }], hasMore: false, nextNodeOrder: null }],
+  ]);
+  const requests = [];
+  const reader = {
+    windowRecord: (start) => records.get(start) || null,
+    async requestWindow(start) { requests.push(start); return records.get(start) || null; },
+  };
+  const playback = {
+    frames: [{ frame_id: 'f0', identity: { node_id: 'n0' } }],
+    index: 0,
+    currentFrame() { return this.frames[this.index]; },
+    setFrames(frames) { this.frames = frames; },
+  };
+  const controller = {
+    reader,
+    playback,
+    activeBatchStart: 0,
+    buildFrames(context) {
+      return { frames: context.nodes.map((node) => ({ frame_id: `f-${node.node_id}`, identity: { node_id: node.node_id } })) };
+    },
+  };
+  Polish.playbackWindowStarts(controller).add(0);
+  const extended = await Polish.extendPlaybackWindow(controller, 1);
+  assert.equal(extended, true);
+  assert.deepEqual(requests, [150]);
+  assert.deepEqual(playback.frames.map((item) => item.identity.node_id), ['n0', 'n150']);
+  assert.deepEqual([...Polish.playbackWindowStarts(controller)].sort((a, b) => a - b), [0, 150]);
+});
+
+test('document transport remains enabled at a loaded batch edge when another window exists', () => {
   const first = fakeButton('speedReadingFirst');
   const prev = fakeButton('speedReadingPrev');
   const next = fakeButton('speedReadingNext');
   const last = fakeButton('speedReadingLast');
-  const byId = new Map([
-    ['readingToggleBtn', toggle], ['speedReadingPause', hiddenPlayPause],
-    ['speedReadingFirst', first], ['speedReadingPrev', prev],
-    ['speedReadingNext', next], ['speedReadingLast', last],
-  ]);
+  const buttons = new Map([[first.id, first], [prev.id, prev], [next.id, next], [last.id, last]]);
   const controller = {
-    trainingPaused: true,
-    trainingClock: { state: 'paused' },
-    isReaderActive: () => true,
-    element: (id) => byId.get(id) || null,
+    activeBatchStart: 150,
+    trainingClock: { state: 'running' },
+    playback: {
+      state: 'playing',
+      snapshot: () => ({ state: 'playing', index: 0, frame_count: 1 }),
+    },
+    reader: { windowRecord: (start) => ({ start, hasMore: start === 150 }) },
+    element: (id) => buttons.get(id) || null,
+    isPlaybackSessionEngaged: () => true,
   };
-
-  Polish.applyPlaybackControlState(controller, {
-    state: 'paused', index: 3, frame_count: 10,
-  });
-  assert.equal(toggle.textContent, '▶');
-  assert.equal(toggle.title, '播放速度阅读');
-  assert.equal(toggle.classList.contains('active'), false);
-  assert.equal(hiddenPlayPause.textContent, '▶');
+  Polish.playbackWindowStarts(controller).add(150);
+  Polish.applyDocumentTransportState(controller);
+  assert.equal(first.disabled, false);
   assert.equal(prev.disabled, false);
   assert.equal(next.disabled, false);
+  assert.equal(last.disabled, false);
 });
 
-test('running training session presents Pause while a dedicated Stop remains separate', () => {
-  const toggle = fakeButton('readingToggleBtn');
-  const hiddenPlayPause = fakeButton('speedReadingPause');
-  const controller = {
-    trainingPaused: false,
-    trainingClock: { state: 'running' },
-    isReaderActive: () => true,
-    element(id) {
-      if (id === 'readingToggleBtn') return toggle;
-      if (id === 'speedReadingPause') return hiddenPlayPause;
-      return null;
-    },
-  };
-  Polish.applyPlaybackControlState(controller, {
-    state: 'playing', index: 1, frame_count: 5,
-  });
-  assert.equal(toggle.textContent, '⏸');
-  assert.equal(toggle.title, '暂停速度阅读');
-  assert.equal(toggle.classList.contains('active'), true);
-  assert.equal(hiddenPlayPause.textContent, '⏸');
-});
-
-test('play control resumes training and autoplay from a frame-navigation pause', () => {
-  let resumeCalls = 0;
-  let clockResumeCalls = 0;
-  const controller = {
-    isReaderActive: () => true,
-    trainingPaused: true,
-    comprehensionPaused: false,
-    resumePlaybackAfterTrainingPause: true,
-    trainingClock: {
-      state: 'paused',
-      resume() { this.state = 'running'; clockResumeCalls += 1; return true; },
-    },
-    playback: {
-      state: 'paused',
-      frames: [{}, {}, {}],
-      resume() { this.state = 'playing'; resumeCalls += 1; return true; },
-    },
-    toggleTrainingPause() {
-      this.trainingPaused = false;
-      this.trainingClock.resume();
-      const shouldResume = this.resumePlaybackAfterTrainingPause;
-      this.resumePlaybackAfterTrainingPause = false;
-      if (shouldResume) return this.playback.resume();
-      return true;
-    },
-  };
-
-  assert.equal(Polish.playPause(controller), true);
-  assert.equal(resumeCalls, 1);
-  assert.equal(controller.playback.state, 'playing');
-  assert.equal(clockResumeCalls, 1);
-  assert.equal(controller.trainingClock.state, 'running');
-});
-
-test('first/last navigation uses frame stepping semantics and does not continue autoplay', () => {
+test('End scans node windows without converting intermediate batches and resolves the real document tail', async () => {
   const calls = [];
+  const records = {
+    150: { start: 150, nodes: [{ node_id: 'n150' }], hasMore: true, nextNodeOrder: 300 },
+    300: { start: 300, nodes: [{ node_id: 'n300' }], hasMore: true, nextNodeOrder: 450 },
+    450: { start: 450, nodes: [{ node_id: 'n450' }], hasMore: false, nextNodeOrder: null },
+  };
+  const cached = new Map([[150, records[150]]]);
   const controller = {
-    isReaderActive: () => true,
-    trainingPaused: true,
-    trainingClock: { state: 'paused' },
-    playback: {
-      frames: new Array(10).fill({}),
-      snapshot: () => ({ state: 'paused', index: 4, frame_count: 10 }),
-      moveBy(delta) { calls.push(delta); return delta; },
+    activeBatchStart: 150,
+    reader: {
+      windowRecord: (start) => cached.get(start) || null,
+      async requestWindow(start, options = {}) {
+        calls.push([start, options.cache]);
+        const record = records[start] || null;
+        if (record && options.cache !== false) cached.set(start, record);
+        return record;
+      },
     },
   };
-  assert.equal(Polish.moveToBoundary(controller, false), -4);
-  assert.equal(Polish.moveToBoundary(controller, true), 5);
-  assert.deepEqual(calls, [-4, 5]);
+  Polish.playbackWindowStarts(controller).add(150);
+  const tail = await Polish.findLastWindow(controller);
+  assert.equal(tail.start, 450);
+  assert.deepEqual(calls, [[150, undefined], [300, false], [450, false], [450, undefined]]);
 });

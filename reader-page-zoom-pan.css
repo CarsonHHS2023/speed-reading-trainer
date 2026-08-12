@@ -75,6 +75,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 3px;
     margin-inline-start: auto;
     min-width: 0;
@@ -121,6 +122,21 @@
     border-color: rgba(255, 190, 190, .68);
     background: rgba(255, 105, 105, .42);
     color: #fff;
+}
+
+.reader-booklist-playback-controls .speed-reading-v2-state {
+    flex: 1 0 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    padding-top: 2px;
+    color: rgba(255, 255, 255, .92);
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .speed-reading-v2-toolbar-compat {

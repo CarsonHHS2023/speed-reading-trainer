@@ -130,5 +130,4 @@ test('the retired character-moving algorithms are absent from production sources
   assert.doesNotMatch(layoutSource, /moveTrailingTokenToNextLine/u);
   assert.doesNotMatch(policySource, /CARRIED_CHARACTER_AND_PUNCTUATION/u);
   assert.match(policySource, /LEADING_CLOSING_PUNCTUATION/u);
-  assert.match(layoutSource, /Closing punctuation hangs on the current line/u);
 });

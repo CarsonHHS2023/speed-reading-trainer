@@ -102,6 +102,11 @@
             const run = () => {
                 const controller = this.window?.ReaderSpeedPlaybackUI?.getDefaultController?.();
                 if (!controller?.isReaderActive?.()) return;
+                const playbackState = controller.playback?.state;
+                const trainingState = controller.trainingClock?.state;
+                const playbackEngaged = ['playing', 'paused', 'manual'].includes(playbackState)
+                    && ['running', 'paused'].includes(trainingState);
+                if (!playbackEngaged) return;
                 controller.refreshFrames?.({ preserveIdentity: true });
                 const frame = controller.playback?.currentFrame?.();
                 if (frame && ['playing', 'paused', 'manual'].includes(controller.playback?.state)) {

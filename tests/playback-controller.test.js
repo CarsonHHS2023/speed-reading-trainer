@@ -131,6 +131,18 @@ test('seek into a manual frame always lands in manual state without autoplay', (
     assert.equal(scheduler.tasks.size, 0);
 });
 
+test('seek can restore a saved frame index without activating paused or manual playback', () => {
+    const scheduler = new FakeScheduler();
+    const controller = new PlaybackController({ scheduler });
+    controller.setFrames([timed('f1', 'n1', 500), manual('m1', 'fig'), timed('f2', 'n2', 500)]);
+
+    controller.seek(1 / 3, { activate: false });
+    assert.equal(controller.index, 1);
+    assert.equal(controller.currentFrame().frame_id, 'm1');
+    assert.equal(controller.state, STATES.IDLE);
+    assert.equal(scheduler.tasks.size, 0);
+});
+
 test('stop resets and seek maps progress to frame index', () => {
     const scheduler = new FakeScheduler();
     const controller = new PlaybackController({ scheduler });
