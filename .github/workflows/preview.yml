@@ -95,20 +95,22 @@ jobs:
               && [[ "${edge_polish}" == *"HEADER_BODY_GAP_PX = 16"* ]] \
               && [[ "${edge_polish}" == *"canonicalFurnitureBaseHeight"* ]] \
               && [[ "${edge_polish}" == *"readerHeaderSingleLine"* ]] \
-              && [[ "${training_clock}" == *"reader-preview-head"* ]] \
-              && [[ "${training_clock}" == *"FALLBACK_ASSET_VERSION = '2026-08-09-speed-reading-core-v1'"* ]] \
-              && [[ "${training_clock}" == *"currentScriptAssetVersion"* ]] \
-              && [[ "${training_clock}" == *"const entrypointVersion = currentScriptAssetVersion(document)"* ]] \
-              && [[ "${training_clock}" == *"const assetVersion = previewHead || entrypointVersion || FALLBACK_ASSET_VERSION"* ]] \
-              && [[ "${training_clock}" == *"speed-reading-structure-policy.js"* ]] \
-              && [[ "${training_clock}" == *"speed-reading-formula-rendering.js"* ]] \
-              && [[ "${training_clock}" == *"speed-reading-responsive-layout.js"* ]] \
-              && [[ "${training_clock}" == *"reader-punctuation-hanging-policy.js"* ]] \
-              && [[ "${training_clock}" == *"speed-reading-layout-integrity.js"* ]] \
-              && [[ "${training_clock}" == *"dataset.readerEnhancement"* ]] \
-              && [[ "${lifecycle}" == *"previewHeadVersion"* ]] \
-              && [[ "${lifecycle}" == *"assetVersion"* ]] \
+              && [[ "${training_clock}" == *"ReaderTrainingSessionClock"* ]] \
+              && [[ "${training_clock}" == *"TrainingSessionClock"* ]] \
+              && [[ "${training_clock}" != *"speed-reading-responsive-layout.js"* ]] \
+              && [[ "${training_clock}" != *"data-reader-enhancement"* ]] \
+              && [[ "${lifecycle}" == *"meta[name=\"reader-preview-head\"]"* ]] \
+              && [[ "${lifecycle}" == *"currentScriptAssetVersion"* ]] \
+              && [[ "${lifecycle}" == *"ENTRYPOINT_ASSET_VERSION"* ]] \
+              && [[ "${lifecycle}" == *"versionedAsset"* ]] \
+              && [[ "${lifecycle}" == *"script.dataset.readerEnhancement = src"* ]] \
               && [[ "${lifecycle}" == *"speed-reading-structure-policy.js"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-formula-rendering.js"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-responsive-layout.js"* ]] \
+              && [[ "${lifecycle}" == *"reader-punctuation-hanging-policy.js"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-layout-integrity.js"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-block-layout-policy.js"* ]] \
+              && [[ "${lifecycle}" == *"speed-reading-speed-policy.js"* ]] \
               && [[ "${structure_policy}" == *"inline_formula: 'paragraph'"* ]] \
               && [[ "${structure_policy}" == *"providerType === 'inline_formula'"* ]] \
               && [[ "${structure_policy}" == *"table_title: 'caption'"* ]] \
@@ -119,7 +121,7 @@ jobs:
               && [[ "${speed_layout}" == *"MIN_WIDTH_PERCENT = 20"* ]] \
               && [[ "${speed_layout}" == *"splitMeasuredLineIntoBlocks"* ]] \
               && [[ "${speed_layout}" == *"pageLineCapacity"* ]] \
-              && [[ "${speed_layout}" == *"Closing punctuation hangs on the current line"* ]] \
+              && [[ "${speed_layout}" == *"isClosingPunctuationToken(token)"* ]] \
               && [[ "${speed_layout}" != *"moveTrailingTokenToNextLine"* ]] \
               && [[ "${punctuation_policy}" == *"sameLogicalTextSource"* ]] \
               && [[ "${punctuation_policy}" == *"HARD_STRUCTURE_TYPES"* ]] \
