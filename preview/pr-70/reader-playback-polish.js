@@ -10,7 +10,7 @@
     const LAST_CONTROL_ID = 'speedReadingLast';
     const ACTIVE_SESSION_STATES = new Set(['playing', 'paused', 'manual']);
     const NODE_WINDOW_SIZE = 150;
-    const EDGE_PREFETCH_FRAMES = 5;
+    const EDGE_PREFETCH_FRAMES = 20;
 
     function widenWidthInput(controller) {
         const input = controller?.element?.('widthInput');
@@ -210,6 +210,28 @@
         return output;
     }
 
+    function mergePlaybackFrames(controller, loadedFrames, direction) {
+        const current = Array.isArray(controller?.playback?.frames) ? controller.playback.frames : [];
+        const incoming = Array.isArray(loadedFrames) ? loadedFrames : [];
+        if (!current.length) return incoming;
+        if (!incoming.length) return current;
+        if (controller?.displayScope?.() !== 'page') {
+            return direction < 0
+                ? uniqueFrames(incoming.concat(current))
+                : uniqueFrames(current.concat(incoming));
+        }
+
+        const snapshot = controller?.playback?.snapshot?.() || {};
+        const currentIndex = Math.max(0, Math.min(current.length - 1, Number(snapshot.index) || 0));
+        if (direction < 0) {
+            const beforeCurrent = uniqueFrames(incoming.concat(current.slice(0, currentIndex)));
+            return repackPageFrames(controller, beforeCurrent).concat(current.slice(currentIndex));
+        }
+        const throughCurrent = current.slice(0, currentIndex + 1);
+        const afterCurrent = uniqueFrames(current.slice(currentIndex + 1).concat(incoming));
+        return throughCurrent.concat(repackPageFrames(controller, afterCurrent));
+    }
+
     async function buildWindowFrames(controller, start, options = {}) {
         const reader = controller?.reader;
         if (!reader?.requestWindow || !controller?.buildFrames) return null;
@@ -243,10 +265,7 @@
             if (playbackWindowStarts(controller).has(target)) return false;
             const loaded = await buildWindowFrames(controller, target);
             if (!loaded?.frames?.length) return false;
-            const current = controller.playback.frames || [];
-            const combined = direction < 0
-                ? uniqueFrames(loaded.frames.concat(current))
-                : uniqueFrames(current.concat(loaded.frames));
+            const combined = mergePlaybackFrames(controller, loaded.frames, direction);
             playbackWindowStarts(controller).add(loaded.start);
             controller.playback.setFrames(combined, { preserveIdentity: true });
             return true;
@@ -290,25 +309,65 @@
         return true;
     }
 
+    function setTransportBusy(controller, message = '') {
+        controller.__playbackTransportBusyMessage = String(message || '');
+        controller?.updateControls?.();
+        return controller.__playbackTransportBusyMessage;
+    }
+
+    function clearTransportBusy(controller) {
+        controller.__playbackTransportBusyMessage = '';
+        controller?.updateControls?.();
+        return true;
+    }
+
+    function applyTransportBusyState(controller) {
+        const message = String(controller?.__playbackTransportBusyMessage || '');
+        const state = controller?.element?.('speedReadingState');
+        if (!message) {
+            state?.removeAttribute?.('aria-busy');
+            return false;
+        }
+        for (const id of [FIRST_CONTROL_ID, 'speedReadingPrev', 'speedReadingNext', LAST_CONTROL_ID]) {
+            const button = controller?.element?.(id);
+            if (button) button.disabled = true;
+        }
+        if (state) {
+            state.textContent = message;
+            state.setAttribute?.('aria-busy', 'true');
+        }
+        return true;
+    }
+
     async function moveToDocumentStart(controller) {
         if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.firstPage?.();
         controller.pauseTrainingForFrameNavigation?.();
-        const loaded = await buildWindowFrames(controller, 0);
-        if (!loaded?.frames?.length) return null;
-        controller.__playbackWindowStarts = new Set([loaded.start]);
-        controller.activeBatchStart = loaded.start;
-        controller.playback.setFrames(loaded.frames, { preserveIdentity: false });
-        controller.playback.index = 0;
-        controller.playback.emit?.();
-        return controller.playback.currentFrame?.() || null;
+        setTransportBusy(controller, '正在加载整本书第一帧…');
+        controller.reader?.setStatus?.('正在加载整本书第一帧…');
+        try {
+            const loaded = await buildWindowFrames(controller, 0);
+            if (!loaded?.frames?.length) return null;
+            controller.__playbackWindowStarts = new Set([loaded.start]);
+            controller.activeBatchStart = loaded.start;
+            controller.playback.setFrames(loaded.frames, { preserveIdentity: false });
+            controller.playback.index = 0;
+            controller.playback.emit?.();
+            return controller.playback.currentFrame?.() || null;
+        } finally {
+            controller.reader?.setStatus?.('');
+            clearTransportBusy(controller);
+        }
     }
 
-    async function findLastWindow(controller) {
+    async function findLastWindow(controller, onProgress = null) {
         const reader = controller?.reader;
         if (!reader?.requestWindow) return null;
         const bounds = playbackWindowBounds(controller);
         let start = Number.isInteger(bounds.last) ? bounds.last : normalizedWindowStart(controller?.activeBatchStart || 0);
         let record = await reader.requestWindow(start);
+        let scannedNodes = Array.isArray(record?.nodes) ? record.nodes.length : 0;
+        let scannedWindows = record?.nodes?.length ? 1 : 0;
+        onProgress?.({ scannedNodes, scannedWindows, start: record?.start ?? start });
         while (record?.hasMore) {
             const next = Number.isInteger(record?.nextNodeOrder)
                 ? record.nextNodeOrder
@@ -316,6 +375,9 @@
             const scanned = await reader.requestWindow(next, { cache: false });
             if (!scanned?.nodes?.length || scanned.start === record.start) break;
             record = scanned;
+            scannedNodes += scanned.nodes.length;
+            scannedWindows += 1;
+            onProgress?.({ scannedNodes, scannedWindows, start: scanned.start });
         }
         if (!record?.nodes?.length) return null;
         return reader.windowRecord?.(record.start) || await reader.requestWindow(record.start);
@@ -324,10 +386,17 @@
     async function moveToDocumentEnd(controller) {
         if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.lastPage?.();
         controller.pauseTrainingForFrameNavigation?.();
+        const updateProgress = ({ scannedNodes, scannedWindows }) => {
+            const message = `正在定位整本书最后一帧 · 已扫描 ${scannedNodes} 个节点（${scannedWindows} 批）…`;
+            setTransportBusy(controller, message);
+            controller.reader?.setStatus?.(message);
+        };
+        setTransportBusy(controller, '正在定位整本书最后一帧…');
         controller.reader?.setStatus?.('正在定位整本书最后一帧…');
         try {
-            const record = await findLastWindow(controller);
+            const record = await findLastWindow(controller, updateProgress);
             if (!record?.nodes?.length) return null;
+            setTransportBusy(controller, '已找到最后一批，正在生成最后一帧…');
             const built = controller.buildFrames({ start: record.start, nodes: record.nodes, firstNodeId: null });
             const frames = Array.isArray(built?.frames) ? built.frames : [];
             if (!frames.length) return null;
@@ -340,6 +409,7 @@
             return controller.playback.currentFrame?.() || null;
         } finally {
             controller.reader?.setStatus?.('');
+            clearTransportBusy(controller);
         }
     }
 
@@ -438,6 +508,7 @@
             const result = original.apply(this, args);
             applyTransportLabels(this);
             applyDocumentTransportState(this, args[0]);
+            applyTransportBusyState(this);
             return result;
         };
         Object.defineProperty(target, '__playbackPolishLabelsWrapped', {
@@ -468,6 +539,7 @@
             Controller.prototype.start = async function startWithStreamingWindows(...args) {
                 this.__playbackWindowStarts = new Set();
                 this.__playbackWindowPromises = {};
+                this.__playbackTransportBusyMessage = '';
                 const started = await originalStart.apply(this, args);
                 if (started && Number.isInteger(this.activeBatchStart)) {
                     playbackWindowStarts(this).add(normalizedWindowStart(this.activeBatchStart));
@@ -483,6 +555,7 @@
                 const result = originalStop.apply(this, args);
                 this.__playbackWindowStarts = new Set();
                 this.__playbackWindowPromises = {};
+                this.__playbackTransportBusyMessage = '';
                 return result;
             };
         }
@@ -611,8 +684,10 @@
         NODE_WINDOW_SIZE,
         WIDTH_INPUT_PX,
         applyDocumentTransportState,
+        applyTransportBusyState,
         applyTransportLabels,
         buildWindowFrames,
+        clearTransportBusy,
         createToolbarButton,
         extendPlaybackWindow,
         findLastWindow,
@@ -623,12 +698,14 @@
         isTrainingRunning,
         measuredPageHeight,
         maybePrefetchPlaybackWindow,
+        mergePlaybackFrames,
         moveToDocumentEnd,
         moveToDocumentStart,
         packPageRows,
         playbackWindowBounds,
         playbackWindowStarts,
         repackPageFrames,
+        setTransportBusy,
         upgradeToolbar,
         widenWidthInput,
         wrapUpdateControls,
