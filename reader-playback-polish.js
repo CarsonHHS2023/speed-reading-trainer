@@ -9,18 +9,8 @@
     const FIRST_CONTROL_ID = 'speedReadingFirst';
     const LAST_CONTROL_ID = 'speedReadingLast';
     const ACTIVE_SESSION_STATES = new Set(['playing', 'paused', 'manual']);
-
-    function resolveResumeIndex(controller) {
-        const record = controller?.reader?.resumeRecord;
-        const frames = controller?.playback?.frames || [];
-        if ((!record?.frame_id && record?.frame_ordinal == null) || !frames.length) return -1;
-        let index = record.frame_id ? frames.findIndex((frame) => frame.frame_id === record.frame_id) : -1;
-        if (index < 0 && record.node_id) {
-            index = frames.findIndex((frame) => frame?.identity?.node_id === record.node_id
-                && (record.frame_ordinal == null || frame.frame_ordinal === record.frame_ordinal));
-        }
-        return index;
-    }
+    const NODE_WINDOW_SIZE = 150;
+    const EDGE_PREFETCH_FRAMES = 20;
 
     function widenWidthInput(controller) {
         const input = controller?.element?.('widthInput');
@@ -48,94 +38,384 @@
         return controller?.trainingClock?.state === 'running' && !controller?.trainingPaused;
     }
 
-    function pauseTrainingForNavigation(controller) {
-        if (!controller || !isTrainingRunning(controller)) return false;
-        controller.trainingPaused = true;
-        controller.comprehensionPaused = false;
-        controller.resumePlaybackAfterTrainingPause = true;
-        controller.trainingClock?.pause?.();
-        const pausedPlayback = controller.playback?.state === 'playing'
-            ? Boolean(controller.playback.pause?.())
-            : false;
-        if (!pausedPlayback) {
-            controller.updateTrainingTime?.();
-            controller.updateControls?.();
+    function isPlaybackSessionEngaged(controller) {
+        if (typeof controller?.isPlaybackSessionEngaged === 'function') {
+            return Boolean(controller.isPlaybackSessionEngaged());
         }
-        return true;
+        const playbackState = controller?.playback?.state;
+        if (!ACTIVE_SESSION_STATES.has(playbackState)) return false;
+        const clock = controller?.trainingClock;
+        if (!clock) return playbackState === 'playing';
+        return clock.state === 'running' || clock.state === 'paused';
     }
 
-    function navigateBy(controller, delta) {
-        if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return null;
-        pauseTrainingForNavigation(controller);
-        return controller.playback?.moveBy?.(delta) || null;
+    function normalizedWindowStart(start) {
+        const value = Math.max(0, Math.trunc(Number(start) || 0));
+        return Math.floor(value / NODE_WINDOW_SIZE) * NODE_WINDOW_SIZE;
     }
 
-    function moveToBoundary(controller, toEnd = false) {
-        const snapshot = controller?.playback?.snapshot?.();
-        if (!controller?.isReaderActive?.() || !snapshot?.frame_count) return null;
-        pauseTrainingForNavigation(controller);
-        const latest = controller.playback?.snapshot?.() || snapshot;
-        const destination = toEnd ? latest.frame_count - 1 : 0;
-        const delta = destination - latest.index;
-        return controller.playback?.moveBy?.(delta) || null;
-    }
-
-    function seekFromSlider(controller) {
-        const slider = controller?.element?.('progressSlider');
-        if (!slider || !controller?.isReaderActive?.()) return null;
-        pauseTrainingForNavigation(controller);
-        const max = Math.max(1, Number(slider.max || 1000));
-        return controller.playback?.seek?.(Number(slider.value || 0) / max) || null;
-    }
-
-    function continueManualRespectingSession(controller) {
-        if (!controller || controller.playback?.state !== 'manual') return false;
-        if (isTrainingRunning(controller)) {
-            return Boolean(controller.playback?.continueManual?.());
+    function playbackWindowStarts(controller) {
+        if (!(controller.__playbackWindowStarts instanceof Set)) controller.__playbackWindowStarts = new Set();
+        if (!controller.__playbackWindowStarts.size && Number.isInteger(controller.activeBatchStart)) {
+            controller.__playbackWindowStarts.add(normalizedWindowStart(controller.activeBatchStart));
         }
-        // Browsing a manual visual while the session is paused/stopped is pure
-        // navigation. Do not arm autoplay or restart the training clock.
-        return Boolean(controller.playback?.next?.());
+        return controller.__playbackWindowStarts;
     }
 
-    function startTrainingFromCurrentFrame(controller) {
-        if (!controller || !ACTIVE_SESSION_STATES.has(controller.playback?.state)) return false;
-        controller.trainingPaused = false;
-        controller.comprehensionPaused = false;
-        controller.resumePlaybackAfterTrainingPause = false;
-        const clock = controller.trainingClock;
-        if (clock?.state === 'paused') clock.resume?.();
-        else if (clock?.state !== 'running') clock?.start?.();
-        controller.startTrainingTicker?.();
-
-        if (controller.playback.state === 'paused') {
-            return Boolean(controller.playback.resume?.());
+    function playbackWindowBounds(controller) {
+        const starts = [...playbackWindowStarts(controller)].sort((a, b) => a - b);
+        if (!starts.length && Number.isInteger(controller?.activeBatchStart)) {
+            const start = normalizedWindowStart(controller.activeBatchStart);
+            return { first: start, last: start };
         }
-        if (controller.playback.state === 'manual') {
-            controller.updateTrainingTime?.();
-            controller.updateControls?.();
+        return {
+            first: starts.length ? starts[0] : null,
+            last: starts.length ? starts[starts.length - 1] : null,
+        };
+    }
+
+    function windowRecord(controller, start) {
+        return Number.isInteger(start) ? controller?.reader?.windowRecord?.(start) || null : null;
+    }
+
+    function hasPreviousDocumentContent(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if ((snapshot?.index || 0) > 0) return true;
+        const { first } = playbackWindowBounds(controller);
+        return Number.isInteger(first) && first > 0;
+    }
+
+    function hasNextDocumentContent(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (snapshot?.frame_count && snapshot.index < snapshot.frame_count - 1) return true;
+        const { last } = playbackWindowBounds(controller);
+        const record = windowRecord(controller, last);
+        return Boolean(record?.hasMore);
+    }
+
+    function measuredPageHeight(lines, rowGapPx = 0) {
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        return (lines || []).reduce((sum, line, index) => {
+            const paragraphGap = index > 0 ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            return sum + (index > 0 ? gap : 0) + paragraphGap + Math.max(1, Number(line?.row_height_px) || 1);
+        }, 0);
+    }
+
+    function packPageRows(lines, pageHeightPx, rowGapPx = 0, maxRows = Infinity) {
+        const budget = Math.max(1, Number(pageHeightPx) || 1);
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        const numericMaxRows = Number(maxRows);
+        const rowLimit = Number.isFinite(numericMaxRows) && numericMaxRows > 0
+            ? Math.max(1, Math.floor(numericMaxRows))
+            : Infinity;
+        const pages = [];
+        let page = [];
+        let used = 0;
+        for (const line of lines || []) {
+            const rowHeight = Math.max(1, Number(line?.row_height_px) || 1);
+            const paragraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const separator = page.length ? gap + paragraphGap : 0;
+            if (page.length && (page.length >= rowLimit || used + separator + rowHeight > budget + 0.01)) {
+                pages.push(page);
+                page = [];
+                used = 0;
+            }
+            const nextParagraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const nextSeparator = page.length ? gap + nextParagraphGap : 0;
+            page.push(line);
+            used += nextSeparator + rowHeight;
+        }
+        if (page.length) pages.push(page);
+        return pages;
+    }
+
+    function sourceSpansForLines(lines) {
+        const seen = new Set();
+        const spans = [];
+        for (const line of lines || []) {
+            for (const identity of line?.source_spans || (line?.identity ? [line.identity] : [])) {
+                const key = `${identity?.candidate_id || ''}\u0000${identity?.node_id || ''}\u0000${identity?.source_unit_id || ''}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                spans.push(identity);
+            }
+        }
+        return spans;
+    }
+
+    function repackedPageFrame(controller, template, lines, sequence) {
+        const sourceSpans = sourceSpansForLines(lines);
+        const identity = sourceSpans[0] || template?.identity || null;
+        const readingUnits = (lines || []).reduce((sum, line) => sum + (Number(line?.reading_units) || 0), 0);
+        const speedPerMinute = Math.max(1, Number(controller?.element?.('speedInput')?.value || 5000));
+        const duration = typeof controller?.adapter?.frameDurationMs === 'function'
+            ? controller.adapter.frameDurationMs(readingUnits, speedPerMinute)
+            : Math.max(0, Number(template?.duration_ms) || 0);
+        const placement = {
+            ...(template?.placement || {}),
+            virtual_page_index: Number(template?.placement?.virtual_page_index || 0) + sequence,
+            line_span: lines.length,
+            content_height_px: measuredPageHeight(lines, template?.placement?.row_gap_px),
+        };
+        return {
+            ...template,
+            frame_id: `${template?.frame_id || 'playback-frame'}:page-pack:${sequence}`,
+            node_type: lines.length === 1 ? lines[0]?.node_type || template?.node_type : 'mixed',
+            heading_level: lines.length === 1 ? lines[0]?.heading_level ?? null : null,
+            text: lines.map((line) => line?.text || '').join('\n'),
+            lines,
+            reading_units: readingUnits,
+            duration_ms: duration,
+            identity,
+            source_spans: sourceSpans,
+            placement,
+        };
+    }
+
+    function repackPageFrames(controller, frames) {
+        const source = Array.isArray(frames) ? frames : [];
+        const output = [];
+        let index = 0;
+        while (index < source.length) {
+            const frame = source[index];
+            if (frame?.kind !== 'timed_text' || frame?.placement?.display_scope !== 'page' || !Array.isArray(frame.lines)) {
+                output.push(frame);
+                index += 1;
+                continue;
+            }
+            const segment = [];
+            let cursor = index;
+            while (
+                cursor < source.length
+                && source[cursor]?.kind === 'timed_text'
+                && source[cursor]?.placement?.display_scope === 'page'
+                && Array.isArray(source[cursor]?.lines)
+            ) {
+                segment.push(source[cursor]);
+                cursor += 1;
+            }
+            const lines = segment.flatMap((item) => item.lines || []);
+            const template = segment[0];
+            const pageHeight = Math.max(1, Number(template?.placement?.page_height_px) || 1);
+            const rowGap = Math.max(0, Number(template?.placement?.row_gap_px) || 0);
+            const pages = packPageRows(lines, pageHeight, rowGap);
+            pages.forEach((pageLines, pageIndex) => output.push(repackedPageFrame(controller, template, pageLines, pageIndex)));
+            index = cursor;
+        }
+        return output;
+    }
+
+    function uniqueFrames(frames) {
+        const output = [];
+        const seen = new Set();
+        for (const frame of frames || []) {
+            const key = frame?.frame_id || `${frame?.identity?.node_id || ''}\u0000${frame?.text || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            output.push(frame);
+        }
+        return output;
+    }
+
+    function mergePlaybackFrames(controller, loadedFrames, direction) {
+        const current = Array.isArray(controller?.playback?.frames) ? controller.playback.frames : [];
+        const incoming = Array.isArray(loadedFrames) ? loadedFrames : [];
+        if (!current.length) return incoming;
+        if (!incoming.length) return current;
+        if (controller?.displayScope?.() !== 'page') {
+            return direction < 0
+                ? uniqueFrames(incoming.concat(current))
+                : uniqueFrames(current.concat(incoming));
+        }
+
+        const snapshot = controller?.playback?.snapshot?.() || {};
+        const currentIndex = Math.max(0, Math.min(current.length - 1, Number(snapshot.index) || 0));
+        if (direction < 0) {
+            const beforeCurrent = uniqueFrames(incoming.concat(current.slice(0, currentIndex)));
+            return repackPageFrames(controller, beforeCurrent).concat(current.slice(currentIndex));
+        }
+        const throughCurrent = current.slice(0, currentIndex + 1);
+        const afterCurrent = uniqueFrames(current.slice(currentIndex + 1).concat(incoming));
+        return throughCurrent.concat(repackPageFrames(controller, afterCurrent));
+    }
+
+    async function buildWindowFrames(controller, start, options = {}) {
+        const reader = controller?.reader;
+        if (!reader?.requestWindow || !controller?.buildFrames) return null;
+        const normalizedStart = normalizedWindowStart(start);
+        const record = await reader.requestWindow(normalizedStart, { cache: options.cache !== false });
+        if (!record?.nodes?.length) return null;
+        const built = controller.buildFrames({
+            start: record.start,
+            nodes: record.nodes,
+            firstNodeId: null,
+        });
+        return {
+            start: record.start,
+            record,
+            frames: Array.isArray(built?.frames) ? built.frames : [],
+        };
+    }
+
+    async function extendPlaybackWindow(controller, direction) {
+        if (!controller?.playback || !controller?.reader) return false;
+        const key = direction < 0 ? 'previous' : 'next';
+        if (!controller.__playbackWindowPromises) controller.__playbackWindowPromises = {};
+        if (controller.__playbackWindowPromises[key]) return controller.__playbackWindowPromises[key];
+        const promise = (async () => {
+            const bounds = playbackWindowBounds(controller);
+            const edge = direction < 0 ? bounds.first : bounds.last;
+            if (!Number.isInteger(edge)) return false;
+            if (direction < 0 && edge <= 0) return false;
+            if (direction > 0 && windowRecord(controller, edge)?.hasMore === false) return false;
+            const target = direction < 0 ? Math.max(0, edge - NODE_WINDOW_SIZE) : edge + NODE_WINDOW_SIZE;
+            if (playbackWindowStarts(controller).has(target)) return false;
+            const loaded = await buildWindowFrames(controller, target);
+            if (!loaded?.frames?.length) return false;
+            const combined = mergePlaybackFrames(controller, loaded.frames, direction);
+            playbackWindowStarts(controller).add(loaded.start);
+            controller.playback.setFrames(combined, { preserveIdentity: true });
             return true;
-        }
-        return controller.playback.state === 'playing';
+        })().finally(() => {
+            controller.__playbackWindowPromises[key] = null;
+        });
+        controller.__playbackWindowPromises[key] = promise;
+        return promise;
     }
 
-    function togglePlayPause(controller) {
-        if (!controller?.isReaderActive?.() || !(controller.playback?.frames || []).length) return false;
-        const clockState = controller.trainingClock?.state;
-        const playbackState = controller.playback?.state;
-        if (clockState === 'running' || clockState === 'paused') {
-            return Boolean(controller.toggleTrainingPause?.());
+    function maybePrefetchPlaybackWindow(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (!isPlaybackSessionEngaged(controller) || !snapshot?.frame_count) return false;
+        const distanceFromStart = Math.max(0, Number(snapshot.index) || 0);
+        const distanceFromEnd = Math.max(0, snapshot.frame_count - 1 - (Number(snapshot.index) || 0));
+        if (distanceFromStart <= EDGE_PREFETCH_FRAMES) {
+            extendPlaybackWindow(controller, -1).catch((error) => controller?.reader?.renderError?.(error));
         }
-        // Unit-test/degraded integrations without a clock still preserve the
-        // transport meaning: playing/manual uses the pause action, never Stop.
-        if (!controller.trainingClock && (playbackState === 'playing' || playbackState === 'manual')) {
-            return Boolean(controller.toggleTrainingPause?.());
+        if (distanceFromEnd <= EDGE_PREFETCH_FRAMES) {
+            extendPlaybackWindow(controller, 1).catch((error) => controller?.reader?.renderError?.(error));
         }
-        if (playbackState === 'paused' || playbackState === 'manual') {
-            return startTrainingFromCurrentFrame(controller);
-        }
-        Promise.resolve(controller.start?.()).catch((error) => controller.reader?.renderError?.(error));
         return true;
+    }
+
+    async function continuePastLoadedTail(controller) {
+        const oldFrame = controller?.playback?.currentFrame?.();
+        const oldNodeId = oldFrame?.identity?.node_id || null;
+        const extended = await extendPlaybackWindow(controller, 1);
+        if (!extended) return false;
+        const frames = controller.playback.frames || [];
+        let oldIndex = frames.findIndex((frame) => frame?.frame_id === oldFrame?.frame_id);
+        if (oldIndex < 0 && oldNodeId) {
+            oldIndex = frames.findIndex((frame) => (
+                frame?.identity?.node_id === oldNodeId
+                || (frame?.source_spans || []).some((identity) => identity?.node_id === oldNodeId)
+            ));
+        }
+        controller.playback.index = Math.min(frames.length - 1, Math.max(0, oldIndex + 1));
+        controller.playback.state = 'paused';
+        controller.playback.play?.();
+        controller.reader?.setStatus?.('');
+        return true;
+    }
+
+    function setTransportBusy(controller, message = '') {
+        controller.__playbackTransportBusyMessage = String(message || '');
+        controller?.updateControls?.();
+        return controller.__playbackTransportBusyMessage;
+    }
+
+    function clearTransportBusy(controller) {
+        controller.__playbackTransportBusyMessage = '';
+        controller?.updateControls?.();
+        return true;
+    }
+
+    function applyTransportBusyState(controller) {
+        const message = String(controller?.__playbackTransportBusyMessage || '');
+        const state = controller?.element?.('speedReadingState');
+        if (!message) {
+            state?.removeAttribute?.('aria-busy');
+            return false;
+        }
+        for (const id of [FIRST_CONTROL_ID, 'speedReadingPrev', 'speedReadingNext', LAST_CONTROL_ID]) {
+            const button = controller?.element?.(id);
+            if (button) button.disabled = true;
+        }
+        if (state) {
+            state.textContent = message;
+            state.setAttribute?.('aria-busy', 'true');
+        }
+        return true;
+    }
+
+    async function moveToDocumentStart(controller) {
+        if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.firstPage?.();
+        controller.pauseTrainingForFrameNavigation?.();
+        setTransportBusy(controller, '正在加载整本书第一帧…');
+        controller.reader?.setStatus?.('正在加载整本书第一帧…');
+        try {
+            const loaded = await buildWindowFrames(controller, 0);
+            if (!loaded?.frames?.length) return null;
+            controller.__playbackWindowStarts = new Set([loaded.start]);
+            controller.activeBatchStart = loaded.start;
+            controller.playback.setFrames(loaded.frames, { preserveIdentity: false });
+            controller.playback.index = 0;
+            controller.playback.emit?.();
+            return controller.playback.currentFrame?.() || null;
+        } finally {
+            controller.reader?.setStatus?.('');
+            clearTransportBusy(controller);
+        }
+    }
+
+    async function findLastWindow(controller, onProgress = null) {
+        const reader = controller?.reader;
+        if (!reader?.requestWindow) return null;
+        const bounds = playbackWindowBounds(controller);
+        let start = Number.isInteger(bounds.last) ? bounds.last : normalizedWindowStart(controller?.activeBatchStart || 0);
+        let record = await reader.requestWindow(start);
+        let scannedNodes = Array.isArray(record?.nodes) ? record.nodes.length : 0;
+        let scannedWindows = record?.nodes?.length ? 1 : 0;
+        onProgress?.({ scannedNodes, scannedWindows, start: record?.start ?? start });
+        while (record?.hasMore) {
+            const next = Number.isInteger(record?.nextNodeOrder)
+                ? record.nextNodeOrder
+                : record.start + NODE_WINDOW_SIZE;
+            const scanned = await reader.requestWindow(next, { cache: false });
+            if (!scanned?.nodes?.length || scanned.start === record.start) break;
+            record = scanned;
+            scannedNodes += scanned.nodes.length;
+            scannedWindows += 1;
+            onProgress?.({ scannedNodes, scannedWindows, start: scanned.start });
+        }
+        if (!record?.nodes?.length) return null;
+        return reader.windowRecord?.(record.start) || await reader.requestWindow(record.start);
+    }
+
+    async function moveToDocumentEnd(controller) {
+        if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.lastPage?.();
+        controller.pauseTrainingForFrameNavigation?.();
+        const updateProgress = ({ scannedNodes, scannedWindows }) => {
+            const message = `正在定位整本书最后一帧 · 已扫描 ${scannedNodes} 个节点（${scannedWindows} 批）…`;
+            setTransportBusy(controller, message);
+            controller.reader?.setStatus?.(message);
+        };
+        setTransportBusy(controller, '正在定位整本书最后一帧…');
+        controller.reader?.setStatus?.('正在定位整本书最后一帧…');
+        try {
+            const record = await findLastWindow(controller, updateProgress);
+            if (!record?.nodes?.length) return null;
+            setTransportBusy(controller, '已找到最后一批，正在生成最后一帧…');
+            const built = controller.buildFrames({ start: record.start, nodes: record.nodes, firstNodeId: null });
+            const frames = Array.isArray(built?.frames) ? built.frames : [];
+            if (!frames.length) return null;
+            controller.__playbackWindowStarts = new Set([record.start]);
+            controller.activeBatchStart = record.start;
+            controller.playback.setFrames(frames, { preserveIdentity: false });
+            controller.playback.index = frames.length - 1;
+            controller.playback.state = frames[frames.length - 1]?.kind === 'manual' ? 'manual' : 'paused';
+            controller.playback.emit?.();
+            return controller.playback.currentFrame?.() || null;
+        } finally {
+            controller.reader?.setStatus?.('');
+            clearTransportBusy(controller);
+        }
     }
 
     function upgradeToolbar(controller) {
@@ -150,104 +430,93 @@
         if (!prev || !playPause || !next || !stop) return false;
 
         prev.textContent = '←';
-        prev.title = '上一帧';
-        prev.setAttribute?.('aria-label', prev.title);
         next.textContent = '→';
-        next.title = '下一帧';
-        next.setAttribute?.('aria-label', next.title);
         stop.textContent = '⏹';
         stop.title = '停止';
         stop.setAttribute?.('aria-label', stop.title);
 
         let first = controller.element?.(FIRST_CONTROL_ID);
         if (!first) {
-            first = createToolbarButton(controller, FIRST_CONTROL_ID, '⏮', '到头（第一帧）');
+            first = createToolbarButton(controller, FIRST_CONTROL_ID, '⏮', '首页');
             if (first) {
-                first.addEventListener?.('click', () => controller.firstFrame?.());
+                first.addEventListener?.('click', () => {
+                    Promise.resolve(controller.firstFrame?.()).catch((error) => controller.reader?.renderError?.(error));
+                });
                 toolbar.insertBefore?.(first, prev);
             }
         }
 
         let last = controller.element?.(LAST_CONTROL_ID);
         if (!last) {
-            last = createToolbarButton(controller, LAST_CONTROL_ID, '⏭', '到尾（最后一帧）');
+            last = createToolbarButton(controller, LAST_CONTROL_ID, '⏭', '尾页');
             if (last) {
-                last.addEventListener?.('click', () => controller.lastFrame?.());
+                last.addEventListener?.('click', () => {
+                    Promise.resolve(controller.lastFrame?.()).catch((error) => controller.reader?.renderError?.(error));
+                });
                 toolbar.insertBefore?.(last, stop);
             }
         }
-
-        const hint = toolbar.querySelector?.('.speed-reading-v2-shortcuts');
-        if (hint) hint.textContent = 'Space 播放/暂停 · ←/→ 上一帧/下一帧 · Home/End 到头/到尾 · Esc 停止';
+        applyTransportLabels(controller);
         return Boolean(first && last);
     }
 
-    function applyPlaybackControlState(controller, snapshot = controller?.playback?.snapshot?.()) {
-        if (!controller || !snapshot) return false;
-        const playable = Boolean(controller.isReaderActive?.() && snapshot.frame_count > 0);
-        const hasClock = Boolean(controller.trainingClock);
-        const sessionRunning = ACTIVE_SESSION_STATES.has(snapshot.state)
-            && (isTrainingRunning(controller) || (!hasClock && snapshot.state === 'playing'));
-        const atFirst = !snapshot.frame_count || snapshot.index <= 0;
-        const atLast = !snapshot.frame_count || snapshot.index >= snapshot.frame_count - 1;
-
-        const toggle = controller.element?.('readingToggleBtn');
-        if (toggle) {
-            toggle.disabled = !playable;
-            toggle.textContent = sessionRunning ? '⏸' : '▶';
-            toggle.title = sessionRunning ? '暂停速度阅读' : '播放速度阅读';
-            toggle.setAttribute?.('aria-label', toggle.title);
-            toggle.classList?.toggle?.('active', sessionRunning);
+    function applyTransportLabels(controller) {
+        const engaged = isPlaybackSessionEngaged(controller);
+        const labels = engaged
+            ? [
+                [FIRST_CONTROL_ID, '到头（整本书第一帧）'],
+                ['speedReadingPrev', '上一帧'],
+                ['speedReadingNext', '下一帧'],
+                [LAST_CONTROL_ID, '到尾（整本书最后一帧）'],
+            ]
+            : [
+                [FIRST_CONTROL_ID, '首页'],
+                ['speedReadingPrev', '上一页'],
+                ['speedReadingNext', '下一页'],
+                [LAST_CONTROL_ID, '尾页'],
+            ];
+        for (const [id, title] of labels) {
+            const button = controller?.element?.(id);
+            if (!button) continue;
+            button.title = title;
+            button.setAttribute?.('aria-label', title);
         }
-
-        const hiddenPlayPause = controller.element?.('speedReadingPause');
-        if (hiddenPlayPause) {
-            hiddenPlayPause.disabled = !playable;
-            hiddenPlayPause.textContent = sessionRunning ? '⏸' : '▶';
-            hiddenPlayPause.title = sessionRunning ? '暂停训练（暂停计时）' : '播放速度阅读';
-            hiddenPlayPause.setAttribute?.('aria-label', hiddenPlayPause.title);
+        const hint = controller?.element?.('speedReadingV2Toolbar')?.querySelector?.('.speed-reading-v2-shortcuts');
+        if (hint) {
+            hint.textContent = engaged
+                ? 'Space 播放/暂停 · ←/→ 上一帧/下一帧 · Home/End 整本书第一帧/最后一帧 · Esc 停止'
+                : '←/→ 上一页/下一页 · Home/End 首页/尾页 · Space 开始速度阅读';
         }
-
-        const first = controller.element?.(FIRST_CONTROL_ID);
-        const prev = controller.element?.('speedReadingPrev');
-        const next = controller.element?.('speedReadingNext');
-        const last = controller.element?.(LAST_CONTROL_ID);
-        if (first) first.disabled = !playable || atFirst;
-        if (prev) prev.disabled = !playable || atFirst;
-        if (next) next.disabled = !playable || atLast;
-        if (last) last.disabled = !playable || atLast;
         return true;
     }
 
-    function bindReadingToggleCapture(controller) {
-        const documentObject = controller?.document;
-        if (!documentObject?.addEventListener || controller.__readingTogglePlayPauseCaptureBound) return false;
-        controller.__readingTogglePlayPauseCaptureBound = true;
-        documentObject.addEventListener('click', (event) => {
-            const target = event?.target;
-            const toggle = target?.id === 'readingToggleBtn'
-                ? target
-                : target?.closest?.('#readingToggleBtn');
-            if (!toggle || !controller.isReaderActive?.()) return;
-            event.preventDefault?.();
-            event.stopPropagation?.();
-            event.stopImmediatePropagation?.();
-            controller.togglePause?.();
-        }, true);
+    function applyDocumentTransportState(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (!isPlaybackSessionEngaged(controller)) return false;
+        const first = controller?.element?.(FIRST_CONTROL_ID);
+        const prev = controller?.element?.('speedReadingPrev');
+        const next = controller?.element?.('speedReadingNext');
+        const last = controller?.element?.(LAST_CONTROL_ID);
+        const canBack = hasPreviousDocumentContent(controller, snapshot);
+        const canForward = hasNextDocumentContent(controller, snapshot);
+        if (first) first.disabled = !canBack;
+        if (prev) prev.disabled = !canBack;
+        if (next) next.disabled = !canForward;
+        if (last) last.disabled = !canForward;
         return true;
     }
 
     function wrapUpdateControls(target) {
         if (!target || typeof target.updateControls !== 'function') return false;
-        if (Object.prototype.hasOwnProperty.call(target, '__playbackControlStateWrapped')) return false;
+        if (Object.prototype.hasOwnProperty.call(target, '__playbackPolishLabelsWrapped')) return false;
         const original = target.updateControls;
-        target.updateControls = function updateControlsWithPlaybackTruth(...args) {
+        target.updateControls = function updateControlsWithLabels(...args) {
             const result = original.apply(this, args);
-            const snapshot = args[0] || this.playback?.snapshot?.();
-            applyPlaybackControlState(this, snapshot);
+            applyTransportLabels(this);
+            applyDocumentTransportState(this, args[0]);
+            applyTransportBusyState(this);
             return result;
         };
-        Object.defineProperty(target, '__playbackControlStateWrapped', {
+        Object.defineProperty(target, '__playbackPolishLabelsWrapped', {
             configurable: false,
             enumerable: false,
             writable: false,
@@ -261,65 +530,113 @@
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         if (!Controller || Controller.prototype.__playbackPolishInstalled) return false;
 
-        Controller.prototype.restoreResumeFrame = function deferResumeFrame() {
-            const index = resolveResumeIndex(this);
-            this.pendingResumeFrameIndex = index >= 0 ? index : null;
-            return index >= 0;
-        };
+        const originalBuildFrames = Controller.prototype.buildFrames;
+        if (typeof originalBuildFrames === 'function') {
+            Controller.prototype.buildFrames = function buildFramesWithPagePacking(...args) {
+                const built = originalBuildFrames.apply(this, args);
+                if (!built || !Array.isArray(built.frames) || this.displayScope?.() !== 'page') return built;
+                return { ...built, frames: repackPageFrames(this, built.frames) };
+            };
+        }
 
         const originalStart = Controller.prototype.start;
-        Controller.prototype.start = async function startWithDeferredResume() {
-            const pending = this.pendingResumeFrameIndex;
-            if (Number.isInteger(pending) && pending >= 0) {
-                const originalPlay = this.playback.play.bind(this.playback);
-                this.playback.play = () => {
-                    this.playback.index = Math.min(pending, Math.max(0, this.playback.frames.length - 1));
-                    this.pendingResumeFrameIndex = null;
-                    this.playback.play = originalPlay;
-                    return originalPlay();
-                };
-            }
-            return originalStart.call(this);
+        if (typeof originalStart === 'function') {
+            Controller.prototype.start = async function startWithStreamingWindows(...args) {
+                this.__playbackWindowStarts = new Set();
+                this.__playbackWindowPromises = {};
+                this.__playbackTransportBusyMessage = '';
+                const started = await originalStart.apply(this, args);
+                if (started && Number.isInteger(this.activeBatchStart)) {
+                    playbackWindowStarts(this).add(normalizedWindowStart(this.activeBatchStart));
+                    maybePrefetchPlaybackWindow(this, this.playback?.snapshot?.());
+                }
+                return started;
+            };
+        }
+
+        const originalStop = Controller.prototype.stop;
+        if (typeof originalStop === 'function') {
+            Controller.prototype.stop = function stopStreamingWindows(...args) {
+                const result = originalStop.apply(this, args);
+                this.__playbackWindowStarts = new Set();
+                this.__playbackWindowPromises = {};
+                this.__playbackTransportBusyMessage = '';
+                return result;
+            };
+        }
+
+        const originalRenderSnapshot = Controller.prototype.renderSnapshot;
+        if (typeof originalRenderSnapshot === 'function') {
+            Controller.prototype.renderSnapshot = function renderSnapshotWithStreaming(snapshot) {
+                if (snapshot?.state === 'completed' && hasNextDocumentContent(this, snapshot)) {
+                    this.reader?.setStatus?.('正在加载下一批速读内容…');
+                    continuePastLoadedTail(this).then((continued) => {
+                        if (!continued) originalRenderSnapshot.call(this, snapshot);
+                    }).catch((error) => {
+                        this.reader?.renderError?.(error);
+                        originalRenderSnapshot.call(this, snapshot);
+                    });
+                    return;
+                }
+                const result = originalRenderSnapshot.call(this, snapshot);
+                if (ACTIVE_SESSION_STATES.has(snapshot?.state)) maybePrefetchPlaybackWindow(this, snapshot);
+                return result;
+            };
+        }
+
+        const originalPreviousFrame = Controller.prototype.previousFrame;
+        if (typeof originalPreviousFrame === 'function') {
+            Controller.prototype.previousFrame = async function previousFrameAcrossWindows(...args) {
+                if (!isPlaybackSessionEngaged(this)) return originalPreviousFrame.apply(this, args);
+                const snapshot = this.playback?.snapshot?.();
+                if ((snapshot?.index || 0) > 0) return originalPreviousFrame.apply(this, args);
+                this.pauseTrainingForFrameNavigation?.();
+                const extended = await extendPlaybackWindow(this, -1);
+                if (!extended) return this.playback?.currentFrame?.() || null;
+                return this.playback?.moveBy?.(-1) || null;
+            };
+        }
+
+        const originalNextFrame = Controller.prototype.nextFrame;
+        if (typeof originalNextFrame === 'function') {
+            Controller.prototype.nextFrame = async function nextFrameAcrossWindows(...args) {
+                if (!isPlaybackSessionEngaged(this)) return originalNextFrame.apply(this, args);
+                const snapshot = this.playback?.snapshot?.();
+                if (snapshot?.index < snapshot?.frame_count - 1) return originalNextFrame.apply(this, args);
+                this.pauseTrainingForFrameNavigation?.();
+                const extended = await extendPlaybackWindow(this, 1);
+                if (!extended) return this.playback?.currentFrame?.() || null;
+                return this.playback?.moveBy?.(1) || null;
+            };
+        }
+
+        Controller.prototype.firstFrame = function firstFrameAcrossDocument() {
+            return moveToDocumentStart(this);
+        };
+        Controller.prototype.lastFrame = function lastFrameAcrossDocument() {
+            return moveToDocumentEnd(this);
         };
 
         const originalRenderManualFrame = Controller.prototype.renderManualFrame;
-        Controller.prototype.renderManualFrame = function renderManualFrameWithSessionSemantics(frame, target) {
-            originalRenderManualFrame.call(this, frame, target);
-            const button = target?.querySelector?.('.reader-playback-continue');
-            const isLast = this.playback?.index >= (this.playback?.frames?.length || 0) - 1;
-            if (!button) return;
-            if (isLast) {
-                button.textContent = '最后一帧 · 返回阅读视图';
-                button.onclick = (event) => {
-                    event?.stopPropagation?.();
-                    this.stop();
-                };
-            } else {
-                button.textContent = isTrainingRunning(this) ? '继续' : '下一帧';
-            }
-        };
-
-        Controller.prototype.previousFrame = function previousPlaybackFrame() {
-            return navigateBy(this, -1);
-        };
-        Controller.prototype.nextFrame = function nextPlaybackFrame() {
-            return navigateBy(this, 1);
-        };
-        Controller.prototype.firstFrame = function firstPlaybackFrame() {
-            return moveToBoundary(this, false);
-        };
-        Controller.prototype.lastFrame = function lastPlaybackFrame() {
-            return moveToBoundary(this, true);
-        };
-        Controller.prototype.continueManual = function continueManualWithSessionSemantics() {
-            return continueManualRespectingSession(this);
-        };
-        Controller.prototype.togglePause = function togglePlaybackSession() {
-            return togglePlayPause(this);
-        };
-        Controller.prototype.seekFromSlider = function seekPlaybackWithoutAutoplaySurprises() {
-            return seekFromSlider(this);
-        };
+        if (typeof originalRenderManualFrame === 'function') {
+            Controller.prototype.renderManualFrame = function renderManualFrameWithSessionLabels(frame, target) {
+                originalRenderManualFrame.call(this, frame, target);
+                const button = target?.querySelector?.('.reader-playback-continue');
+                const snapshot = this.playback?.snapshot?.() || {};
+                const isLoadedLast = snapshot.index >= (snapshot.frame_count || 0) - 1;
+                const isDocumentLast = isLoadedLast && !hasNextDocumentContent(this, snapshot);
+                if (!button) return;
+                if (isDocumentLast) {
+                    button.textContent = '最后一帧 · 返回阅读视图';
+                    button.onclick = (event) => {
+                        event?.stopPropagation?.();
+                        this.stop();
+                    };
+                } else {
+                    button.textContent = isTrainingRunning(this) ? '继续' : '下一帧';
+                }
+            };
+        }
 
         const originalEnsureToolbar = Controller.prototype.ensureToolbar;
         if (typeof originalEnsureToolbar === 'function') {
@@ -343,28 +660,10 @@
         if (typeof originalBind === 'function') {
             Controller.prototype.bind = function bindPlaybackPolish(...args) {
                 const result = originalBind.apply(this, args);
-                bindReadingToggleCapture(this);
                 upgradeToolbar(this);
                 widenWidthInput(this);
-                applyPlaybackControlState(this);
+                applyTransportLabels(this);
                 return result;
-            };
-        }
-
-        const originalKeyDown = Controller.prototype.onKeyDown;
-        if (typeof originalKeyDown === 'function') {
-            Controller.prototype.onKeyDown = function playbackBoundaryKeys(event) {
-                if (this.isReaderActive?.() && !this.isEditableTarget?.(event?.target)) {
-                    if (event?.key === 'Home') {
-                        event.preventDefault?.();
-                        return this.firstFrame();
-                    }
-                    if (event?.key === 'End') {
-                        event.preventDefault?.();
-                        return this.lastFrame();
-                    }
-                }
-                return originalKeyDown.call(this, event);
             };
         }
 
@@ -374,34 +673,44 @@
         const controller = PlaybackUI?.getDefaultController?.();
         if (controller) {
             wrapUpdateControls(controller);
-            bindReadingToggleCapture(controller);
             upgradeToolbar(controller);
             widenWidthInput(controller);
-            applyPlaybackControlState(controller);
+            applyTransportLabels(controller);
+            controller.updateControls?.();
         }
         return true;
     }
 
     return {
         ACTIVE_SESSION_STATES,
+        EDGE_PREFETCH_FRAMES,
         FIRST_CONTROL_ID,
         LAST_CONTROL_ID,
+        NODE_WINDOW_SIZE,
         WIDTH_INPUT_PX,
-        applyPlaybackControlState,
-        bindReadingToggleCapture,
-        continueManualRespectingSession,
+        applyDocumentTransportState,
+        applyTransportBusyState,
+        applyTransportLabels,
+        buildWindowFrames,
+        clearTransportBusy,
         createToolbarButton,
+        extendPlaybackWindow,
+        findLastWindow,
+        hasNextDocumentContent,
+        hasPreviousDocumentContent,
         install,
+        isPlaybackSessionEngaged,
         isTrainingRunning,
-        moveToBoundary,
-        navigateBy,
-        pauseForFrameNavigation: pauseTrainingForNavigation,
-        pauseTrainingForNavigation,
-        playPause: togglePlayPause,
-        resolveResumeIndex,
-        seekFromSlider,
-        startTrainingFromCurrentFrame,
-        togglePlayPause,
+        measuredPageHeight,
+        maybePrefetchPlaybackWindow,
+        mergePlaybackFrames,
+        moveToDocumentEnd,
+        moveToDocumentStart,
+        packPageRows,
+        playbackWindowBounds,
+        playbackWindowStarts,
+        repackPageFrames,
+        setTransportBusy,
         upgradeToolbar,
         widenWidthInput,
         wrapUpdateControls,

@@ -390,10 +390,6 @@
                     && token.measured_width > 0
                     && lineWidth + token.measured_width > availableLineWidth();
 
-                // Closing punctuation hangs on the current line. Never move a text
-                // token across the boundary to make room for punctuation. If the
-                // punctuation itself is the item that exceeds the measured width,
-                // keep it with the preceding text and let the paint box overflow.
                 if (wouldOverflow && !isClosingPunctuationToken(token)) flush();
 
                 lineTokens.push(token);
@@ -980,11 +976,9 @@
             return result;
         };
 
-        Controller.prototype.refreshFrames = function responsiveRefreshFrames(options = {}) {
-            if (!this.reader?.openResponse) {
-                this.playback.setFrames([], { preserveIdentity: false });
-                this.updateControls();
-                return [];
+        Controller.prototype.buildFrames = function responsiveBuildFrames(context = this.playbackContext?.()) {
+            if (!this.reader?.openResponse || !context?.nodes?.length) {
+                return { elements: [], frames: [], options: this.adapterOptions() };
             }
             this.updateSettingsVisibility();
             this.applyVisualSettings();
@@ -1003,7 +997,7 @@
             const verticalGutterPx = this.displayScope() === 'page' ? 0 : DEFAULT_SAFE_VERTICAL_GUTTER_PX;
             const capacity = pageLineCapacity(availableHeight, lineHeightPx, verticalGutterPx);
             const pageBudgetPx = pageHeightBudget(availableHeight, verticalGutterPx, lineHeightPx);
-            const built = buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, this.reader.nodes || [], {
+            return buildMeasuredPlaybackFrames(adapter, this.reader.openResponse, context.nodes, {
                 ...settings,
                 maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
                 pageLineCapacity: capacity,
@@ -1012,9 +1006,6 @@
                 lineHeightPx,
                 measureText,
             });
-            this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
-            this.updateControls();
-            return built.frames;
         };
 
         Controller.prototype.__responsiveLayoutInstalled = true;

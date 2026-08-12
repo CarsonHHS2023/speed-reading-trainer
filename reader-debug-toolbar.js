@@ -12,6 +12,7 @@
     const ACTIVE_PLAYBACK_STATES = new Set(['playing', 'paused', 'manual']);
     const TOP_TOOLBAR_ID = 'speedReadingV2Toolbar';
     const READING_TOGGLE_ID = 'readingToggleBtn';
+    const PLAYBACK_STATUS_ID = 'speedReadingState';
     const BOOKLIST_CONTROLS_CLASS = 'reader-booklist-playback-controls';
     const RAIL_SELECTOR = '#readerStudyToolsRail';
     const RAIL_TABS_SELECTOR = '.reader-study-tools-tabs';
@@ -77,6 +78,7 @@
         const tabs = rail?.querySelector?.(RAIL_TABS_SELECTOR);
         const toolbar = documentObject?.getElementById?.(TOP_TOOLBAR_ID);
         const debugButton = documentObject?.getElementById?.(BUTTON_ID);
+        const status = documentObject?.getElementById?.(PLAYBACK_STATUS_ID);
         const controls = MOVED_PLAYBACK_CONTROL_IDS.map((id) => documentObject?.getElementById?.(id));
         if (!header || !tabs || !toolbar || !debugButton || controls.some((control) => !control)) return false;
         if (toolbar.classList?.contains('speed-reading-v2-toolbar-compat')) return true;
@@ -90,6 +92,7 @@
             header.appendChild(group);
         }
         for (const control of controls) group.appendChild(control);
+        if (status) group.appendChild(status);
 
         debugButton.classList?.add('reader-study-tool-tab', 'reader-debug-tool-button');
         tabs.appendChild(debugButton);
@@ -181,6 +184,7 @@
         LAYOUT_RETRY_MS,
         LAYOUT_TIMEOUT_MS,
         MOVED_PLAYBACK_CONTROL_IDS,
+        PLAYBACK_STATUS_ID,
         RAIL_SELECTOR,
         READING_TOGGLE_ID,
         TOP_TOOLBAR_ID,

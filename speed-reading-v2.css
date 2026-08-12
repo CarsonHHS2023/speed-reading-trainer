@@ -27,7 +27,7 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
 .reader-v2-shell[data-study-tools-ready="1"] { grid-template-columns: minmax(0, 1fr) !important; }
 .reader-v2-shell[data-study-tools-ready="1"] > .reader-v2-sidebar { display: none !important; }
 .reading-panel { --speed-reading-font-size: 28px; --speed-reading-width-percent: 100%; --speed-reading-font-weight: 400; --study-tools-rail-width: 46px; --study-tools-drawer-width: min(340px, 34vw); }
-#focusModeDisplay, #pageModeDisplay { box-sizing: border-box; width: calc(100% - var(--study-tools-rail-width)); padding: 52px 6px 8px; overflow: hidden; transition: width 180ms ease; }
+#focusModeDisplay, #pageModeDisplay { box-sizing: border-box; width: calc(100% - var(--study-tools-rail-width)); padding: 8px 6px; overflow: hidden; transition: width 180ms ease; }
 .reading-panel[data-study-tools-expanded="1"] #focusModeDisplay,
 .reading-panel[data-study-tools-expanded="1"] #pageModeDisplay { width: calc(100% - var(--study-tools-rail-width) - var(--study-tools-drawer-width)); }
 #focusModeDisplay.active .reader-playback-frame-text, #pageModeDisplay.active .reader-playback-frame-text { cursor: pointer; }

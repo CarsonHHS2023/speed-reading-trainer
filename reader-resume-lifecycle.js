@@ -35,7 +35,7 @@
 
     // document.currentScript is only reliable while this entrypoint is executing.
     // Capture its deployment SHA now so later Promise-chain loads inherit the same
-    // production version even after currentScript becomes null.
+    // production/Preview asset version even after currentScript becomes null.
     const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
         typeof document !== 'undefined' ? document : null,
     );
@@ -285,14 +285,25 @@
         refreshStylesheet();
         return loadScript('speed-reading-structure-policy.js', 'SpeedReadingStructurePolicy')
             .then((module) => module?.install?.(root))
+            .then(() => root.SpeedReadingAdapter?.installPlaybackRenderer?.(root))
             .then(() => loadScript('reader-fragment-join-policy.js', 'ReaderFragmentJoinPolicy'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('speed-reading-responsive-layout.js', 'SpeedReadingResponsiveLayout'))
             .then((module) => module?.install?.(root))
             .then(() => loadScript('reader-punctuation-hanging-policy.js', 'ReaderPunctuationHangingPolicy'))
             .then((module) => module?.install?.(root))
+            .then(() => loadScript('speed-reading-formula-rendering.js', 'SpeedReadingFormulaRendering'))
+            .then((module) => module?.installWithRetry?.(root) ?? module?.install?.(root))
+            .then(() => loadScript('speed-reading-layout-integrity.js', 'SpeedReadingLayoutIntegrity'))
+            .then((module) => module?.installWithRetry?.(root) ?? module?.install?.(root))
+            .then(() => loadScript('speed-reading-block-layout-policy.js', 'SpeedReadingBlockLayoutPolicy'))
+            .then((module) => module?.installWithRetry?.(root) ?? module?.install?.(root))
+            .then(() => loadScript('speed-reading-speed-policy.js', 'SpeedReadingSpeedPolicy'))
+            .then((module) => module?.installWithRetry?.(root) ?? module?.install?.(root))
             .then(() => loadScript('reader-playback-polish.js', 'ReaderPlaybackPolish'))
             .then((module) => module?.install?.(root))
+            .then(() => loadScript('reader-boundary-navigation.js', 'ReaderBoundaryNavigation'))
+            .then((module) => module?.installWithRetry?.(root) ?? module?.install?.(root))
             .then(() => loadScript('reader-study-tools-rail.js', 'ReaderStudyToolsRail'))
             .then((module) => module?.install?.())
             .catch((error) => console.error('[Reader enhancements]', error));
