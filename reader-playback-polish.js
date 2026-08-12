@@ -99,9 +99,13 @@
         }, 0);
     }
 
-    function packPageRows(lines, pageHeightPx, rowGapPx = 0) {
+    function packPageRows(lines, pageHeightPx, rowGapPx = 0, maxRows = Infinity) {
         const budget = Math.max(1, Number(pageHeightPx) || 1);
         const gap = Math.max(0, Number(rowGapPx) || 0);
+        const numericMaxRows = Number(maxRows);
+        const rowLimit = Number.isFinite(numericMaxRows) && numericMaxRows > 0
+            ? Math.max(1, Math.floor(numericMaxRows))
+            : Infinity;
         const pages = [];
         let page = [];
         let used = 0;
@@ -109,7 +113,7 @@
             const rowHeight = Math.max(1, Number(line?.row_height_px) || 1);
             const paragraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
             const separator = page.length ? gap + paragraphGap : 0;
-            if (page.length && used + separator + rowHeight > budget + 0.01) {
+            if (page.length && (page.length >= rowLimit || used + separator + rowHeight > budget + 0.01)) {
                 pages.push(page);
                 page = [];
                 used = 0;
@@ -148,6 +152,7 @@
         const placement = {
             ...(template?.placement || {}),
             virtual_page_index: Number(template?.placement?.virtual_page_index || 0) + sequence,
+            line_span: lines.length,
             content_height_px: measuredPageHeight(lines, template?.placement?.row_gap_px),
         };
         return {
@@ -168,6 +173,7 @@
     function repackPageFrames(controller, frames) {
         const source = Array.isArray(frames) ? frames : [];
         const output = [];
+        const configuredRows = Math.max(1, Math.floor(Number(controller?.element?.('linesInput')?.value || 3)));
         let index = 0;
         while (index < source.length) {
             const frame = source[index];
@@ -191,7 +197,7 @@
             const template = segment[0];
             const pageHeight = Math.max(1, Number(template?.placement?.page_height_px) || 1);
             const rowGap = Math.max(0, Number(template?.placement?.row_gap_px) || 0);
-            const pages = packPageRows(lines, pageHeight, rowGap);
+            const pages = packPageRows(lines, pageHeight, rowGap, configuredRows);
             pages.forEach((pageLines, pageIndex) => output.push(repackedPageFrame(controller, template, pageLines, pageIndex)));
             index = cursor;
         }
