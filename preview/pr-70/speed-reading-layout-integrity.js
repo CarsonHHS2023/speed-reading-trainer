@@ -143,19 +143,6 @@
     }
 
     function canonicalCaptionAssociations(adapter, nodes) {
-        // Caption ownership is caption-driven. Never assign a caption merely because
-        // a visual exists or is the only visual under a semantic parent. A visual with
-        // no caption evidence remains titleless.
-        //
-        // Evidence priority:
-        //   1) exact Reader-v2 graph relation (caption.parent_ref / visual.child_refs),
-        //      rejected only when both nodes identify different physical source units;
-        //   2) bounded same-page spatial fallback mirroring backend
-        //      same_page_spatial_visual_v1: nearby above/below bbox, horizontal
-        //      alignment, allowed Figure/Table kind, ambiguity guard. Reader order and
-        //      shared parent are diagnostics/tie metadata only; they never override a
-        //      clearly better spatial match or resolve a spatially ambiguous pair.
-        // Cross-page fallback is impossible.
         const visualById = new Map();
         const visuals = [];
         const captions = [];
@@ -197,14 +184,11 @@
             return true;
         };
 
-        // Pass 1: preserve precise canonical graph relations. A visual child_refs
-        // entry is treated as equivalent evidence to caption.parent_ref.
         for (const caption of captions) {
             const captionId = canonicalNodeId(caption);
             const parentRef = canonicalParentRef(caption);
             const directParent = visualById.get(parentRef) || null;
             let explicitTarget = null;
-
             if (directParent && samePage(caption, directParent.node)) {
                 explicitTarget = directParent;
             } else {
@@ -215,14 +199,9 @@
                 ));
                 if (reciprocal.length === 1) explicitTarget = reciprocal[0];
             }
-
             if (explicitTarget) bindCaption(caption, explicitTarget, 'canonical_direct_visual_relation');
         }
 
-        // Pass 2: compatibility for older/degraded candidates whose association was
-        // not persisted. Start from each still-unbound caption and look only at
-        // nearby visuals on the same physical source unit. Presentation page carriers
-        // are excluded so a full-page image cannot absorb a body Figure/Table caption.
         for (const caption of captions) {
             const captionId = canonicalNodeId(caption);
             if (consumedCaptionIds.has(captionId)) continue;
@@ -322,9 +301,6 @@
         if (typeof originalBuildReadingElements !== 'function') return callback();
         const excluded = excludedNodeIds || new Set();
         adapter.buildReadingElements = function buildReadingElementsWithCanonicalRelations(...args) {
-            // Preserve Reader v2's canonical preorder exactly. Only captions with a
-            // confirmed association are removed from timed flow; visuals are never
-            // suppressed merely to manufacture or repair caption ownership.
             return originalBuildReadingElements.apply(this, args).filter((element) => (
                 !excluded.has(String(element?.identity?.node_id || '').trim())
             ));
@@ -413,13 +389,10 @@
         return true;
     }
 
-    function buildIntegrityPlaybackFrames(controller, rootObject) {
+    function measuredFallbackBuild(controller, rootObject, context) {
         const adapter = rootObject?.SpeedReadingAdapter || Adapter;
         const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
-        if (!controller?.reader?.openResponse || !adapter || !responsive?.buildMeasuredPlaybackFrames) return null;
-
-        controller.updateSettingsVisibility?.();
-        controller.applyVisualSettings?.();
+        if (!adapter || !responsive?.buildMeasuredPlaybackFrames || !context?.nodes?.length) return null;
         const settings = controller.adapterOptions?.() || {};
         const scope = controller.displayScope?.() || settings.displayScope || 'line';
         const target = scope === 'page' ? controller.element?.('pageText') : controller.element?.('focusText');
@@ -442,35 +415,50 @@
             responsive.DEFAULT_SAFE_VERTICAL_GUTTER_PX,
         ) || Math.max(1, Number(settings.lineCount || settings.maxLines) || 1);
         const lineCount = Math.max(1, Number(settings.lineCount || settings.maxLines) || 1);
-        const pageLineCapacity = scope === 'line'
-            ? lineFrameCapacity(rawCapacity, lineCount)
-            : rawCapacity;
-
-        const nodes = controller.reader.nodes || [];
-        const associations = canonicalCaptionAssociations(adapter, nodes);
-        const built = withPlaybackElementPolicy(adapter, associations.suppressedPlaybackNodeIds, () => (
-            responsive.buildMeasuredPlaybackFrames(adapter, controller.reader.openResponse, nodes, {
-                ...settings,
-                maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
+        const pageLineCapacity = scope === 'line' ? lineFrameCapacity(rawCapacity, lineCount) : rawCapacity;
+        const built = responsive.buildMeasuredPlaybackFrames(adapter, controller.reader.openResponse, context.nodes, {
+            ...settings,
+            maxWidthPx: Math.max(1, Number(settings.maxWidthPx) || 1),
+            pageLineCapacity,
+            lineHeightPx,
+            measureText,
+        });
+        if (built) {
+            built.options = {
+                ...(built.options || {}),
+                rawPageLineCapacity: rawCapacity,
                 pageLineCapacity,
-                lineHeightPx,
-                measureText,
-            })
-        ));
-        if (!built) return null;
+            };
+        }
+        return built;
+    }
+
+    function buildIntegrityPlaybackFrames(controller, rootObject, context = null, baseBuildFrames = null) {
+        const adapter = rootObject?.SpeedReadingAdapter || Adapter;
+        const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
+        if (!controller?.reader?.openResponse || !adapter || !responsive) return null;
+        const playbackContext = context || controller.playbackContext?.();
+        if (!playbackContext?.nodes?.length) return null;
+
+        const associations = canonicalCaptionAssociations(adapter, playbackContext.nodes);
+        const build = () => {
+            if (typeof baseBuildFrames === 'function') return baseBuildFrames(playbackContext);
+            return measuredFallbackBuild(controller, rootObject, playbackContext);
+        };
+        const built = withPlaybackElementPolicy(adapter, associations.suppressedPlaybackNodeIds, build);
+        if (!built || !Array.isArray(built.frames)) return built;
 
         attachVisualCaptions(built.frames, associations);
         const inset = Math.max(0, Number(responsive.DEFAULT_SAFE_GUTTER_PX) || 0) / 2;
         applySafeHorizontalInset(built.frames, inset);
         built.options = {
             ...(built.options || {}),
-            rawPageLineCapacity: rawCapacity,
-            pageLineCapacity,
             horizontalInsetPx: inset,
         };
         built.captionAssociations = associations;
 
         const punctuation = rootObject?.ReaderPunctuationHangingPolicy;
+        const settings = controller.adapterOptions?.() || {};
         if (typeof punctuation?.repairHangingPunctuation === 'function') {
             punctuation.repairHangingPunctuation(built.frames, adapter, settings.speedPerMinute);
         }
@@ -511,10 +499,7 @@
 
     function relaxTimedTextClipping(target, glyphBleedPx = GLYPH_BLEED_PX) {
         const bleed = Math.max(0, Number(glyphBleedPx) || 0);
-        // The reading target is the hard viewport boundary. Glyph bleed is allowed
-        // inside it, but never past the reading area or underneath the tools rail.
         setImportant(target?.style, 'overflow', 'hidden');
-
         const container = target?.querySelector?.('.reader-playback-frame-text');
         setImportant(container?.style, 'overflow', 'visible');
         const structured = target?.querySelector?.('.reader-playback-frame-structured');
@@ -524,9 +509,6 @@
         for (const row of rows) {
             setImportant(row?.style, 'overflow', 'visible');
             if (bleed > 0) {
-                // Expand the row's paint box without moving the measured text origin:
-                // -bleed margin + bleed padding keeps x unchanged while allowing glyph
-                // side bearings/antialiasing to paint inside the safe viewport gutter.
                 setImportant(row?.style, 'margin-inline', `-${bleed}px`);
                 setImportant(row?.style, 'padding-inline', `${bleed}px`);
                 setImportant(row?.style, 'width', `calc(100% + ${bleed * 2}px)`);
@@ -537,7 +519,7 @@
 
     function rendererChainReady(rootObject) {
         const prototype = rootObject?.ReaderSpeedPlaybackUI?.ReaderSpeedPlaybackUIController?.prototype;
-        return Boolean(prototype && prototype.__responsiveLayoutInstalled);
+        return Boolean(prototype && prototype.__responsiveLayoutInstalled && typeof prototype.buildFrames === 'function');
     }
 
     function install(rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
@@ -547,22 +529,22 @@
         const prototype = Controller.prototype;
         if (prototype.__speedReadingLayoutIntegrityInstalled) return true;
 
-        const originalRefreshFrames = prototype.refreshFrames;
+        const originalBuildFrames = prototype.buildFrames;
         const originalRenderManualFrame = prototype.renderManualFrame;
         const originalRenderFrame = prototype.renderFrame;
         if (
-            typeof originalRefreshFrames !== 'function'
+            typeof originalBuildFrames !== 'function'
             || typeof originalRenderManualFrame !== 'function'
             || typeof originalRenderFrame !== 'function'
         ) return false;
 
-        prototype.refreshFrames = function integrityRefreshFrames(options = {}) {
-            if (!this.reader?.openResponse) return originalRefreshFrames.call(this, options);
-            const built = buildIntegrityPlaybackFrames(this, rootObject);
-            if (!built) return originalRefreshFrames.call(this, options);
-            this.playback.setFrames(built.frames, { preserveIdentity: options.preserveIdentity !== false });
-            this.updateControls?.();
-            return built.frames;
+        prototype.buildFrames = function integrityBuildFrames(context) {
+            return buildIntegrityPlaybackFrames(
+                this,
+                rootObject,
+                context || this.playbackContext?.(),
+                (resolvedContext) => originalBuildFrames.call(this, resolvedContext),
+            ) || originalBuildFrames.call(this, context);
         };
 
         prototype.renderFrame = function renderFrameWithoutGlyphClipping(frame, target) {
@@ -617,6 +599,7 @@
         installWithRetry,
         isSourceRenderingPresentationNode,
         lineFrameCapacity,
+        measuredFallbackBuild,
         normalizedSpatialAnchor,
         numericLineHeight,
         prependVisualCaptions,
