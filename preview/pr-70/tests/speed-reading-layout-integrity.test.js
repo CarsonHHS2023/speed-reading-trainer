@@ -138,17 +138,17 @@ test('associated table caption is removed from timed flow and attached to the ta
       };
     },
   };
+  const nodes = [
+    { node_id: 'table-1', node_type: 'table', order: 1 },
+    { node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 2 },
+    { node_id: 'p-1', node_type: 'paragraph', text: '后续正文', order: 3 },
+  ];
+  const playbackContext = { start: 0, firstNodeId: 'table-1', nodes };
   const root = { SpeedReadingAdapter: adapter, SpeedReadingResponsiveLayout: responsive };
   const controller = {
     document: { defaultView: { getComputedStyle() { return { lineHeight: '20px', fontSize: '20px' }; } } },
-    reader: {
-      openResponse: { candidate_id: 'cand' },
-      nodes: [
-        { node_id: 'table-1', node_type: 'table', order: 1 },
-        { node_id: 'caption-1', node_type: 'caption', parent_ref: 'table-1', text: '表1 复利的作用', order: 2 },
-        { node_id: 'p-1', node_type: 'paragraph', text: '后续正文', order: 3 },
-      ],
-    },
+    reader: { openResponse: { candidate_id: 'cand' } },
+    playbackContext() { return playbackContext; },
     updateSettingsVisibility() {},
     applyVisualSettings() {},
     adapterOptions() { return { displayScope: 'line', lineCount: 3, maxLines: 3, maxWidthPx: 300, speedPerMinute: 600 }; },
@@ -157,7 +157,7 @@ test('associated table caption is removed from timed flow and attached to the ta
     element(id) { return id === 'fontInput' ? { value: '20' } : { clientWidth: 348, clientHeight: 500 }; },
   };
 
-  const built = Integrity.buildIntegrityPlaybackFrames(controller, root);
+  const built = Integrity.buildIntegrityPlaybackFrames(controller, root, playbackContext);
   assert.equal(capturedOptions.pageLineCapacity, 6);
   assert.deepEqual(capturedElements.map((element) => element.identity.node_id), ['table-1', 'p-1']);
   assert.equal(built.frames[0].caption_text, '表1 复利的作用');
