@@ -276,9 +276,8 @@ test('Block selector keeps Reader v2 width settings visible before a book is act
     assert.equal(delegated, 1, 'active Reader still delegates to the normal reflow path');
 });
 
-test('block layout policy is loaded from the exact-head enhancement bootstrap', () => {
-    const source = fs.readFileSync(require.resolve('../training-session-clock.js'), 'utf8');
-    assert.match(source, /speedReadingBlockLayoutPolicyScript/u);
+test('block layout policy is loaded by the canonical exact-head lifecycle bootstrap', () => {
+    const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
     assert.match(source, /speed-reading-block-layout-policy\.js/u);
-    assert.match(source, /versionedSrc\(src\)/u);
+    assert.match(source, /versionedAsset\(src\)/u);
 });
