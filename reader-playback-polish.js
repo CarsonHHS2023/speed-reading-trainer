@@ -173,7 +173,6 @@
     function repackPageFrames(controller, frames) {
         const source = Array.isArray(frames) ? frames : [];
         const output = [];
-        const configuredRows = Math.max(1, Math.floor(Number(controller?.element?.('linesInput')?.value || 3)));
         let index = 0;
         while (index < source.length) {
             const frame = source[index];
@@ -197,7 +196,7 @@
             const template = segment[0];
             const pageHeight = Math.max(1, Number(template?.placement?.page_height_px) || 1);
             const rowGap = Math.max(0, Number(template?.placement?.row_gap_px) || 0);
-            const pages = packPageRows(lines, pageHeight, rowGap, configuredRows);
+            const pages = packPageRows(lines, pageHeight, rowGap);
             pages.forEach((pageLines, pageIndex) => output.push(repackedPageFrame(controller, template, pageLines, pageIndex)));
             index = cursor;
         }
