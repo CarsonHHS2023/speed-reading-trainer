@@ -33,6 +33,9 @@
         }
     }
 
+    // document.currentScript is only reliable while this entrypoint is executing.
+    // Capture its deployment SHA now so later Promise-chain loads inherit the same
+    // production/Preview asset version even after currentScript becomes null.
     const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
         typeof document !== 'undefined' ? document : null,
     );
@@ -82,7 +85,9 @@
 
     function resolveBookshelfBaseUrl(rootObject = root) {
         const readerResolver = rootObject?.ReaderApiV2?.resolveBaseUrl;
-        if (typeof readerResolver === 'function') return normalizeBaseUrl(readerResolver(rootObject));
+        if (typeof readerResolver === 'function') {
+            return normalizeBaseUrl(readerResolver(rootObject));
+        }
         const configured = rootObject && (
             rootObject.READER_API_BASE_URL
             || rootObject.API_BASE_URL_OVERRIDE
@@ -115,10 +120,15 @@
 
     async function fetchResponse(fetchImpl, url) {
         try {
-            return await fetchImpl(url, { cache: 'no-store', headers: { Accept: 'application/json' } });
+            return await fetchImpl(url, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json' },
+            });
         } catch (error) {
             throw new BookshelfEndpointError('Network or CORS request failed', {
-                kind: 'network_or_cors', url, cause: error,
+                kind: 'network_or_cors',
+                url,
+                cause: error,
             });
         }
     }
@@ -127,14 +137,19 @@
         const response = await fetchResponse(fetchImpl, url);
         if (!response?.ok) {
             throw new BookshelfEndpointError(`HTTP ${response?.status || 0}`, {
-                kind: 'http', status: response?.status || 0, url,
+                kind: 'http',
+                status: response?.status || 0,
+                url,
             });
         }
         try {
             return await response.json();
         } catch (error) {
             throw new BookshelfEndpointError('Invalid JSON response', {
-                kind: 'invalid_json', status: response?.status || 0, url, cause: error,
+                kind: 'invalid_json',
+                status: response?.status || 0,
+                url,
+                cause: error,
             });
         }
     }
@@ -149,13 +164,25 @@
                 error_name: error.cause?.name || error.name,
             };
         }
-        return { url, ok: false, kind: 'unknown', status: 0, error_name: error?.name || 'Error' };
+        return {
+            url,
+            ok: false,
+            kind: 'unknown',
+            status: 0,
+            error_name: error?.name || 'Error',
+        };
     }
 
     async function probeEndpoint(fetchImpl, url) {
         try {
             const response = await fetchResponse(fetchImpl, url);
-            return { url, ok: Boolean(response?.ok), kind: 'http', status: Number(response?.status || 0), error_name: null };
+            return {
+                url,
+                ok: Boolean(response?.ok),
+                kind: 'http',
+                status: Number(response?.status || 0),
+                error_name: null,
+            };
         } catch (error) {
             return endpointDiagnosticFromError(error, url);
         }
@@ -178,13 +205,17 @@
             books: endpointDiagnosticFromError(booksError, booksUrl),
             health: await probeEndpoint(fetchImpl, healthUrl),
         };
-        diagnostics.summary = `books=${endpointDiagnosticLabel(diagnostics.books)} · health=${endpointDiagnosticLabel(diagnostics.health)}`;
+        diagnostics.summary = (
+            `books=${endpointDiagnosticLabel(diagnostics.books)} · `
+            + `health=${endpointDiagnosticLabel(diagnostics.health)}`
+        );
         return diagnostics;
     }
 
     function installBookshelfResilience(prototype, options = {}) {
         if (!prototype || prototype.__bookshelfResilienceInstalled) return Boolean(prototype);
-        const fetchImpl = options.fetchImpl || (typeof root?.fetch === 'function' ? root.fetch.bind(root) : null);
+        const fetchImpl = options.fetchImpl
+            || (typeof root?.fetch === 'function' ? root.fetch.bind(root) : null);
         const storage = options.storage || root?.localStorage;
         const resolveBaseUrl = options.resolveBaseUrl || (() => resolveBookshelfBaseUrl(root));
 
@@ -194,11 +225,17 @@
             const booksUrl = `${baseUrl}/api/v1/books`;
             try {
                 if (typeof fetchImpl !== 'function') {
-                    throw new BookshelfEndpointError('fetch is unavailable', { kind: 'fetch_unavailable', url: booksUrl });
+                    throw new BookshelfEndpointError('fetch is unavailable', {
+                        kind: 'fetch_unavailable',
+                        url: booksUrl,
+                    });
                 }
                 const result = await fetchBooksPayload(fetchImpl, booksUrl);
                 const books = Array.isArray(result?.books) ? result.books : [];
-                this.books = books.filter((book) => book?.status !== 'processing').map((book) => this.normalizeBook(book));
+                this.books = books
+                    .filter((book) => book?.status !== 'processing')
+                    .map((book) => this.normalizeBook(book));
+
                 writeCachedBooks(this.books, storage);
                 this.bookshelfConnectionDiagnostics = {
                     checked_at: new Date().toISOString(),
@@ -218,6 +255,7 @@
                 this.bookshelfConnectionDiagnostics = diagnostics;
                 if (root) root.__BOOKSHELF_CONNECTION_DIAGNOSTICS__ = diagnostics;
                 console.error('[Bookshelf connection diagnostics]', diagnostics, error);
+
                 const cachedBooks = readCachedBooks(storage);
                 if ((!Array.isArray(this.books) || this.books.length === 0) && cachedBooks.length) {
                     this.books = cachedBooks.map((book) => this.normalizeBook(book));
@@ -226,13 +264,19 @@
                 this.renderCategories();
                 this.renderBooks();
                 const cachePrefix = this.books.length ? '正在显示最近书单 · ' : '';
-                this.setLoading(false, `⚠️ 书架服务不可用<br><span>${cachePrefix}${diagnostics.summary}</span>`);
+                this.setLoading(
+                    false,
+                    `⚠️ 书架服务不可用<br><span>${cachePrefix}${diagnostics.summary}</span>`,
+                );
                 return this.books;
             }
         };
 
         Object.defineProperty(prototype, '__bookshelfResilienceInstalled', {
-            configurable: false, enumerable: false, writable: false, value: true,
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: true,
         });
         return true;
     }
@@ -271,6 +315,7 @@
         installBookshelfResilience(prototype);
         if (prototype.__readerV2ResumeLifecycleInstalled) return true;
         prototype.__readerV2ResumeLifecycleInstalled = true;
+
         const originalDeleteBook = prototype.deleteBook;
         if (typeof originalDeleteBook === 'function') {
             prototype.deleteBook = async function deleteBookWithReaderV2LocalCleanup(bookId) {
