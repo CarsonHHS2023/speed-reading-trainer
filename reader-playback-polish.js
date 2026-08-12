@@ -9,6 +9,8 @@
     const FIRST_CONTROL_ID = 'speedReadingFirst';
     const LAST_CONTROL_ID = 'speedReadingLast';
     const ACTIVE_SESSION_STATES = new Set(['playing', 'paused', 'manual']);
+    const NODE_WINDOW_SIZE = 150;
+    const EDGE_PREFETCH_FRAMES = 5;
 
     function widenWidthInput(controller) {
         const input = controller?.element?.('widthInput');
@@ -45,6 +47,300 @@
         const clock = controller?.trainingClock;
         if (!clock) return playbackState === 'playing';
         return clock.state === 'running' || clock.state === 'paused';
+    }
+
+    function normalizedWindowStart(start) {
+        const value = Math.max(0, Math.trunc(Number(start) || 0));
+        return Math.floor(value / NODE_WINDOW_SIZE) * NODE_WINDOW_SIZE;
+    }
+
+    function playbackWindowStarts(controller) {
+        if (!(controller.__playbackWindowStarts instanceof Set)) controller.__playbackWindowStarts = new Set();
+        if (!controller.__playbackWindowStarts.size && Number.isInteger(controller.activeBatchStart)) {
+            controller.__playbackWindowStarts.add(normalizedWindowStart(controller.activeBatchStart));
+        }
+        return controller.__playbackWindowStarts;
+    }
+
+    function playbackWindowBounds(controller) {
+        const starts = [...playbackWindowStarts(controller)].sort((a, b) => a - b);
+        if (!starts.length && Number.isInteger(controller?.activeBatchStart)) {
+            const start = normalizedWindowStart(controller.activeBatchStart);
+            return { first: start, last: start };
+        }
+        return {
+            first: starts.length ? starts[0] : null,
+            last: starts.length ? starts[starts.length - 1] : null,
+        };
+    }
+
+    function windowRecord(controller, start) {
+        return Number.isInteger(start) ? controller?.reader?.windowRecord?.(start) || null : null;
+    }
+
+    function hasPreviousDocumentContent(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if ((snapshot?.index || 0) > 0) return true;
+        const { first } = playbackWindowBounds(controller);
+        return Number.isInteger(first) && first > 0;
+    }
+
+    function hasNextDocumentContent(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (snapshot?.frame_count && snapshot.index < snapshot.frame_count - 1) return true;
+        const { last } = playbackWindowBounds(controller);
+        const record = windowRecord(controller, last);
+        return Boolean(record?.hasMore);
+    }
+
+    function measuredPageHeight(lines, rowGapPx = 0) {
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        return (lines || []).reduce((sum, line, index) => {
+            const paragraphGap = index > 0 ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            return sum + (index > 0 ? gap : 0) + paragraphGap + Math.max(1, Number(line?.row_height_px) || 1);
+        }, 0);
+    }
+
+    function packPageRows(lines, pageHeightPx, rowGapPx = 0) {
+        const budget = Math.max(1, Number(pageHeightPx) || 1);
+        const gap = Math.max(0, Number(rowGapPx) || 0);
+        const pages = [];
+        let page = [];
+        let used = 0;
+        for (const line of lines || []) {
+            const rowHeight = Math.max(1, Number(line?.row_height_px) || 1);
+            const paragraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const separator = page.length ? gap + paragraphGap : 0;
+            if (page.length && used + separator + rowHeight > budget + 0.01) {
+                pages.push(page);
+                page = [];
+                used = 0;
+            }
+            const nextParagraphGap = page.length ? Math.max(0, Number(line?.paragraph_gap_before_px) || 0) : 0;
+            const nextSeparator = page.length ? gap + nextParagraphGap : 0;
+            page.push(line);
+            used += nextSeparator + rowHeight;
+        }
+        if (page.length) pages.push(page);
+        return pages;
+    }
+
+    function sourceSpansForLines(lines) {
+        const seen = new Set();
+        const spans = [];
+        for (const line of lines || []) {
+            for (const identity of line?.source_spans || (line?.identity ? [line.identity] : [])) {
+                const key = `${identity?.candidate_id || ''}\u0000${identity?.node_id || ''}\u0000${identity?.source_unit_id || ''}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                spans.push(identity);
+            }
+        }
+        return spans;
+    }
+
+    function repackedPageFrame(controller, template, lines, sequence) {
+        const sourceSpans = sourceSpansForLines(lines);
+        const identity = sourceSpans[0] || template?.identity || null;
+        const readingUnits = (lines || []).reduce((sum, line) => sum + (Number(line?.reading_units) || 0), 0);
+        const speedPerMinute = Math.max(1, Number(controller?.element?.('speedInput')?.value || 5000));
+        const duration = typeof controller?.adapter?.frameDurationMs === 'function'
+            ? controller.adapter.frameDurationMs(readingUnits, speedPerMinute)
+            : Math.max(0, Number(template?.duration_ms) || 0);
+        const placement = {
+            ...(template?.placement || {}),
+            virtual_page_index: Number(template?.placement?.virtual_page_index || 0) + sequence,
+            content_height_px: measuredPageHeight(lines, template?.placement?.row_gap_px),
+        };
+        return {
+            ...template,
+            frame_id: `${template?.frame_id || 'playback-frame'}:page-pack:${sequence}`,
+            node_type: lines.length === 1 ? lines[0]?.node_type || template?.node_type : 'mixed',
+            heading_level: lines.length === 1 ? lines[0]?.heading_level ?? null : null,
+            text: lines.map((line) => line?.text || '').join('\n'),
+            lines,
+            reading_units: readingUnits,
+            duration_ms: duration,
+            identity,
+            source_spans: sourceSpans,
+            placement,
+        };
+    }
+
+    function repackPageFrames(controller, frames) {
+        const source = Array.isArray(frames) ? frames : [];
+        const output = [];
+        let index = 0;
+        while (index < source.length) {
+            const frame = source[index];
+            if (frame?.kind !== 'timed_text' || frame?.placement?.display_scope !== 'page' || !Array.isArray(frame.lines)) {
+                output.push(frame);
+                index += 1;
+                continue;
+            }
+            const segment = [];
+            let cursor = index;
+            while (
+                cursor < source.length
+                && source[cursor]?.kind === 'timed_text'
+                && source[cursor]?.placement?.display_scope === 'page'
+                && Array.isArray(source[cursor]?.lines)
+            ) {
+                segment.push(source[cursor]);
+                cursor += 1;
+            }
+            const lines = segment.flatMap((item) => item.lines || []);
+            const template = segment[0];
+            const pageHeight = Math.max(1, Number(template?.placement?.page_height_px) || 1);
+            const rowGap = Math.max(0, Number(template?.placement?.row_gap_px) || 0);
+            const pages = packPageRows(lines, pageHeight, rowGap);
+            pages.forEach((pageLines, pageIndex) => output.push(repackedPageFrame(controller, template, pageLines, pageIndex)));
+            index = cursor;
+        }
+        return output;
+    }
+
+    function uniqueFrames(frames) {
+        const output = [];
+        const seen = new Set();
+        for (const frame of frames || []) {
+            const key = frame?.frame_id || `${frame?.identity?.node_id || ''}\u0000${frame?.text || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            output.push(frame);
+        }
+        return output;
+    }
+
+    async function buildWindowFrames(controller, start, options = {}) {
+        const reader = controller?.reader;
+        if (!reader?.requestWindow || !controller?.buildFrames) return null;
+        const normalizedStart = normalizedWindowStart(start);
+        const record = await reader.requestWindow(normalizedStart, { cache: options.cache !== false });
+        if (!record?.nodes?.length) return null;
+        const built = controller.buildFrames({
+            start: record.start,
+            nodes: record.nodes,
+            firstNodeId: null,
+        });
+        return {
+            start: record.start,
+            record,
+            frames: Array.isArray(built?.frames) ? built.frames : [],
+        };
+    }
+
+    async function extendPlaybackWindow(controller, direction) {
+        if (!controller?.playback || !controller?.reader) return false;
+        const key = direction < 0 ? 'previous' : 'next';
+        if (!controller.__playbackWindowPromises) controller.__playbackWindowPromises = {};
+        if (controller.__playbackWindowPromises[key]) return controller.__playbackWindowPromises[key];
+        const promise = (async () => {
+            const bounds = playbackWindowBounds(controller);
+            const edge = direction < 0 ? bounds.first : bounds.last;
+            if (!Number.isInteger(edge)) return false;
+            if (direction < 0 && edge <= 0) return false;
+            if (direction > 0 && windowRecord(controller, edge)?.hasMore === false) return false;
+            const target = direction < 0 ? Math.max(0, edge - NODE_WINDOW_SIZE) : edge + NODE_WINDOW_SIZE;
+            if (playbackWindowStarts(controller).has(target)) return false;
+            const loaded = await buildWindowFrames(controller, target);
+            if (!loaded?.frames?.length) return false;
+            const current = controller.playback.frames || [];
+            const combined = direction < 0
+                ? uniqueFrames(loaded.frames.concat(current))
+                : uniqueFrames(current.concat(loaded.frames));
+            playbackWindowStarts(controller).add(loaded.start);
+            controller.playback.setFrames(combined, { preserveIdentity: true });
+            return true;
+        })().finally(() => {
+            controller.__playbackWindowPromises[key] = null;
+        });
+        controller.__playbackWindowPromises[key] = promise;
+        return promise;
+    }
+
+    function maybePrefetchPlaybackWindow(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (!isPlaybackSessionEngaged(controller) || !snapshot?.frame_count) return false;
+        const distanceFromStart = Math.max(0, Number(snapshot.index) || 0);
+        const distanceFromEnd = Math.max(0, snapshot.frame_count - 1 - (Number(snapshot.index) || 0));
+        if (distanceFromStart <= EDGE_PREFETCH_FRAMES) {
+            extendPlaybackWindow(controller, -1).catch((error) => controller?.reader?.renderError?.(error));
+        }
+        if (distanceFromEnd <= EDGE_PREFETCH_FRAMES) {
+            extendPlaybackWindow(controller, 1).catch((error) => controller?.reader?.renderError?.(error));
+        }
+        return true;
+    }
+
+    async function continuePastLoadedTail(controller) {
+        const oldFrame = controller?.playback?.currentFrame?.();
+        const oldNodeId = oldFrame?.identity?.node_id || null;
+        const extended = await extendPlaybackWindow(controller, 1);
+        if (!extended) return false;
+        const frames = controller.playback.frames || [];
+        let oldIndex = frames.findIndex((frame) => frame?.frame_id === oldFrame?.frame_id);
+        if (oldIndex < 0 && oldNodeId) {
+            oldIndex = frames.findIndex((frame) => (
+                frame?.identity?.node_id === oldNodeId
+                || (frame?.source_spans || []).some((identity) => identity?.node_id === oldNodeId)
+            ));
+        }
+        controller.playback.index = Math.min(frames.length - 1, Math.max(0, oldIndex + 1));
+        controller.playback.state = 'paused';
+        controller.playback.play?.();
+        controller.reader?.setStatus?.('');
+        return true;
+    }
+
+    async function moveToDocumentStart(controller) {
+        if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.firstPage?.();
+        controller.pauseTrainingForFrameNavigation?.();
+        const loaded = await buildWindowFrames(controller, 0);
+        if (!loaded?.frames?.length) return null;
+        controller.__playbackWindowStarts = new Set([loaded.start]);
+        controller.activeBatchStart = loaded.start;
+        controller.playback.setFrames(loaded.frames, { preserveIdentity: false });
+        controller.playback.index = 0;
+        controller.playback.emit?.();
+        return controller.playback.currentFrame?.() || null;
+    }
+
+    async function findLastWindow(controller) {
+        const reader = controller?.reader;
+        if (!reader?.requestWindow) return null;
+        const bounds = playbackWindowBounds(controller);
+        let start = Number.isInteger(bounds.last) ? bounds.last : normalizedWindowStart(controller?.activeBatchStart || 0);
+        let record = await reader.requestWindow(start);
+        while (record?.hasMore) {
+            const next = Number.isInteger(record?.nextNodeOrder)
+                ? record.nextNodeOrder
+                : record.start + NODE_WINDOW_SIZE;
+            const scanned = await reader.requestWindow(next, { cache: false });
+            if (!scanned?.nodes?.length || scanned.start === record.start) break;
+            record = scanned;
+        }
+        if (!record?.nodes?.length) return null;
+        return reader.windowRecord?.(record.start) || await reader.requestWindow(record.start);
+    }
+
+    async function moveToDocumentEnd(controller) {
+        if (!isPlaybackSessionEngaged(controller)) return controller?.reader?.lastPage?.();
+        controller.pauseTrainingForFrameNavigation?.();
+        controller.reader?.setStatus?.('正在定位整本书最后一帧…');
+        try {
+            const record = await findLastWindow(controller);
+            if (!record?.nodes?.length) return null;
+            const built = controller.buildFrames({ start: record.start, nodes: record.nodes, firstNodeId: null });
+            const frames = Array.isArray(built?.frames) ? built.frames : [];
+            if (!frames.length) return null;
+            controller.__playbackWindowStarts = new Set([record.start]);
+            controller.activeBatchStart = record.start;
+            controller.playback.setFrames(frames, { preserveIdentity: false });
+            controller.playback.index = frames.length - 1;
+            controller.playback.state = frames[frames.length - 1]?.kind === 'manual' ? 'manual' : 'paused';
+            controller.playback.emit?.();
+            return controller.playback.currentFrame?.() || null;
+        } finally {
+            controller.reader?.setStatus?.('');
+        }
     }
 
     function upgradeToolbar(controller) {
@@ -93,10 +389,10 @@
         const engaged = isPlaybackSessionEngaged(controller);
         const labels = engaged
             ? [
-                [FIRST_CONTROL_ID, '到头（第一帧）'],
+                [FIRST_CONTROL_ID, '到头（整本书第一帧）'],
                 ['speedReadingPrev', '上一帧'],
                 ['speedReadingNext', '下一帧'],
-                [LAST_CONTROL_ID, '到尾（最后一帧）'],
+                [LAST_CONTROL_ID, '到尾（整本书最后一帧）'],
             ]
             : [
                 [FIRST_CONTROL_ID, '首页'],
@@ -113,9 +409,24 @@
         const hint = controller?.element?.('speedReadingV2Toolbar')?.querySelector?.('.speed-reading-v2-shortcuts');
         if (hint) {
             hint.textContent = engaged
-                ? 'Space 播放/暂停 · ←/→ 上一帧/下一帧 · Home/End 第一帧/最后一帧 · Esc 停止'
+                ? 'Space 播放/暂停 · ←/→ 上一帧/下一帧 · Home/End 整本书第一帧/最后一帧 · Esc 停止'
                 : '←/→ 上一页/下一页 · Home/End 首页/尾页 · Space 开始速度阅读';
         }
+        return true;
+    }
+
+    function applyDocumentTransportState(controller, snapshot = controller?.playback?.snapshot?.()) {
+        if (!isPlaybackSessionEngaged(controller)) return false;
+        const first = controller?.element?.(FIRST_CONTROL_ID);
+        const prev = controller?.element?.('speedReadingPrev');
+        const next = controller?.element?.('speedReadingNext');
+        const last = controller?.element?.(LAST_CONTROL_ID);
+        const canBack = hasPreviousDocumentContent(controller, snapshot);
+        const canForward = hasNextDocumentContent(controller, snapshot);
+        if (first) first.disabled = !canBack;
+        if (prev) prev.disabled = !canBack;
+        if (next) next.disabled = !canForward;
+        if (last) last.disabled = !canForward;
         return true;
     }
 
@@ -126,6 +437,7 @@
         target.updateControls = function updateControlsWithLabels(...args) {
             const result = original.apply(this, args);
             applyTransportLabels(this);
+            applyDocumentTransportState(this, args[0]);
             return result;
         };
         Object.defineProperty(target, '__playbackPolishLabelsWrapped', {
@@ -142,14 +454,101 @@
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         if (!Controller || Controller.prototype.__playbackPolishInstalled) return false;
 
+        const originalBuildFrames = Controller.prototype.buildFrames;
+        if (typeof originalBuildFrames === 'function') {
+            Controller.prototype.buildFrames = function buildFramesWithPagePacking(...args) {
+                const built = originalBuildFrames.apply(this, args);
+                if (!built || !Array.isArray(built.frames) || this.displayScope?.() !== 'page') return built;
+                return { ...built, frames: repackPageFrames(this, built.frames) };
+            };
+        }
+
+        const originalStart = Controller.prototype.start;
+        if (typeof originalStart === 'function') {
+            Controller.prototype.start = async function startWithStreamingWindows(...args) {
+                this.__playbackWindowStarts = new Set();
+                this.__playbackWindowPromises = {};
+                const started = await originalStart.apply(this, args);
+                if (started && Number.isInteger(this.activeBatchStart)) {
+                    playbackWindowStarts(this).add(normalizedWindowStart(this.activeBatchStart));
+                    maybePrefetchPlaybackWindow(this, this.playback?.snapshot?.());
+                }
+                return started;
+            };
+        }
+
+        const originalStop = Controller.prototype.stop;
+        if (typeof originalStop === 'function') {
+            Controller.prototype.stop = function stopStreamingWindows(...args) {
+                const result = originalStop.apply(this, args);
+                this.__playbackWindowStarts = new Set();
+                this.__playbackWindowPromises = {};
+                return result;
+            };
+        }
+
+        const originalRenderSnapshot = Controller.prototype.renderSnapshot;
+        if (typeof originalRenderSnapshot === 'function') {
+            Controller.prototype.renderSnapshot = function renderSnapshotWithStreaming(snapshot) {
+                if (snapshot?.state === 'completed' && hasNextDocumentContent(this, snapshot)) {
+                    this.reader?.setStatus?.('正在加载下一批速读内容…');
+                    continuePastLoadedTail(this).then((continued) => {
+                        if (!continued) originalRenderSnapshot.call(this, snapshot);
+                    }).catch((error) => {
+                        this.reader?.renderError?.(error);
+                        originalRenderSnapshot.call(this, snapshot);
+                    });
+                    return;
+                }
+                const result = originalRenderSnapshot.call(this, snapshot);
+                if (ACTIVE_SESSION_STATES.has(snapshot?.state)) maybePrefetchPlaybackWindow(this, snapshot);
+                return result;
+            };
+        }
+
+        const originalPreviousFrame = Controller.prototype.previousFrame;
+        if (typeof originalPreviousFrame === 'function') {
+            Controller.prototype.previousFrame = async function previousFrameAcrossWindows(...args) {
+                if (!isPlaybackSessionEngaged(this)) return originalPreviousFrame.apply(this, args);
+                const snapshot = this.playback?.snapshot?.();
+                if ((snapshot?.index || 0) > 0) return originalPreviousFrame.apply(this, args);
+                this.pauseTrainingForFrameNavigation?.();
+                const extended = await extendPlaybackWindow(this, -1);
+                if (!extended) return this.playback?.currentFrame?.() || null;
+                return this.playback?.moveBy?.(-1) || null;
+            };
+        }
+
+        const originalNextFrame = Controller.prototype.nextFrame;
+        if (typeof originalNextFrame === 'function') {
+            Controller.prototype.nextFrame = async function nextFrameAcrossWindows(...args) {
+                if (!isPlaybackSessionEngaged(this)) return originalNextFrame.apply(this, args);
+                const snapshot = this.playback?.snapshot?.();
+                if (snapshot?.index < snapshot?.frame_count - 1) return originalNextFrame.apply(this, args);
+                this.pauseTrainingForFrameNavigation?.();
+                const extended = await extendPlaybackWindow(this, 1);
+                if (!extended) return this.playback?.currentFrame?.() || null;
+                return this.playback?.moveBy?.(1) || null;
+            };
+        }
+
+        Controller.prototype.firstFrame = function firstFrameAcrossDocument() {
+            return moveToDocumentStart(this);
+        };
+        Controller.prototype.lastFrame = function lastFrameAcrossDocument() {
+            return moveToDocumentEnd(this);
+        };
+
         const originalRenderManualFrame = Controller.prototype.renderManualFrame;
         if (typeof originalRenderManualFrame === 'function') {
             Controller.prototype.renderManualFrame = function renderManualFrameWithSessionLabels(frame, target) {
                 originalRenderManualFrame.call(this, frame, target);
                 const button = target?.querySelector?.('.reader-playback-continue');
-                const isLast = this.playback?.index >= (this.playback?.frames?.length || 0) - 1;
+                const snapshot = this.playback?.snapshot?.() || {};
+                const isLoadedLast = snapshot.index >= (snapshot.frame_count || 0) - 1;
+                const isDocumentLast = isLoadedLast && !hasNextDocumentContent(this, snapshot);
                 if (!button) return;
-                if (isLast) {
+                if (isDocumentLast) {
                     button.textContent = '最后一帧 · 返回阅读视图';
                     button.onclick = (event) => {
                         event?.stopPropagation?.();
@@ -206,14 +605,30 @@
 
     return {
         ACTIVE_SESSION_STATES,
+        EDGE_PREFETCH_FRAMES,
         FIRST_CONTROL_ID,
         LAST_CONTROL_ID,
+        NODE_WINDOW_SIZE,
         WIDTH_INPUT_PX,
+        applyDocumentTransportState,
         applyTransportLabels,
+        buildWindowFrames,
         createToolbarButton,
+        extendPlaybackWindow,
+        findLastWindow,
+        hasNextDocumentContent,
+        hasPreviousDocumentContent,
         install,
         isPlaybackSessionEngaged,
         isTrainingRunning,
+        measuredPageHeight,
+        maybePrefetchPlaybackWindow,
+        moveToDocumentEnd,
+        moveToDocumentStart,
+        packPageRows,
+        playbackWindowBounds,
+        playbackWindowStarts,
+        repackPageFrames,
         upgradeToolbar,
         widenWidthInput,
         wrapUpdateControls,
