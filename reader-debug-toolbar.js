@@ -80,7 +80,7 @@
         const debugButton = documentObject?.getElementById?.(BUTTON_ID);
         const status = documentObject?.getElementById?.(PLAYBACK_STATUS_ID);
         const controls = MOVED_PLAYBACK_CONTROL_IDS.map((id) => documentObject?.getElementById?.(id));
-        if (!header || !tabs || !toolbar || !debugButton || !status || controls.some((control) => !control)) return false;
+        if (!header || !tabs || !toolbar || !debugButton || controls.some((control) => !control)) return false;
         if (toolbar.classList?.contains('speed-reading-v2-toolbar-compat')) return true;
 
         let group = header.querySelector?.(`.${BOOKLIST_CONTROLS_CLASS}`);
@@ -92,7 +92,7 @@
             header.appendChild(group);
         }
         for (const control of controls) group.appendChild(control);
-        group.appendChild(status);
+        if (status) group.appendChild(status);
 
         debugButton.classList?.add('reader-study-tool-tab', 'reader-debug-tool-button');
         tabs.appendChild(debugButton);
