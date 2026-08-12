@@ -44,31 +44,6 @@
         return nativeFetch(input, init);
     };
 
-    function previewHeadVersion(documentObject = root.document) {
-        return String(documentObject?.querySelector?.('meta[name="reader-preview-head"]')?.getAttribute?.('content') || '').trim();
-    }
-
-    function loadBoundaryNavigation() {
-        const documentObject = root.document;
-        if (!documentObject || root.ReaderBoundaryNavigation) {
-            root.ReaderBoundaryNavigation?.installWithRetry?.(root);
-            return;
-        }
-        const script = documentObject.createElement('script');
-        const version = previewHeadVersion(documentObject);
-        script.src = `reader-boundary-navigation.js${version ? `?v=${encodeURIComponent(version)}` : ''}`;
-        script.dataset.readerEnhancement = 'reader-boundary-navigation.js';
-        script.addEventListener('load', () => root.ReaderBoundaryNavigation?.installWithRetry?.(root), { once: true });
-        script.addEventListener('error', () => root.console?.error?.('[preview] failed to load reader-boundary-navigation.js'), { once: true });
-        documentObject.head.appendChild(script);
-    }
-
-    if (root.document?.readyState === 'loading') {
-        root.document.addEventListener('DOMContentLoaded', loadBoundaryNavigation, { once: true });
-    } else {
-        loadBoundaryNavigation();
-    }
-
     root.__TXT_PREVIEW_ROUTING__ = Object.freeze({
         productionApiBaseUrl: PRODUCTION_API_BASE_URL,
         testApiBaseUrl: TEST_API_BASE_URL,
