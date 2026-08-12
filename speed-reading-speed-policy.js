@@ -239,11 +239,11 @@
         if (!prototype || !prototype.__speedReadingLayoutIntegrityInstalled) return false;
 
         if (!prototype.__speedReadingSpeedPolicyInstalled) {
-            const originalRefreshFrames = prototype.refreshFrames;
-            if (typeof originalRefreshFrames !== 'function') return false;
-            prototype.refreshFrames = function refreshFramesWithDynamicSpeedLimit(options = {}) {
+            const originalBuildFrames = prototype.buildFrames;
+            if (typeof originalBuildFrames !== 'function') return false;
+            prototype.buildFrames = function buildFramesWithDynamicSpeedLimit(context) {
                 updateSpeedLimit(this, rootObject);
-                return originalRefreshFrames.call(this, options);
+                return originalBuildFrames.call(this, context);
             };
             prototype.__speedReadingSpeedPolicyInstalled = true;
         }
