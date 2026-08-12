@@ -76,11 +76,7 @@
             : 0;
         const glyphWidthPx = Math.max(1, measuredGlyphWidth || fallbackGlyphWidth);
         const charactersPerLine = Math.max(1, Math.floor(configuredWidthPx / glyphWidthPx));
-        const linesPerFrame = frameLineCapacity(
-            displayScope,
-            options.lineCount,
-            options.pageLineCapacity,
-        );
+        const linesPerFrame = frameLineCapacity(displayScope, options.lineCount, options.pageLineCapacity);
         const readingUnitsPerFrame = charactersPerLine * linesPerFrame;
         const minFrameDurationMs = Math.max(
             1,
@@ -95,7 +91,6 @@
     function configureSettingsLabels(controller) {
         const speedUnit = controller?.element?.('speedUnit');
         if (speedUnit) speedUnit.textContent = SPEED_UNIT_LABEL;
-
         const mode = controller?.element?.('trainingMode');
         if (mode) {
             for (const option of Array.from(mode.options || [])) {
@@ -106,7 +101,6 @@
                 || controller.document?.querySelector?.('label[for="trainingMode"]');
             if (label) label.textContent = VIEWPOINT_MODE_LABEL;
         }
-
         const speedInput = controller?.element?.('speedInput');
         if (speedInput?.style) {
             speedInput.style.width = '72px';
@@ -125,7 +119,6 @@
             ? currentCandidate
             : DEFAULT_SPEED_PER_MINUTE;
         const effectiveSpeed = Math.max(minSpeed, Math.min(maxSpeed, Math.round(currentSpeed)));
-
         for (const control of [slider, input]) {
             if (!control) continue;
             control.min = String(minSpeed);
@@ -133,50 +126,33 @@
             control.value = String(effectiveSpeed);
         }
         configureSettingsLabels(controller);
-        return {
-            minSpeedPerMinute: minSpeed,
-            maxSpeedPerMinute: maxSpeed,
-            speedPerMinute: effectiveSpeed,
-        };
+        return { minSpeedPerMinute: minSpeed, maxSpeedPerMinute: maxSpeed, speedPerMinute: effectiveSpeed };
     }
 
     function speedLayoutContext(controller, rootObject) {
         const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
         const adapter = rootObject?.SpeedReadingAdapter || Adapter;
         if (!controller || !responsive) return null;
-
         controller.updateSettingsVisibility?.();
         controller.applyVisualSettings?.();
         const settings = controller.adapterOptions?.() || {};
         const displayScope = controller.displayScope?.() || settings.displayScope || 'line';
-        const target = displayScope === 'page'
-            ? controller.element?.('pageText')
-            : controller.element?.('focusText');
+        const target = displayScope === 'page' ? controller.element?.('pageText') : controller.element?.('focusText');
         const view = controller.document?.defaultView || rootObject;
         const computed = target && view?.getComputedStyle ? view.getComputedStyle(target) : null;
-        const fontSizePx = Math.max(
-            1,
-            Number.parseFloat(computed?.fontSize)
-                || Number(controller.element?.('fontInput')?.value)
-                || 28,
-        );
+        const fontSizePx = Math.max(1, Number.parseFloat(computed?.fontSize) || Number(controller.element?.('fontInput')?.value) || 28);
         const measureText = responsive.createCanvasMeasurer?.(controller.document, {
             fontFamily: computed?.fontFamily,
             fontSize: computed?.fontSize || `${fontSizePx}px`,
             fontStyle: computed?.fontStyle,
             fontWeight: computed?.fontWeight,
         });
-        const lineHeightPx = numericLineHeight(
-            computed,
-            fontSizePx,
-            responsive.DEFAULT_LINE_HEIGHT_RATIO,
-        );
+        const lineHeightPx = numericLineHeight(computed, fontSizePx, responsive.DEFAULT_LINE_HEIGHT_RATIO);
         const pageLineCapacity = responsive.pageLineCapacity?.(
             controller.playbackAvailableHeight?.(),
             lineHeightPx,
             responsive.DEFAULT_SAFE_VERTICAL_GUTTER_PX,
         ) || Math.max(1, Number(settings.lineCount || settings.maxLines) || 1);
-
         const maximum = maximumSpeedPerMinute({
             displayScope,
             widthPercent: settings.widthPercent,
@@ -187,13 +163,7 @@
             fontSizePx,
             minFrameDurationMs: adapter?.MIN_FRAME_DURATION_MS,
         }, adapter);
-        return {
-            maximum,
-            displayScope,
-            pageLineCapacity,
-            lineHeightPx,
-            fontSizePx,
-        };
+        return { maximum, displayScope, pageLineCapacity, lineHeightPx, fontSizePx };
     }
 
     function updateSpeedLimit(controller, rootObject) {
@@ -224,8 +194,6 @@
                 syncPairedLayoutControl(controller, id);
                 updateSpeedLimit(controller, rootObject);
             };
-            // Capture phase intentionally synchronizes slider/input pairs before
-            // Reader v2 or legacy app handlers rebuild frames from the same event.
             control.addEventListener('input', recalculate, true);
             control.addEventListener('change', recalculate, true);
         }
@@ -238,15 +206,15 @@
         const prototype = Controller?.prototype;
         if (!prototype || !prototype.__speedReadingLayoutIntegrityInstalled) return false;
 
-        if (!prototype.__speedReadingSpeedPolicyInstalled) {
-            const originalBuildFrames = prototype.buildFrames;
-            if (typeof originalBuildFrames !== 'function') return false;
+        const originalBuildFrames = prototype.buildFrames;
+        if (typeof originalBuildFrames === 'function' && !prototype.__speedReadingSpeedBuildDecoratorInstalled) {
             prototype.buildFrames = function buildFramesWithDynamicSpeedLimit(context) {
                 updateSpeedLimit(this, rootObject);
                 return originalBuildFrames.call(this, context);
             };
-            prototype.__speedReadingSpeedPolicyInstalled = true;
+            prototype.__speedReadingSpeedBuildDecoratorInstalled = true;
         }
+        prototype.__speedReadingSpeedPolicyInstalled = true;
 
         const controller = PlaybackUI?.getDefaultController?.();
         if (controller) {
@@ -264,27 +232,11 @@
     }
 
     return {
-        DEFAULT_SPEED_PER_MINUTE,
-        FALLBACK_MIN_FRAME_DURATION_MS,
-        FIXED_VIEWPOINT_LABEL,
-        INSTALL_RETRY_LIMIT,
-        INSTALL_RETRY_MS,
-        LAYOUT_SETTING_PAIRS,
-        LAYOUT_SPEED_CONTROL_IDS,
-        MIN_SPEED_PER_MINUTE,
-        MOVING_VIEWPOINT_LABEL,
-        SPEED_UNIT_LABEL,
-        VIEWPOINT_MODE_LABEL,
-        applySpeedRangeControls,
-        bindDynamicSpeedControls,
-        configureSettingsLabels,
-        frameLineCapacity,
-        install,
-        installWithRetry,
-        maximumSpeedPerMinute,
-        numericLineHeight,
-        speedLayoutContext,
-        syncPairedLayoutControl,
-        updateSpeedLimit,
+        DEFAULT_SPEED_PER_MINUTE, FALLBACK_MIN_FRAME_DURATION_MS, FIXED_VIEWPOINT_LABEL,
+        INSTALL_RETRY_LIMIT, INSTALL_RETRY_MS, LAYOUT_SETTING_PAIRS, LAYOUT_SPEED_CONTROL_IDS,
+        MIN_SPEED_PER_MINUTE, MOVING_VIEWPOINT_LABEL, SPEED_UNIT_LABEL, VIEWPOINT_MODE_LABEL,
+        applySpeedRangeControls, bindDynamicSpeedControls, configureSettingsLabels, frameLineCapacity,
+        install, installWithRetry, maximumSpeedPerMinute, numericLineHeight, speedLayoutContext,
+        syncPairedLayoutControl, updateSpeedLimit,
     };
 });
