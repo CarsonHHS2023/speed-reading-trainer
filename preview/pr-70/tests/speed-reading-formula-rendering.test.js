@@ -149,11 +149,12 @@ test('manual display-formula frame uses shared ReaderFormula KaTeX display rende
   assert.equal(target.children[1].className, 'reader-playback-continue');
 });
 
-test('canonical lifecycle places formula rendering before responsive layout', () => {
+test('canonical lifecycle installs formula rendering after the measured renderer chain exists', () => {
   const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
-  const formula = source.indexOf('speed-reading-formula-rendering.js');
   const responsive = source.indexOf('speed-reading-responsive-layout.js');
-  assert.ok(formula >= 0 && responsive > formula);
+  const punctuation = source.indexOf('reader-punctuation-hanging-policy.js');
+  const formula = source.indexOf('speed-reading-formula-rendering.js');
+  assert.ok(responsive >= 0 && punctuation > responsive && formula > punctuation);
   assert.match(source, /function versionedAsset\(src, documentObject/u);
   assert.match(source, /script\.src = versionedAsset\(src\)/u);
   assert.match(source, /script\.dataset\.readerEnhancement = src/u);
