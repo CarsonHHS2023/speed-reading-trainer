@@ -36,9 +36,10 @@ test('cancel invalidates an in-flight boundary task without waiting for its requ
   assert.deepEqual(updates, ['scanning', '']);
 });
 
-test('Preview runtime loads the boundary coordinator with the exact preview head version', () => {
-  const source = fs.readFileSync('preview-runtime.js', 'utf8');
-  assert.match(source, /reader-boundary-navigation\.js/);
-  assert.match(source, /reader-preview-head/);
-  assert.match(source, /installWithRetry/);
+test('canonical lifecycle owns boundary navigation in Preview and production', () => {
+  const lifecycle = fs.readFileSync('reader-resume-lifecycle.js', 'utf8');
+  const preview = fs.readFileSync('preview-runtime.js', 'utf8');
+  assert.match(lifecycle, /loadScript\('reader-boundary-navigation\.js', 'ReaderBoundaryNavigation'\)/);
+  assert.match(lifecycle, /installWithRetry/);
+  assert.doesNotMatch(preview, /reader-boundary-navigation\.js/);
 });
