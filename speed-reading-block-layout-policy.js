@@ -67,6 +67,113 @@
         return Math.max(1, Math.min(Math.max(1, Number(contentWidthPx) || 1), Number(width) || 1));
     }
 
+    function blockRowHeightPx(frame, built, responsive = ResponsiveLayout) {
+        const baseLineHeightPx = Math.max(1, Number(built?.options?.lineHeightPx) || 1);
+        const row = frame?.lines?.[0];
+        if (!row) return baseLineHeightPx;
+
+        if (typeof responsive?.measuredRowMetrics === 'function') {
+            const metrics = responsive.measuredRowMetrics(row, {
+                baseFontSizePx: Math.max(1, Number(built?.options?.fontSizePx) || 28),
+                baseLineHeightPx,
+            });
+            const measured = Number(metrics?.row_height_px);
+            if (Number.isFinite(measured) && measured > 0) return measured;
+        }
+
+        const annotated = Number(row?.row_height_px);
+        return Number.isFinite(annotated) && annotated > 0 ? annotated : baseLineHeightPx;
+    }
+
+    function reflowMovingBlockVerticalPlacement(built, responsive = ResponsiveLayout) {
+        if (!built) return built;
+        const frames = Array.isArray(built.frames) ? built.frames : [];
+        const baseLineHeightPx = Math.max(1, Number(built.options?.lineHeightPx) || 1);
+        const configuredCapacity = Number(built.options?.pageLineCapacity);
+        const capacity = Number.isFinite(configuredCapacity) && configuredCapacity > 0
+            ? Math.max(1, Math.floor(configuredCapacity))
+            : Number.POSITIVE_INFINITY;
+        const configuredPageHeightPx = Number(built.options?.pageHeightPx);
+        const pageHeightPx = Number.isFinite(configuredPageHeightPx) && configuredPageHeightPx > 0
+            ? configuredPageHeightPx
+            : (Number.isFinite(capacity) ? capacity * baseLineHeightPx : baseLineHeightPx);
+
+        let virtualPageIndex = 0;
+        let lineIndex = 0;
+        let usedHeightPx = 0;
+        let index = 0;
+
+        const startFreshPage = () => {
+            virtualPageIndex += 1;
+            lineIndex = 0;
+            usedHeightPx = 0;
+        };
+
+        while (index < frames.length) {
+            const frame = frames[index];
+            if (frame?.kind === 'manual') {
+                if (lineIndex > 0 || usedHeightPx > 0) startFreshPage();
+                frame.placement = {
+                    ...(frame.placement || {}),
+                    virtual_page_index: virtualPageIndex,
+                    line_index: 0,
+                    y_px: 0,
+                };
+                startFreshPage();
+                index += 1;
+                continue;
+            }
+
+            if (frame?.kind !== 'timed_text' || !frame?.placement) {
+                index += 1;
+                continue;
+            }
+
+            const originalPageIndex = Number(frame.placement.virtual_page_index);
+            const originalLineIndex = Number(frame.placement.line_index);
+            let groupEnd = index + 1;
+            while (groupEnd < frames.length) {
+                const next = frames[groupEnd];
+                if (next?.kind !== 'timed_text' || !next?.placement) break;
+                if (
+                    Number(next.placement.virtual_page_index) !== originalPageIndex
+                    || Number(next.placement.line_index) !== originalLineIndex
+                ) break;
+                groupEnd += 1;
+            }
+
+            const rowHeightPx = blockRowHeightPx(frame, built, responsive);
+            const paragraphGapPx = lineIndex > 0
+                ? Math.max(0, Number(frame.lines?.[0]?.paragraph_gap_before_px) || 0)
+                : 0;
+            const exceedsCapacity = lineIndex > 0 && lineIndex >= capacity;
+            const exceedsHeight = lineIndex > 0
+                && usedHeightPx + paragraphGapPx + rowHeightPx > pageHeightPx + 0.01;
+            if (exceedsCapacity || exceedsHeight) startFreshPage();
+
+            const appliedParagraphGapPx = lineIndex > 0
+                ? Math.max(0, Number(frame.lines?.[0]?.paragraph_gap_before_px) || 0)
+                : 0;
+            const yPx = usedHeightPx + appliedParagraphGapPx;
+            for (let groupIndex = index; groupIndex < groupEnd; groupIndex += 1) {
+                const groupedFrame = frames[groupIndex];
+                groupedFrame.placement = {
+                    ...(groupedFrame.placement || {}),
+                    virtual_page_index: virtualPageIndex,
+                    line_index: lineIndex,
+                    y_px: yPx,
+                };
+            }
+
+            usedHeightPx = yPx + rowHeightPx;
+            lineIndex += 1;
+            if (lineIndex >= capacity) startFreshPage();
+            index = groupEnd;
+        }
+
+        return built;
+    }
+
     function convertLineBuildToFixedBlocks(built, options = {}) {
         if (!built) return built;
         const contentWidthPx = Math.max(
@@ -118,7 +225,8 @@
 
         if (readingMode === 'moving') {
             const built = originalBuild.call(responsive, adapter, documentView, nodes, options);
-            return restoreCanonicalTocTitleTypography(built, nodes, options.measureText);
+            restoreCanonicalTocTitleTypography(built, nodes, options.measureText);
+            return reflowMovingBlockVerticalPlacement(built, responsive);
         }
 
         // Fixed-viewpoint Block is a continuous measured stream: soft visual-line
@@ -232,6 +340,7 @@
     return {
         INSTALL_RETRY_LIMIT,
         INSTALL_RETRY_MS,
+        blockRowHeightPx,
         buildBlockAwarePlaybackFrames,
         canonicalTocTitleNodeIds,
         convertLineBuildToFixedBlocks,
@@ -240,6 +349,7 @@
         installWithRetry,
         normalizeNodeType,
         normalizeReadingMode,
+        reflowMovingBlockVerticalPlacement,
         restoreCanonicalTocTitleTypography,
     };
 });
