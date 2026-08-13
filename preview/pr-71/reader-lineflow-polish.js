@@ -6,7 +6,16 @@
     'use strict';
 
     const LEADING_CLOSING_PUNCTUATION = /^[,.;:!?%。，；：！？％、…—”’）】》〉」』〕］｝]+/u;
-    const DEFAULT_MEASURE_RESERVE_PX = 28;
+    const DEFAULT_MEASURE_RESERVE_PX = 48;
+    const FONT_MEASURE_RESERVE_RATIO = 1.5;
+
+    function measureReservePx(options = {}) {
+        const fontSizePx = Math.max(
+            0,
+            Number(options?.fontSizePx || options?.fontSize || 0) || 0,
+        );
+        return Math.max(DEFAULT_MEASURE_RESERVE_PX, fontSizePx * FONT_MEASURE_RESERVE_RATIO);
+    }
 
     function rebalanceFrameLines(frames, adapter, speedPerMinute) {
         let previousLine = null;
@@ -48,7 +57,7 @@
         const originalAdapterOptions = Controller.prototype.adapterOptions;
         Controller.prototype.adapterOptions = function lineflowAdapterOptions() {
             const options = originalAdapterOptions.call(this);
-            const reserve = Math.max(DEFAULT_MEASURE_RESERVE_PX, Number(options?.fontSize || 0) * 0.5 || 0);
+            const reserve = measureReservePx(options);
             return {
                 ...options,
                 maxWidthPx: Math.max(1, Number(options.maxWidthPx || 1) - reserve),
@@ -72,8 +81,10 @@
 
     return {
         DEFAULT_MEASURE_RESERVE_PX,
+        FONT_MEASURE_RESERVE_RATIO,
         LEADING_CLOSING_PUNCTUATION,
         install,
+        measureReservePx,
         rebalanceFrameLines,
     };
 });
