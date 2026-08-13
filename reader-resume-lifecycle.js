@@ -33,9 +33,6 @@
         }
     }
 
-    // document.currentScript is only reliable while this entrypoint is executing.
-    // Capture its deployment SHA now so later Promise-chain loads inherit the same
-    // production/Preview asset version even after currentScript becomes null.
     const ENTRYPOINT_ASSET_VERSION = currentScriptAssetVersion(
         typeof document !== 'undefined' ? document : null,
     );
@@ -283,7 +280,9 @@
 
     function installEnhancements() {
         refreshStylesheet();
-        return loadScript('speed-reading-structure-policy.js', 'SpeedReadingStructurePolicy')
+        return loadScript('reader-resume-window-policy.js', 'ReaderResumeWindowPolicy')
+            .then((module) => module?.install?.(root))
+            .then(() => loadScript('speed-reading-structure-policy.js', 'SpeedReadingStructurePolicy'))
             .then((module) => module?.install?.(root))
             .then(() => root.SpeedReadingAdapter?.installPlaybackRenderer?.(root))
             .then(() => loadScript('reader-fragment-join-policy.js', 'ReaderFragmentJoinPolicy'))
