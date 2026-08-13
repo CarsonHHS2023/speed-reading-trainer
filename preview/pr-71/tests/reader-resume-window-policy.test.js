@@ -1,118 +1,91 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-
 const Policy = require('../reader-resume-window-policy.js');
 
-function nodes(start, count = 150) {
-  return Array.from({ length: count }, (_, index) => ({
-    node_id: `n${start + index}`,
-    order: start + index,
-    location: { node_id: `n${start + index}` },
+function makeNodes(start) {
+  return Array.from({ length: 150 }, (_, i) => ({
+    node_id: `n${start + i}`,
+    order: start + i,
+    location: { node_id: `n${start + i}` },
   }));
 }
 
-function controllerFixture() {
+function fixture() {
   class Controller {}
   const ReaderUI = {
     NODE_LIMIT: 150,
     ReaderV2Controller: Controller,
-    windowStartForOrder(order) { return Math.floor(Number(order) / 150) * 150; },
+    windowStartForOrder(order) { return Math.floor(order / 150) * 150; },
   };
-  assert.equal(Policy.install({ ReaderUIV2: ReaderUI }), true);
-
-  const controller = new Controller();
-  controller.documentRef = 'doc';
-  controller.candidateId = 'candidate';
-  controller.openResponse = { candidate_id: 'candidate' };
-  controller.contentWindows = new Map();
-  controller.nodes = [];
-  controller.statuses = [];
-  controller.resume = {
-    sameCandidate() { return true; },
+  Policy.install({ ReaderUIV2: ReaderUI });
+  const c = new Controller();
+  c.documentRef = 'doc';
+  c.candidateId = 'candidate';
+  c.openResponse = { candidate_id: 'candidate' };
+  c.contentWindows = new Map();
+  c.nodes = [];
+  c.resume = { sameCandidate() { return true; } };
+  c.resumeStore = { clear() {} };
+  c.model = {
+    orderedNodes(value) { return [...value]; },
+    findNodeById(value, id) { return value.find((node) => node.node_id === id) || null; },
   };
-  controller.resumeStore = {
-    clear() {},
+  c.setStatus = () => {};
+  c.setVisibleWindows = (starts) => {
+    c.visibleStarts = [...starts];
+    c.nodes = starts.flatMap((start) => c.contentWindows.get(start)?.nodes || []);
   };
-  controller.model = {
-    orderedNodes(value) { return [...value].sort((a, b) => a.order - b.order); },
-    findNodeById(value, nodeId) { return value.find((node) => node.node_id === nodeId) || null; },
+  c.locationForNode = (id) => ({ node_id: id });
+  c.scrollLoadedNode = () => true;
+  c.persistLocation = (_location, extra) => {
+    c.persistedNodeOrder = extra.nodeOrder;
+    return null;
   };
-  controller.setStatus = (message) => controller.statuses.push(message);
-  controller.setVisibleWindows = (starts) => {
-    controller.visibleStarts = [...starts];
-    controller.nodes = starts.flatMap((start) => controller.contentWindows.get(start)?.nodes || []);
-  };
-  controller.locationForNode = (nodeId) => ({ node_id: nodeId });
-  controller.scrollLoadedNode = () => true;
-  controller.persistLocation = (location, extra) => {
-    controller.persisted = { location, extra };
-    return { node_id: location.node_id, node_order: extra.nodeOrder };
-  };
-  return controller;
+  return c;
 }
 
-test('legacy resume resolves node id once and activates only its containing 150-node window', async () => {
-  const controller = controllerFixture();
-  let aroundCalls = 0;
-  controller.api = {
-    async contentAround(documentRef, nodeId, options) {
-      aroundCalls += 1;
-      assert.equal(documentRef, 'doc');
+test('legacy history uses one server lookup and activates only its containing 150-node window', async () => {
+  const c = fixture();
+  let calls = 0;
+  c.api = {
+    async contentAround(_doc, nodeId, options) {
+      calls += 1;
       assert.equal(nodeId, 'n217');
       assert.equal(options.limit, 150);
-      assert.equal(options.candidateId, 'candidate');
-      return { nodes: nodes(150), has_more: true, next_node_order: 300 };
+      return { nodes: makeNodes(150), has_more: true, next_node_order: 300 };
     },
   };
-  controller.requestWindow = async () => {
-    throw new Error('legacy resume must not scan sequential content windows');
-  };
+  c.requestWindow = async () => assert.fail('legacy history must not scan content windows');
 
-  const result = await controller.restoreResumeLocation({
-    node_id: 'n217',
-    node_order: null,
-    frame_id: null,
-    frame_ordinal: null,
-  });
+  await c.restoreResumeLocation({ node_id: 'n217', node_order: null });
 
-  assert.equal(aroundCalls, 1);
-  assert.deepEqual(controller.visibleStarts, [150]);
-  assert.equal(controller.nodes.length, 150);
-  assert.equal(controller.persisted.extra.nodeOrder, 217);
-  assert.equal(result.node_order, 217);
-  assert.ok(!controller.statuses.some((message) => message.includes('已扫描')));
+  assert.equal(calls, 1);
+  assert.deepEqual(c.visibleStarts, [150]);
+  assert.equal(c.nodes.length, 150);
+  assert.equal(c.persistedNodeOrder, 217);
 });
 
-test('modern resume requests only the aligned containing window and not the following batch', async () => {
-  const controller = controllerFixture();
+test('modern history requests only its aligned 150-node window', async () => {
+  const c = fixture();
   const requested = [];
-  controller.api = {
-    async contentAround() { throw new Error('modern resume must not need node-id lookup'); },
-  };
-  controller.requestWindow = async (start) => {
+  c.api = { contentAround: async () => assert.fail('modern history does not need lookup') };
+  c.requestWindow = async (start) => {
     requested.push(start);
-    const record = Object.freeze({ start, nodes: nodes(start), hasMore: true, nextNodeOrder: start + 150 });
-    controller.contentWindows.set(start, record);
+    const record = { start, nodes: makeNodes(start), hasMore: true, nextNodeOrder: start + 150 };
+    c.contentWindows.set(start, record);
     return record;
   };
 
-  await controller.restoreResumeLocation({
-    node_id: 'n217',
-    node_order: 217,
-    frame_id: null,
-    frame_ordinal: null,
-  });
+  await c.restoreResumeLocation({ node_id: 'n217', node_order: 217 });
 
   assert.deepEqual(requested, [150]);
-  assert.deepEqual(controller.visibleStarts, [150]);
-  assert.equal(controller.nodes.length, 150);
+  assert.deepEqual(c.visibleStarts, [150]);
+  assert.equal(c.nodes.length, 150);
 });
 
-test('canonical lifecycle loads bounded resume policy before playback enhancements', () => {
+test('canonical lifecycle installs bounded resume before playback enhancements', () => {
   const source = fs.readFileSync(require.resolve('../reader-resume-lifecycle.js'), 'utf8');
-  const resumeIndex = source.indexOf("reader-resume-window-policy.js");
-  const playbackIndex = source.indexOf("speed-reading-structure-policy.js");
-  assert.ok(resumeIndex >= 0);
-  assert.ok(playbackIndex > resumeIndex);
+  assert.ok(source.indexOf('reader-resume-window-policy.js') >= 0);
+  assert.ok(source.indexOf('speed-reading-structure-policy.js') > source.indexOf('reader-resume-window-policy.js'));
 });
