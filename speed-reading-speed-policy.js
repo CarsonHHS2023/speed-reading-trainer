@@ -64,6 +64,8 @@
 
     function installMeasuredWidthGuard(prototype, responsive) {
         if (!prototype || prototype.__speedReadingMeasuredWidthGuardInstalled) return Boolean(prototype);
+        const singleRowTypes = responsive?.SINGLE_ROW_TYPES;
+        if (!singleRowTypes || typeof singleRowTypes.delete !== 'function') return false;
         const originalAdapterOptions = prototype.adapterOptions;
         if (typeof originalAdapterOptions !== 'function') return false;
         enableWrappedStructureRows(responsive);
