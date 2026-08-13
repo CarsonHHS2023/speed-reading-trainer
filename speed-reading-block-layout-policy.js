@@ -87,6 +87,7 @@
 
     function reflowMovingBlockVerticalPlacement(built, responsive = ResponsiveLayout) {
         if (!built) return built;
+        if (built.options?.movingBlockVerticalReflow === true) return built;
         const frames = Array.isArray(built.frames) ? built.frames : [];
         const baseLineHeightPx = Math.max(1, Number(built.options?.lineHeightPx) || 1);
         const configuredCapacity = Number(built.options?.pageLineCapacity);
@@ -171,6 +172,10 @@
             index = groupEnd;
         }
 
+        built.options = {
+            ...(built.options || {}),
+            movingBlockVerticalReflow: true,
+        };
         return built;
     }
 
@@ -246,6 +251,30 @@
         return convertLineBuildToFixedBlocks(built, options);
     }
 
+    function runtimeContextNodes(controller, context) {
+        if (Array.isArray(context?.nodes)) return context.nodes;
+        const fallback = controller?.playbackContext?.();
+        return Array.isArray(fallback?.nodes) ? fallback.nodes : [];
+    }
+
+    function decorateRuntimeBlockBuild(controller, built, context, responsive = ResponsiveLayout) {
+        if (!built) return built;
+        const displayScope = controller?.displayScope?.() || built.options?.displayScope || 'line';
+        if (displayScope !== 'block') return built;
+        const readingMode = normalizeReadingMode(
+            controller?.readingMode?.() || built.options?.readingMode,
+        );
+        if (readingMode !== 'moving') return built;
+
+        // The responsive Controller build path calls its module-local measured builder,
+        // not the exported responsive.buildMeasuredPlaybackFrames property. Therefore
+        // wrapping only the export is insufficient for browser runtime. Decorate the
+        // actual Controller result here so moving Block vertical packing is guaranteed
+        // to run in the same path that renderFrame consumes.
+        restoreCanonicalTocTitleTypography(built, runtimeContextNodes(controller, context));
+        return reflowMovingBlockVerticalPlacement(built, responsive);
+    }
+
     function install(rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
         const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
         const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
@@ -256,6 +285,7 @@
             || !prototype?.__speedReadingLayoutIntegrityInstalled
         ) return false;
 
+        // Keep the exported helper wrapped for direct/pure construction paths.
         if (!responsive.__blockViewpointBuildWrapped) {
             const originalBuild = responsive.buildMeasuredPlaybackFrames;
             responsive.buildMeasuredPlaybackFrames = function blockViewpointAwareBuild(
@@ -274,6 +304,19 @@
                 );
             };
             responsive.__blockViewpointBuildWrapped = true;
+        }
+
+        // Browser runtime does not call the exported function above: the responsive
+        // controller closes over its module-local builder. Wrap the authoritative
+        // Controller entrypoint as well so the policy cannot be bypassed at runtime.
+        if (!prototype.__blockViewpointRuntimeBuildWrapped) {
+            const originalBuildFrames = prototype.buildFrames;
+            if (typeof originalBuildFrames !== 'function') return false;
+            prototype.buildFrames = function blockViewpointRuntimeBuild(context) {
+                const built = originalBuildFrames.call(this, context);
+                return decorateRuntimeBlockBuild(this, built, context, responsive);
+            };
+            prototype.__blockViewpointRuntimeBuildWrapped = true;
         }
 
         if (!prototype.__blockViewpointAdapterOptionsWrapped) {
@@ -344,6 +387,7 @@
         buildBlockAwarePlaybackFrames,
         canonicalTocTitleNodeIds,
         convertLineBuildToFixedBlocks,
+        decorateRuntimeBlockBuild,
         fixedBlockFrameWidth,
         install,
         installWithRetry,
@@ -351,5 +395,6 @@
         normalizeReadingMode,
         reflowMovingBlockVerticalPlacement,
         restoreCanonicalTocTitleTypography,
+        runtimeContextNodes,
     };
 });
