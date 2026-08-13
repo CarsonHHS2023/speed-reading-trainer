@@ -146,6 +146,25 @@
             );
         }
 
+        async contentAround(documentRef, nodeId, options = {}) {
+            const expectedNodeId = String(nodeId || '').trim();
+            if (!expectedNodeId) throw new Error('nodeId is required for Reader v2 content lookup');
+            const limit = Math.max(1, Math.min(MAX_NODE_LIMIT, Number(options.limit || DEFAULT_NODE_LIMIT)));
+            const params = new URLSearchParams({
+                node_id: expectedNodeId,
+                limit: String(limit),
+            });
+            if (options.candidateId) params.set('candidate_id', options.candidateId);
+            const doc = encodeURIComponent(String(documentRef));
+            return assertIdentity(
+                await this.requestJson(`/api/reader/v2/documents/${doc}/content/around?${params.toString()}`),
+                {
+                    document_ref: String(documentRef),
+                    candidate_id: options.candidateId,
+                },
+            );
+        }
+
         async asset(documentRef, assetId, options = {}) {
             if (!options.candidateId) throw new Error('candidateId is required for Reader v2 assets');
             const doc = encodeURIComponent(String(documentRef));
