@@ -182,11 +182,11 @@ test('horizontal safety gutter is symmetric by moving measured content origin in
   assert.equal(frames[3].placement.x_px, 0);
 });
 
-test('timed text keeps the reading target clipped while allowing internal glyph bleed without moving the text origin', () => {
+test('timed text keeps measured row width authoritative while allowing only bounded glyph bleed', () => {
   const targetStyle = importantStyle({ overflow: 'visible' });
   const containerStyle = importantStyle({ overflow: 'hidden' });
   const structuredStyle = importantStyle({ overflow: 'hidden' });
-  const rowStyles = [importantStyle({ overflow: 'hidden' }), importantStyle({ overflow: 'hidden' })];
+  const rowStyles = [importantStyle({ overflow: 'visible', width: 'calc(100% + 12px)' }), importantStyle({ overflow: 'visible' })];
   const target = {
     style: targetStyle,
     querySelector(selector) {
@@ -205,11 +205,15 @@ test('timed text keeps the reading target clipped while allowing internal glyph 
   assert.equal(containerStyle.value('overflow'), 'visible');
   assert.equal(structuredStyle.value('overflow'), 'visible');
   for (const style of rowStyles) {
-    assert.equal(style.value('overflow'), 'visible');
-    assert.equal(style.value('margin-inline'), '-6px');
-    assert.equal(style.value('padding-inline'), '6px');
-    assert.equal(style.value('width'), 'calc(100% + 12px)');
+    assert.equal(style.value('box-sizing'), 'border-box');
+    assert.equal(style.value('width'), '100%');
+    assert.equal(style.value('max-width'), '100%');
+    assert.equal(style.value('margin-inline'), '0');
+    assert.equal(style.value('padding-inline'), '0');
+    assert.equal(style.value('overflow'), 'clip');
+    assert.equal(style.value('overflow-clip-margin'), '6px');
     assert.equal(style.priority('overflow'), 'important');
+    assert.equal(style.priority('width'), 'important');
   }
 });
 
