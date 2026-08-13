@@ -23,6 +23,9 @@
     const VIEWPOINT_MODE_LABEL = '视点模式：';
     const FIXED_VIEWPOINT_LABEL = '固定式';
     const MOVING_VIEWPOINT_LABEL = '移动式';
+    const DEFAULT_MEASURE_RESERVE_PX = 48;
+    const FONT_MEASURE_RESERVE_RATIO = 1.5;
+    const WRAPPABLE_STRUCTURE_TYPES = Object.freeze(['list', 'list_item']);
     const LAYOUT_SETTING_PAIRS = Object.freeze({
         speedSlider: 'speedInput',
         speedInput: 'speedSlider',
@@ -45,6 +48,36 @@
         const numeric = Number(value);
         if (!Number.isFinite(numeric)) return 100;
         return Math.max(20, Math.min(100, numeric));
+    }
+
+    function measureReservePx(options = {}) {
+        const fontSizePx = Math.max(0, Number(options?.fontSizePx || options?.fontSize || 0) || 0);
+        return Math.max(DEFAULT_MEASURE_RESERVE_PX, fontSizePx * FONT_MEASURE_RESERVE_RATIO);
+    }
+
+    function enableWrappedStructureRows(layout) {
+        const singleRowTypes = layout?.SINGLE_ROW_TYPES;
+        if (!singleRowTypes || typeof singleRowTypes.delete !== 'function') return false;
+        for (const nodeType of WRAPPABLE_STRUCTURE_TYPES) singleRowTypes.delete(nodeType);
+        return true;
+    }
+
+    function installMeasuredWidthGuard(prototype, responsive) {
+        if (!prototype || prototype.__speedReadingMeasuredWidthGuardInstalled) return Boolean(prototype);
+        const originalAdapterOptions = prototype.adapterOptions;
+        if (typeof originalAdapterOptions !== 'function') return false;
+        enableWrappedStructureRows(responsive);
+        prototype.adapterOptions = function measuredWidthGuardAdapterOptions() {
+            const options = originalAdapterOptions.call(this);
+            const reserve = measureReservePx(options);
+            return {
+                ...options,
+                maxWidthPx: Math.max(1, Number(options?.maxWidthPx || 1) - reserve),
+                measurementReservePx: reserve,
+            };
+        };
+        prototype.__speedReadingMeasuredWidthGuardInstalled = true;
+        return true;
     }
 
     function numericLineHeight(computed, fallbackFontSize, ratio = 1.55) {
@@ -204,7 +237,10 @@
         const PlaybackUI = rootObject?.ReaderSpeedPlaybackUI;
         const Controller = PlaybackUI?.ReaderSpeedPlaybackUIController;
         const prototype = Controller?.prototype;
+        const responsive = rootObject?.SpeedReadingResponsiveLayout || ResponsiveLayout;
         if (!prototype || !prototype.__speedReadingLayoutIntegrityInstalled) return false;
+
+        installMeasuredWidthGuard(prototype, responsive);
 
         const originalBuildFrames = prototype.buildFrames;
         if (typeof originalBuildFrames === 'function' && !prototype.__speedReadingSpeedBuildDecoratorInstalled) {
@@ -232,11 +268,12 @@
     }
 
     return {
-        DEFAULT_SPEED_PER_MINUTE, FALLBACK_MIN_FRAME_DURATION_MS, FIXED_VIEWPOINT_LABEL,
-        INSTALL_RETRY_LIMIT, INSTALL_RETRY_MS, LAYOUT_SETTING_PAIRS, LAYOUT_SPEED_CONTROL_IDS,
-        MIN_SPEED_PER_MINUTE, MOVING_VIEWPOINT_LABEL, SPEED_UNIT_LABEL, VIEWPOINT_MODE_LABEL,
-        applySpeedRangeControls, bindDynamicSpeedControls, configureSettingsLabels, frameLineCapacity,
-        install, installWithRetry, maximumSpeedPerMinute, numericLineHeight, speedLayoutContext,
-        syncPairedLayoutControl, updateSpeedLimit,
+        DEFAULT_MEASURE_RESERVE_PX, DEFAULT_SPEED_PER_MINUTE, FALLBACK_MIN_FRAME_DURATION_MS,
+        FIXED_VIEWPOINT_LABEL, FONT_MEASURE_RESERVE_RATIO, INSTALL_RETRY_LIMIT, INSTALL_RETRY_MS,
+        LAYOUT_SETTING_PAIRS, LAYOUT_SPEED_CONTROL_IDS, MIN_SPEED_PER_MINUTE, MOVING_VIEWPOINT_LABEL,
+        SPEED_UNIT_LABEL, VIEWPOINT_MODE_LABEL, WRAPPABLE_STRUCTURE_TYPES, applySpeedRangeControls,
+        bindDynamicSpeedControls, configureSettingsLabels, enableWrappedStructureRows, frameLineCapacity,
+        install, installMeasuredWidthGuard, installWithRetry, maximumSpeedPerMinute, measureReservePx,
+        numericLineHeight, speedLayoutContext, syncPairedLayoutControl, updateSpeedLimit,
     };
 });
