@@ -507,12 +507,18 @@
 
         const rows = target?.querySelectorAll?.('.reader-playback-line') || [];
         for (const row of rows) {
-            setImportant(row?.style, 'overflow', 'visible');
-            if (bleed > 0) {
-                setImportant(row?.style, 'margin-inline', `-${bleed}px`);
-                setImportant(row?.style, 'padding-inline', `${bleed}px`);
-                setImportant(row?.style, 'width', `calc(100% + ${bleed * 2}px)`);
-            }
+            // Keep the measured row geometry authoritative. The former 100%+bleed
+            // expansion combined with visible overflow allowed any Canvas/browser
+            // measurement drift to escape the configured Page/Line width. CSS clip
+            // margin still gives glyphs a bounded antialiasing allowance without
+            // turning the row into an unbounded full-width paint surface.
+            setImportant(row?.style, 'box-sizing', 'border-box');
+            setImportant(row?.style, 'width', '100%');
+            setImportant(row?.style, 'max-width', '100%');
+            setImportant(row?.style, 'margin-inline', '0');
+            setImportant(row?.style, 'padding-inline', '0');
+            setImportant(row?.style, 'overflow', 'clip');
+            if (bleed > 0) setImportant(row?.style, 'overflow-clip-margin', `${bleed}px`);
         }
         return rows.length;
     }
