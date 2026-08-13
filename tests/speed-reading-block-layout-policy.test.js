@@ -189,6 +189,7 @@ test('changing viewpoint while in Block forces one frame rebuild so grouping fol
         }
         readingMode() { return this.mode; }
         displayScope() { return this.scope; }
+        buildFrames() { return { frames: [], options: {} }; }
         adapterOptions() { return { displayScope: this.scope }; }
         onDisplayModeChanged() { return true; }
         onSettingChanged(options = {}) {
@@ -238,6 +239,7 @@ test('Block selector keeps Reader v2 width settings visible before a book is act
         }
         readingMode() { return this.mode; }
         displayScope() { return this.scope; }
+        buildFrames() { return { frames: [], options: {} }; }
         adapterOptions() { return { displayScope: this.scope }; }
         isReaderActive() { return this.active; }
         updateSettingsVisibility() { visibilityUpdates += 1; }
