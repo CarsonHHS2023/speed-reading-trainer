@@ -50,3 +50,14 @@ test('measurement reserve uses the actual responsive fontSizePx field and scales
   assert.equal(Lineflow.measureReservePx({ fontSizePx: 40 }), 60);
   assert.equal(Lineflow.measureReservePx({ fontSize: 50 }), 75);
 });
+
+test('list and list_item remain structural boundaries but are allowed to use measured visual wrapping', () => {
+  const singleRowTypes = new Set(['title', 'heading', 'list', 'list_item', 'toc', 'toc_item']);
+  assert.equal(Lineflow.enableWrappedStructureRows({ SINGLE_ROW_TYPES: singleRowTypes }), true);
+  assert.equal(singleRowTypes.has('list'), false);
+  assert.equal(singleRowTypes.has('list_item'), false);
+  assert.equal(singleRowTypes.has('title'), true);
+  assert.equal(singleRowTypes.has('heading'), true);
+  assert.equal(singleRowTypes.has('toc'), true);
+  assert.equal(singleRowTypes.has('toc_item'), true);
+});
