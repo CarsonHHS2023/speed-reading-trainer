@@ -46,7 +46,7 @@ body.dark-mode .speed-reading-v2-shortcuts { color: #aaa; }
 .reader-playback-line-list_item { text-align: left; }
 .reader-playback-line-caption, .reader-playback-line-header, .reader-playback-line-footer, .reader-playback-line-footnote, .reader-playback-line-reference { font-size: .82em; color: #666; }
 body.dark-mode .reader-playback-line-caption, body.dark-mode .reader-playback-line-header, body.dark-mode .reader-playback-line-footer, body.dark-mode .reader-playback-line-footnote, body.dark-mode .reader-playback-line-reference { color: #aaa; }
-.reader-playback-line-quote { padding-inline-start: .7em !important; border-inline-start: 3px solid rgba(102, 126, 234, .5); }
+.reader-playback-line-quote { padding-inline-start: 0 !important; border-inline-start: 0; }
 .reader-playback-line-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .reading-panel[data-speed-reading-mode="focus"] #focusModeDisplay.active, .reading-panel[data-speed-reading-mode="focus"] #pageModeDisplay.active { align-items: center; justify-content: center; }
 .reading-panel[data-speed-reading-mode="moving"] .reader-playback-frame-text { animation: speed-reading-moving-enter 180ms ease-out; }
