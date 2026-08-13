@@ -43,3 +43,10 @@ test('manual frames remain a hard punctuation boundary', () => {
   assert.equal(frames[0].lines[0].text, '图片前正文');
   assert.equal(frames[2].lines[0].text, '。图片后正文');
 });
+
+test('measurement reserve uses the actual responsive fontSizePx field and scales for larger fonts', () => {
+  assert.equal(Lineflow.measureReservePx({}), 48);
+  assert.equal(Lineflow.measureReservePx({ fontSizePx: 28 }), 48);
+  assert.equal(Lineflow.measureReservePx({ fontSizePx: 40 }), 60);
+  assert.equal(Lineflow.measureReservePx({ fontSize: 50 }), 75);
+});
