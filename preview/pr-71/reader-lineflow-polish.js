@@ -8,6 +8,7 @@
     const LEADING_CLOSING_PUNCTUATION = /^[,.;:!?%。，；：！？％、…—”’）】》〉」』〕］｝]+/u;
     const DEFAULT_MEASURE_RESERVE_PX = 48;
     const FONT_MEASURE_RESERVE_RATIO = 1.5;
+    const WRAPPABLE_STRUCTURE_TYPES = Object.freeze(['list', 'list_item']);
 
     function measureReservePx(options = {}) {
         const fontSizePx = Math.max(
@@ -15,6 +16,13 @@
             Number(options?.fontSizePx || options?.fontSize || 0) || 0,
         );
         return Math.max(DEFAULT_MEASURE_RESERVE_PX, fontSizePx * FONT_MEASURE_RESERVE_RATIO);
+    }
+
+    function enableWrappedStructureRows(layout) {
+        const singleRowTypes = layout?.SINGLE_ROW_TYPES;
+        if (!singleRowTypes || typeof singleRowTypes.delete !== 'function') return false;
+        for (const nodeType of WRAPPABLE_STRUCTURE_TYPES) singleRowTypes.delete(nodeType);
+        return true;
     }
 
     function rebalanceFrameLines(frames, adapter, speedPerMinute) {
@@ -54,6 +62,12 @@
         const adapter = rootObject?.SpeedReadingAdapter;
         if (!Controller || !adapter || Controller.prototype.__lineflowPolishInstalled) return false;
 
+        // A semantic list/list_item is a hard structure boundary, not a promise that
+        // its entire text must fit one visual row. Keep titles/headings/TOC atomic
+        // for their dedicated presentation rules, but let long list content use the
+        // normal measured wrapping path in Page, Line, and Block modes.
+        enableWrappedStructureRows(rootObject?.SpeedReadingResponsiveLayout);
+
         const originalAdapterOptions = Controller.prototype.adapterOptions;
         Controller.prototype.adapterOptions = function lineflowAdapterOptions() {
             const options = originalAdapterOptions.call(this);
@@ -83,6 +97,8 @@
         DEFAULT_MEASURE_RESERVE_PX,
         FONT_MEASURE_RESERVE_RATIO,
         LEADING_CLOSING_PUNCTUATION,
+        WRAPPABLE_STRUCTURE_TYPES,
+        enableWrappedStructureRows,
         install,
         measureReservePx,
         rebalanceFrameLines,
