@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 const Adapter = require('../speed-reading-adapter.js');
 const Layout = require('../speed-reading-responsive-layout.js');
-const Lineflow = require('../reader-lineflow-polish.js');
+const SpeedPolicy = require('../speed-reading-speed-policy.js');
 
 const documentView = {
   contract_version: '2',
@@ -41,7 +41,7 @@ function measure(text) {
 }
 
 test('long list_item text wraps across measured visual rows instead of overflowing as one atomic row', () => {
-  Lineflow.enableWrappedStructureRows(Layout);
+  SpeedPolicy.enableWrappedStructureRows(Layout);
   const text = '（1）广告能否引起消费者的注意，是相对的。动态的事物比静态的事物更吸引人，电视广告比图片广告更能让消费者感兴趣。';
   const elements = Adapter.buildReadingElements(documentView, [node('li-1', 'list_item', text)]);
   const lines = Layout.buildMeasuredLines(Adapter, elements, 180, measure, { paragraphLayout: false });
@@ -51,8 +51,8 @@ test('long list_item text wraps across measured visual rows instead of overflowi
   assert.ok(lines.every((line) => line.measured_width_px <= 180 + 5));
 });
 
-test('long list_item wraps in Page, Line, and Block frame construction after lineflow policy is installed', () => {
-  Lineflow.enableWrappedStructureRows(Layout);
+test('long list_item wraps in Page, Line, and Block frame construction through the active speed policy', () => {
+  SpeedPolicy.enableWrappedStructureRows(Layout);
   const text = '人都是有感情的，引起消费者情感上的共鸣是广告致胜的法宝。例如，献给妈妈的爱，送给最爱的人。';
   for (const displayScope of ['page', 'line', 'block']) {
     const built = Layout.buildMeasuredPlaybackFrames(Adapter, documentView, [node(`li-${displayScope}`, 'list_item', text)], {
