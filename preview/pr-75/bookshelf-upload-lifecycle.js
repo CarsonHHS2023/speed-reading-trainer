@@ -110,10 +110,12 @@
                 let consecutiveFailures = 0;
                 let settled = false;
 
-                const finish = (result, statusText, detail) => {
+                const finish = (result, statusText, detail, terminal = {}) => {
                     if (settled) return;
                     settled = true;
-                    updateProgressUi(statusText, 100, detail || result.error_message || '', true);
+                    const isFailed = terminal.kind === 'failed';
+                    updateProgressUi(statusText, isFailed ? 100 : null, detail || result.error_message || '', isFailed);
+                    if (!isFailed && terminal.label) percentEl.textContent = terminal.label;
                     resolve(result);
                 };
 
@@ -132,8 +134,9 @@
                                 '书籍仍可能在后台处理中；状态查询暂时不可用，请稍后刷新书架。',
                                 'polling_retry_exhausted',
                             ),
-                            '状态查询暂时不可用 ❌',
-                            '请稍后重新登录或刷新书架',
+                            '状态查询暂时不可用 ⚠️',
+                            '书籍仍可能在后台处理中，请稍后刷新书架',
+                            { label: '待确认' },
                         );
                         return;
                     }
@@ -159,8 +162,9 @@
                                     '登录已失效，请重新登录后刷新书架。',
                                     'authentication_required',
                                 ),
-                                '登录已失效 ❌',
+                                '登录已失效 ⚠️',
                                 '请重新登录后刷新书架',
+                                { label: '需登录' },
                             );
                             return;
                         }
@@ -175,8 +179,9 @@
                                 `状态查询失败 (HTTP ${status || 0})`,
                                 'polling_http_error',
                             ),
-                            '状态查询失败 ❌',
+                            '状态查询失败 ⚠️',
                             `HTTP ${status || 0}`,
+                            { label: '待确认' },
                         );
                         return;
                     }
@@ -201,7 +206,7 @@
                         return;
                     }
                     if (book?.status === 'failed') {
-                        finish(book, '处理失败 ❌', book.error_message || '');
+                        finish(book, '处理失败 ❌', book.error_message || '', { kind: 'failed' });
                         return;
                     }
 
