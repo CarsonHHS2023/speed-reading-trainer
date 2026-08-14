@@ -1,0 +1,59 @@
+name: Temporary Preview Upload Diagnostics
+
+on:
+  push:
+    branches:
+      - agent/upload-auth-lifecycle
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-test-space:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe Preview test backend without creating a book
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space'
+          ORIGIN='https://carsonhhs2023.github.io'
+
+          probe() {
+            local name="$1"
+            shift
+            local headers="/tmp/${name}.headers"
+            local body="/tmp/${name}.body"
+            local status
+            status=$(curl -sS -D "$headers" -o "$body" -w '%{http_code}' "$@")
+            echo "=== ${name} status=${status} ==="
+            sed -n '1,30p' "$headers"
+            echo '--- body ---'
+            head -c 1000 "$body" || true
+            echo
+          }
+
+          probe health "$BASE/api/v1/health"
+          probe books_no_auth "$BASE/api/v1/books"
+          probe books_with_auth \
+            -H 'Authorization: Bearer diagnostic-not-a-valid-app-token' \
+            "$BASE/api/v1/books"
+
+          probe upload_preflight \
+            -X OPTIONS \
+            -H "Origin: $ORIGIN" \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: authorization,content-type' \
+            "$BASE/api/v1/upload"
+
+          printf 'diagnostic only\n' > /tmp/probe.md
+          probe upload_invalid_no_auth \
+            -H "Origin: $ORIGIN" \
+            -F 'file=@/tmp/probe.md;filename=probe.md;type=text/markdown' \
+            "$BASE/api/v1/upload"
+          probe upload_invalid_with_auth \
+            -H "Origin: $ORIGIN" \
+            -H 'Authorization: Bearer diagnostic-not-a-valid-app-token' \
+            -F 'file=@/tmp/probe.md;filename=probe.md;type=text/markdown' \
+            "$BASE/api/v1/upload"
