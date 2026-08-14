@@ -57,9 +57,12 @@
     }
 
     // This file is the first application script in index.html. Load the access
-    // bootstrap synchronously here so it captures Preview's fetch rewrite first
-    // and is still installed before Reader/Bookshelf scripts register requests.
+    // bootstrap synchronously so it captures Preview's fetch rewrite first, then
+    // register the upload lifecycle before Bookshelf creates its DOM-ready instance.
     if (root.document && typeof root.document.write === 'function') {
-        root.document.write('<script src="app-access.js"><\/script>');
+        root.document.write(
+            '<script src="app-access.js"><\/script>'
+            + '<script src="bookshelf-upload-lifecycle.js"><\/script>',
+        );
     }
 })(typeof window !== 'undefined' ? window : globalThis);
