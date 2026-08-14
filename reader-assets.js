@@ -82,6 +82,25 @@
         target.appendChild(placeholder);
     }
 
+    function appAccessController() {
+        return typeof globalThis !== 'undefined' ? globalThis.AppAccess : null;
+    }
+
+    async function protectedContentUrl(contentUrl) {
+        const access = appAccessController();
+        if (!access || typeof access.fetchBlobUrl !== 'function') {
+            return { url: contentUrl, revoke: null };
+        }
+        const objectUrl = await access.fetchBlobUrl(contentUrl);
+        const revoke = () => {
+            const URLCtor = typeof globalThis !== 'undefined' ? globalThis.URL : null;
+            if (objectUrl && URLCtor && typeof URLCtor.revokeObjectURL === 'function') {
+                URLCtor.revokeObjectURL(objectUrl);
+            }
+        };
+        return { url: objectUrl, revoke };
+    }
+
     async function renderAssetInto(options = {}) {
         const {
             documentObject,
@@ -101,18 +120,30 @@
             return null;
         }
 
+        let protectedUrl;
+        try {
+            protectedUrl = await protectedContentUrl(resolved.contentUrl);
+        } catch (error) {
+            renderPlaceholder(documentObject, target, nodeType, fallbackText);
+            return null;
+        }
+
         clear(target);
         const figure = documentObject.createElement('figure');
         figure.className = 'reader-v2-asset';
         const image = documentObject.createElement('img');
         image.className = 'reader-v2-asset-image';
-        image.src = resolved.contentUrl;
+        image.src = protectedUrl.url;
         const safeFallback = cleanDisplayText(fallbackText);
         image.alt = cleanDisplayText(resolved.metadata.alt_text)
             || cleanDisplayText(resolved.metadata.caption)
             || safeFallback
             || defaultLabel(nodeType);
-        image.onerror = () => renderPlaceholder(documentObject, target, nodeType, fallbackText);
+        image.onload = () => protectedUrl.revoke?.();
+        image.onerror = () => {
+            protectedUrl.revoke?.();
+            renderPlaceholder(documentObject, target, nodeType, fallbackText);
+        };
         figure.appendChild(image);
         const captionText = cleanDisplayText(resolved.metadata.caption);
         if (captionText) {
@@ -130,6 +161,7 @@
         ReaderAssetResolverV2,
         cleanDisplayText,
         defaultLabel,
+        protectedContentUrl,
         renderAssetInto,
         renderPlaceholder,
     };
