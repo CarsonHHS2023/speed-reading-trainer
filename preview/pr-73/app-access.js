@@ -75,6 +75,14 @@
         if (!rootObject) throw new Error('App access requires a global object');
         const nativeFetch = options.fetchImpl || rootObject.fetch?.bind(rootObject);
         if (!nativeFetch) throw new Error('App access requires fetch');
+        const authFetch = options.authFetchImpl || rootObject.__APP_ACCESS_AUTH_FETCH__ || nativeFetch;
+        if (rootObject.__APP_ACCESS_AUTH_FETCH__) {
+            try {
+                delete rootObject.__APP_ACCESS_AUTH_FETCH__;
+            } catch (error) {
+                rootObject.__APP_ACCESS_AUTH_FETCH__ = undefined;
+            }
+        }
 
         const HeadersCtor = rootObject.Headers || (typeof Headers !== 'undefined' ? Headers : null);
         if (!HeadersCtor) throw new Error('App access requires Headers');
@@ -153,7 +161,7 @@
         }
 
         async function login(password) {
-            const response = await nativeFetch(`${resolveAuthBaseUrl(rootObject)}${LOGIN_PATH}`, {
+            const response = await authFetch(`${resolveAuthBaseUrl(rootObject)}${LOGIN_PATH}`, {
                 method: 'POST',
                 headers: {
                     Accept: 'application/json',
