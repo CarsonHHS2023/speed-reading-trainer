@@ -30,23 +30,27 @@
     }
 
     function resolveUrl(value, rootObject = root) {
-        const raw = typeof value === 'string' || value instanceof URL
-            ? String(value)
-            : String(value?.url || '');
+        const UrlCtor = rootObject?.URL || (typeof URL !== 'undefined' ? URL : null);
+        if (!UrlCtor) return null;
+        const raw = typeof value === 'string'
+            ? value
+            : String(value?.href || value?.url || '');
         if (!raw) return null;
         try {
-            return new URL(raw, rootObject?.location?.href || PRODUCTION_API_BASE_URL);
+            return new UrlCtor(raw, rootObject?.location?.href || PRODUCTION_API_BASE_URL);
         } catch (error) {
             return null;
         }
     }
 
     function backendOrigins(rootObject = root) {
+        const UrlCtor = rootObject?.URL || (typeof URL !== 'undefined' ? URL : null);
         const origins = new Set();
+        if (!UrlCtor) return origins;
         [PRODUCTION_API_BASE_URL, resolveApiBaseUrl(rootObject), resolveAuthBaseUrl(rootObject)]
             .forEach((value) => {
                 try {
-                    origins.add(new URL(value).origin);
+                    origins.add(new UrlCtor(value).origin);
                 } catch (error) {
                     // Ignore invalid optional overrides and let request handling fail normally.
                 }
@@ -191,6 +195,16 @@
             return URLCtor.createObjectURL(blob);
         }
 
+        function ensureStylesheet() {
+            const documentObject = rootObject.document;
+            if (!documentObject?.head || documentObject.querySelector?.('[data-app-access-style]')) return;
+            const link = documentObject.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'app-access.css';
+            link.dataset.appAccessStyle = 'true';
+            documentObject.head.appendChild(link);
+        }
+
         function buildLoginUi() {
             const documentObject = rootObject.document;
             if (!documentObject?.body || overlay) return;
@@ -290,6 +304,7 @@
             rootObject.fetch = authenticatedFetch;
 
             const mount = () => {
+                ensureStylesheet();
                 buildLoginUi();
                 buildLogoutUi();
                 if (!getToken()) showLogin();
