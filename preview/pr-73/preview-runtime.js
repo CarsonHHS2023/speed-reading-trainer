@@ -28,6 +28,10 @@
         const nativeFetch = root.fetch && root.fetch.bind(root);
         if (!nativeFetch) throw new Error('Preview runtime requires window.fetch');
 
+        // AppAccess consumes this one-shot raw fetch for the shared login only.
+        // Normal application fetches remain behind the Preview URL rewrite below.
+        root.__APP_ACCESS_AUTH_FETCH__ = nativeFetch;
+
         root.fetch = function previewFetch(input, init) {
             if (typeof input === 'string' || input instanceof URL) {
                 return nativeFetch(rewriteUrl(input), init);
