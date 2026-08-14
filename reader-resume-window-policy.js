@@ -94,6 +94,65 @@
             return this.resumeRecord;
         };
 
+        Controller.prototype.navigateTo = async function navigateToBounded(location, options = {}) {
+            const nodeId = String(location?.node_id || '').trim();
+            if (!nodeId || this.navigationPending) return false;
+            if (this.model.findNodeById(this.nodes, nodeId)) return this.scrollLoadedNode(nodeId, options);
+
+            const sourceButton = options.sourceButton
+                || this.navigationButtons().find((button) => button.dataset.readerNavNodeId === nodeId)
+                || null;
+            this.navigationPending = true;
+            this.setNavigationBusy(sourceButton, true, 0);
+            try {
+                const hinted = Number(location?.node_order);
+                let order = Number.isInteger(hinted) && hinted >= 0 ? hinted : null;
+
+                if (order === null && typeof this.api?.contentAround === 'function') {
+                    let chunk;
+                    try {
+                        chunk = await this.api.contentAround(this.documentRef, nodeId, {
+                            candidateId: this.candidateId,
+                            limit: ReaderUI.NODE_LIMIT,
+                        });
+                    } catch (error) {
+                        if (String(error?.code || '') === 'reader_node_not_found') {
+                            this.setStatus('未能定位到该章节。', 'info');
+                            return false;
+                        }
+                        throw error;
+                    }
+                    const target = (chunk?.nodes || []).find((node) => String(node?.node_id || '') === nodeId) || null;
+                    if (!target || !Number.isInteger(Number(target.order))) {
+                        this.setStatus('未能定位到该章节。', 'info');
+                        return false;
+                    }
+                    order = Number(target.order);
+                    const start = ReaderUI.windowStartForOrder(order);
+                    this.contentWindows.set(start, chunkRecord(this, chunk, start));
+                } else if (order === null) {
+                    order = await this.probeNodeOrder(nodeId, {
+                        onProgress: (scanned) => this.setNavigationBusy(sourceButton, true, scanned),
+                    });
+                }
+
+                if (order === null) {
+                    this.setStatus('未能定位到该章节。', 'info');
+                    return false;
+                }
+                await this.loadWindowPair(ReaderUI.windowStartForOrder(order));
+                const found = this.scrollLoadedNode(nodeId, options);
+                if (found) this.setStatus('');
+                return found;
+            } catch (error) {
+                this.renderError(error);
+                return false;
+            } finally {
+                this.navigationPending = false;
+                this.setNavigationBusy(sourceButton, false);
+            }
+        };
+
         Object.defineProperty(Controller.prototype, '__resumeWindowPolicyInstalled', {
             configurable: false,
             enumerable: false,
