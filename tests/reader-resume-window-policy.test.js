@@ -26,6 +26,7 @@ function fixture() {
   c.contentWindows = new Map();
   c.nodes = [];
   c.clearedResumeRefs = [];
+  c.navigationPending = false;
   c.resume = { sameCandidate() { return true; } };
   c.resumeStore = { clear(ref) { c.clearedResumeRefs.push(ref); } };
   c.model = {
@@ -33,9 +34,23 @@ function fixture() {
     findNodeById(value, id) { return value.find((node) => node.node_id === id) || null; },
   };
   c.setStatus = () => {};
+  c.setNavigationBusy = () => {};
+  c.navigationButtons = () => [];
+  c.renderError = (error) => { c.renderedError = error; };
   c.setVisibleWindows = (starts) => {
     c.visibleStarts = [...starts];
     c.nodes = starts.flatMap((start) => c.contentWindows.get(start)?.nodes || []);
+  };
+  c.loadWindowPair = async (start) => {
+    const first = c.contentWindows.get(start) || await c.requestWindow(start);
+    const starts = [];
+    if (first?.nodes?.length) starts.push(first.start);
+    if (first?.hasMore) {
+      const second = await c.requestWindow(first.start + 150);
+      if (second?.nodes?.length) starts.push(second.start);
+    }
+    c.setVisibleWindows(starts);
+    return starts;
   };
   c.locationForNode = (id) => ({ node_id: id });
   c.scrollLoadedNode = () => true;
@@ -148,6 +163,65 @@ test('modern history clears a saved node that no longer exists in its aligned wi
 
   assert.equal(restored, null);
   assert.deepEqual(c.clearedResumeRefs, ['doc']);
+});
+
+test('unloaded TOC navigation uses one bounded server lookup instead of scanning from the book start', async () => {
+  const c = fixture();
+  let aroundCalls = 0;
+  const requested = [];
+  c.api = {
+    async contentAround(_doc, nodeId, options) {
+      aroundCalls += 1;
+      assert.equal(nodeId, 'n620');
+      assert.equal(options.candidateId, 'candidate');
+      assert.equal(options.limit, 150);
+      return { nodes: makeNodes(600), has_more: true, next_node_order: 750 };
+    },
+  };
+  c.probeNodeOrder = async () => assert.fail('TOC navigation must not scan earlier content windows');
+  c.requestWindow = async (start) => {
+    requested.push(start);
+    assert.equal(start, 750);
+    const record = { start, nodes: makeNodes(start), hasMore: true, nextNodeOrder: start + 150 };
+    c.contentWindows.set(start, record);
+    return record;
+  };
+  c.scrollLoadedNode = (nodeId) => {
+    c.scrolledNodeId = nodeId;
+    return c.model.findNodeById(c.nodes, nodeId) !== null;
+  };
+
+  const navigated = await c.navigateTo({ node_id: 'n620' });
+
+  assert.equal(navigated, true);
+  assert.equal(aroundCalls, 1);
+  assert.deepEqual(requested, [750]);
+  assert.deepEqual(c.visibleStarts, [600, 750]);
+  assert.equal(c.scrolledNodeId, 'n620');
+  assert.equal(c.renderedError, undefined);
+});
+
+test('TOC navigation keeps the old probe fallback when contentAround is unavailable', async () => {
+  const c = fixture();
+  const requested = [];
+  c.api = {};
+  c.probeNodeOrder = async (nodeId) => {
+    assert.equal(nodeId, 'n620');
+    return 620;
+  };
+  c.requestWindow = async (start) => {
+    requested.push(start);
+    const record = { start, nodes: makeNodes(start), hasMore: true, nextNodeOrder: start + 150 };
+    c.contentWindows.set(start, record);
+    return record;
+  };
+  c.scrollLoadedNode = (nodeId) => c.model.findNodeById(c.nodes, nodeId) !== null;
+
+  const navigated = await c.navigateTo({ node_id: 'n620' });
+
+  assert.equal(navigated, true);
+  assert.deepEqual(requested, [600, 750]);
+  assert.deepEqual(c.visibleStarts, [600, 750]);
 });
 
 test('canonical lifecycle installs bounded resume before playback enhancements', () => {
