@@ -1,38 +1,41 @@
 (function (root) {
     'use strict';
 
-    const PREVIEW_PATH_PATTERN = /\/preview\/pr-\d+(?:\/|$)/;
+    const PREVIEW_PATH_PATTERN = /\/preview\/(?:staging-)?pr-\d+(?:\/|$)/;
+    const STAGING_PATH_PATTERN = /\/staging(?:\/|$)/;
     const pathname = String(root.location?.pathname || '');
     const isPreview = PREVIEW_PATH_PATTERN.test(pathname);
+    const isStaging = STAGING_PATH_PATTERN.test(pathname);
 
     const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
-    const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
+    const STAGING_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-staging.hf.space';
 
-    if (isPreview) {
+    if (isPreview || isStaging) {
+        const environment = isStaging ? 'staging' : 'staging-preview';
         root.SPEED_READING_CONFIG = Object.freeze({
-            environment: 'preview',
-            frontendBranch: 'preview-txt-hf-test',
-            backendBranch: 'deploy/ocrmypdf-test',
-            apiBaseUrl: TEST_API_BASE_URL,
+            environment,
+            frontendBranch: 'staging',
+            backendBranch: 'staging',
+            apiBaseUrl: STAGING_API_BASE_URL,
         });
-        root.READER_API_BASE_URL = TEST_API_BASE_URL;
-        root.API_BASE_URL_OVERRIDE = TEST_API_BASE_URL;
+        root.READER_API_BASE_URL = STAGING_API_BASE_URL;
+        root.API_BASE_URL_OVERRIDE = STAGING_API_BASE_URL;
 
         function rewriteUrl(value) {
             const url = String(value || '');
             return url.startsWith(PRODUCTION_API_BASE_URL)
-                ? `${TEST_API_BASE_URL}${url.slice(PRODUCTION_API_BASE_URL.length)}`
+                ? `${STAGING_API_BASE_URL}${url.slice(PRODUCTION_API_BASE_URL.length)}`
                 : url;
         }
 
         const nativeFetch = root.fetch && root.fetch.bind(root);
-        if (!nativeFetch) throw new Error('Preview runtime requires window.fetch');
+        if (!nativeFetch) throw new Error('Staging runtime requires window.fetch');
 
         // AppAccess consumes this one-shot raw fetch for the shared login only.
-        // Normal application fetches remain behind the Preview URL rewrite below.
+        // Normal application fetches remain behind the Staging URL rewrite below.
         root.__APP_ACCESS_AUTH_FETCH__ = nativeFetch;
 
-        root.fetch = function previewFetch(input, init) {
+        root.fetch = function stagingFetch(input, init) {
             if (typeof input === 'string' || input instanceof URL) {
                 return nativeFetch(rewriteUrl(input), init);
             }
@@ -48,16 +51,16 @@
 
         root.__TXT_PREVIEW_ROUTING__ = Object.freeze({
             productionApiBaseUrl: PRODUCTION_API_BASE_URL,
-            testApiBaseUrl: TEST_API_BASE_URL,
+            stagingApiBaseUrl: STAGING_API_BASE_URL,
             rewriteUrl,
         });
-        root.console?.info?.('[preview] frontend connected to HF test backend', root.SPEED_READING_CONFIG);
+        root.console?.info?.('[staging] frontend connected to HF staging backend', root.SPEED_READING_CONFIG);
     } else {
-        root.console?.info?.('[preview] runtime skipped outside PR preview', { pathname });
+        root.console?.info?.('[staging] runtime skipped outside Staging/PR preview routes', { pathname });
     }
 
     // This file is the first application script in index.html. Load the access
-    // bootstrap synchronously so it captures Preview's fetch rewrite first, then
+    // bootstrap synchronously so it captures Staging's fetch rewrite first, then
     // register the upload lifecycle before Bookshelf creates its DOM-ready instance.
     if (root.document && typeof root.document.write === 'function') {
         root.document.write(

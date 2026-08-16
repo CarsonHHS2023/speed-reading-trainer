@@ -1,0 +1,96 @@
+name: Staging PR Preview
+
+on:
+  pull_request:
+    branches: [staging]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: staging-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify staging routing tests
+        run: node --test tests/preview-runtime-gating.test.js
+
+      - name: Prepare exact-head staging Preview
+        env:
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          sha = os.environ['PREVIEW_HEAD_SHA']
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+          text = re.sub(
+              r'preview-runtime\.js(?:\?v=[^\"\']+)?',
+              f'preview-runtime.js?v={sha}',
+              text,
+          )
+          marker = f'<meta name="reader-staging-preview-head" content="{sha}">'
+          if '</head>' in text and 'reader-staging-preview-head' not in text:
+              text = text.replace('</head>', f'    {marker}\n</head>', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Deploy staging PR Preview
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./
+          destination_dir: preview/staging-pr-${{ github.event.number }}
+          keep_files: true
+
+      - name: Verify public staging PR Preview
+        env:
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIEW_PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          base_url="https://carsonhhs2023.github.io/speed-reading-trainer/preview/staging-pr-${PREVIEW_PR_NUMBER}"
+          verified=0
+          for attempt in $(seq 1 40); do
+            html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
+            runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            if [[ "${html}" == *"reader-staging-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
+              && [[ "${runtime}" == *"environment = isStaging ? 'staging' : 'staging-preview'"* ]]; then
+              echo "Staging PR Preview verified at exact head ${PREVIEW_HEAD_SHA}."
+              verified=1
+              break
+            fi
+            echo "Staging PR Preview is still stale on attempt ${attempt}; waiting 10 seconds..."
+            sleep 10
+          done
+          test "${verified}" = '1'
+
+      - name: Comment PR with staging Preview link
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prNumber = context.issue.number;
+            const headSha = context.payload.pull_request.head.sha;
+            const previewUrl = `https://carsonhhs2023.github.io/speed-reading-trainer/preview/staging-pr-${prNumber}/?v=${headSha}`;
+            github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🧪 **Staging Preview (exact head ${headSha.slice(0, 12)})**: [Open Staging Preview](${previewUrl})`
+            });
