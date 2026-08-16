@@ -1,0 +1,172 @@
+.reader-v2-main {
+    overflow-x: hidden;
+}
+
+.reading-panel #readerV2Display .reader-v2-main {
+    box-sizing: border-box;
+    margin-inline-end: var(--study-tools-rail-width, 46px);
+}
+
+.reading-panel[data-study-tools-expanded="1"] #readerV2Display .reader-v2-main {
+    margin-inline-end: calc(var(--study-tools-rail-width, 46px) + var(--study-tools-drawer-width, 340px));
+}
+
+.reader-v2-page {
+    transform-origin: 0 0;
+}
+
+.reader-v2-page--zoom-capable {
+    position: relative;
+}
+
+.reader-v2-page--zoomed-in {
+    z-index: 15;
+    cursor: grab;
+    user-select: none;
+    will-change: transform;
+}
+
+.reader-v2-page--zoomed-out {
+    will-change: transform;
+}
+
+.reader-v2-page--zoom-dragging,
+.reader-v2-page--zoom-dragging * {
+    cursor: grabbing !important;
+}
+
+.reader-study-tools-tabs {
+    position: relative;
+}
+
+.reader-page-zoom-indicator {
+    position: absolute;
+    z-index: 2;
+    top: 14px;
+    inset-inline-start: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 40px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid rgba(120, 125, 145, .28);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .94);
+    color: #4b5563;
+    font: 600 11px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: -.15px;
+    cursor: pointer;
+    pointer-events: auto;
+    user-select: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
+}
+
+.reader-page-zoom-indicator:hover,
+.reader-page-zoom-indicator:focus-visible {
+    border-color: rgba(80, 90, 130, .5);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .12);
+    outline: none;
+}
+
+.reader-booklist-playback-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-inline-start: auto;
+    min-width: 0;
+}
+
+.reader-booklist-playback-controls button {
+    box-sizing: border-box;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .30);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .16);
+    color: rgba(255, 255, 255, .96);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.reader-booklist-playback-controls button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, .26);
+}
+
+.reader-booklist-playback-controls button:disabled {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, .10);
+    background: rgba(255, 255, 255, .05);
+    color: rgba(255, 255, 255, .32);
+    cursor: default;
+}
+
+.reader-booklist-playback-controls .reading-toggle-btn {
+    margin: 0;
+}
+
+.reader-booklist-playback-controls .reading-toggle-btn:not(:disabled) {
+    border-color: rgba(255, 255, 255, .52);
+    background: rgba(255, 255, 255, .30);
+    color: #fff;
+}
+
+.reader-booklist-playback-controls .reading-toggle-btn.active:not(:disabled) {
+    border-color: rgba(255, 190, 190, .68);
+    background: rgba(255, 105, 105, .42);
+    color: #fff;
+}
+
+.reader-booklist-playback-controls .speed-reading-v2-state {
+    flex: 1 0 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    padding-top: 2px;
+    color: rgba(255, 255, 255, .92);
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.speed-reading-v2-toolbar-compat {
+    display: none !important;
+}
+
+.reader-debug-tool-button {
+    flex: 0 0 auto;
+}
+
+body.dark-mode .reader-booklist-playback-controls button {
+    border-color: rgba(255, 255, 255, .24);
+    background: rgba(255, 255, 255, .12);
+    color: rgba(255, 255, 255, .94);
+}
+
+body.dark-mode .reader-booklist-playback-controls button:disabled {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .04);
+    color: rgba(255, 255, 255, .28);
+}
+
+.reader-debug-tool-button:disabled {
+    opacity: .38;
+    cursor: default;
+}
+
+body.dark-mode .reader-page-zoom-indicator {
+    border-color: rgba(255, 255, 255, .16);
+    background: rgba(48, 48, 48, .96);
+    color: #e5e7eb;
+}
