@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync('preview-runtime.js', 'utf8');
-const TEST_BASE = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
+const STAGING_BASE = 'https://carsonhhs-pdf-ocr-service-staging.hf.space';
 const PROD_BASE = 'https://carsonhhs-pdf-ocr-service.hf.space';
 
 function run(pathname) {
@@ -27,26 +27,33 @@ function run(pathname) {
   return { calls, window };
 }
 
-test('Preview runtime activates only on PR Preview routes', () => {
+test('Staging runtime activates on staging and staging PR Preview routes only', () => {
   const production = run('/speed-reading-trainer/');
   assert.equal(production.window.READER_API_BASE_URL, undefined);
   assert.equal(production.window.API_BASE_URL_OVERRIDE, undefined);
 
-  const preview = run('/speed-reading-trainer/preview/pr-70/');
-  assert.equal(preview.window.READER_API_BASE_URL, TEST_BASE);
-  assert.equal(preview.window.API_BASE_URL_OVERRIDE, TEST_BASE);
-  assert.equal(preview.window.SPEED_READING_CONFIG.apiBaseUrl, TEST_BASE);
+  const staging = run('/speed-reading-trainer/staging/');
+  assert.equal(staging.window.READER_API_BASE_URL, STAGING_BASE);
+  assert.equal(staging.window.API_BASE_URL_OVERRIDE, STAGING_BASE);
+  assert.equal(staging.window.SPEED_READING_CONFIG.environment, 'staging');
+  assert.equal(staging.window.SPEED_READING_CONFIG.frontendBranch, 'staging');
+  assert.equal(staging.window.SPEED_READING_CONFIG.backendBranch, 'staging');
+
+  const preview = run('/speed-reading-trainer/preview/staging-pr-70/');
+  assert.equal(preview.window.READER_API_BASE_URL, STAGING_BASE);
+  assert.equal(preview.window.API_BASE_URL_OVERRIDE, STAGING_BASE);
+  assert.equal(preview.window.SPEED_READING_CONFIG.environment, 'staging-preview');
 });
 
-test('Preview runtime rewrites only legacy production backend requests', async () => {
-  const { calls, window } = run('/speed-reading-trainer/preview/pr-70/');
+test('Staging runtime rewrites only legacy production backend requests', async () => {
+  const { calls, window } = run('/speed-reading-trainer/staging/');
   await window.fetch(`${PROD_BASE}/api/v1/books`);
   await window.fetch('https://example.com/unchanged');
-  assert.equal(calls[0], `${TEST_BASE}/api/v1/books`);
+  assert.equal(calls[0], `${STAGING_BASE}/api/v1/books`);
   assert.equal(calls[1], 'https://example.com/unchanged');
 });
 
-test('Preview runtime no longer owns Reader windowing, navigation, or playback behavior', () => {
+test('Staging runtime no longer owns Reader windowing, navigation, or playback behavior', () => {
   for (const forbidden of [
     'installAsyncReaderNavigation',
     'installBoundedReaderAutoPagination',
