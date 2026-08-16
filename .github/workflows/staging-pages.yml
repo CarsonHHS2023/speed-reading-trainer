@@ -1,0 +1,81 @@
+name: Staging Pages Deployment
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: staging-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out current staging head
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+
+      - name: Verify staging routing tests
+        run: node --test tests/preview-runtime-gating.test.js
+
+      - name: Prepare cache-busted staging entrypoint
+        env:
+          STAGING_HEAD_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          sha = os.environ['STAGING_HEAD_SHA']
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+          text = re.sub(
+              r'preview-runtime\.js(?:\?v=[^\"\']+)?',
+              f'preview-runtime.js?v={sha}',
+              text,
+          )
+          marker = f'<meta name="reader-staging-head" content="{sha}">'
+          if '</head>' in text and 'reader-staging-head' not in text:
+              text = text.replace('</head>', f'    {marker}\n</head>', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Deploy staging frontend to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./
+          destination_dir: staging
+          keep_files: true
+
+      - name: Verify public staging frontend
+        env:
+          STAGING_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base_url='https://carsonhhs2023.github.io/speed-reading-trainer/staging'
+          verified=0
+          for attempt in $(seq 1 40); do
+            html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${STAGING_HEAD_SHA}" || true)"
+            runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${STAGING_HEAD_SHA}" || true)"
+            if [[ "${html}" == *"reader-staging-head\" content=\"${STAGING_HEAD_SHA}"* ]] \
+              && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
+              && [[ "${runtime}" == *"frontendBranch: 'staging'"* ]] \
+              && [[ "${runtime}" == *"backendBranch: 'staging'"* ]]; then
+              echo "Public staging frontend verified at exact head ${STAGING_HEAD_SHA}."
+              verified=1
+              break
+            fi
+            echo "Staging Pages is still stale on attempt ${attempt}; waiting 10 seconds..."
+            sleep 10
+          done
+          test "${verified}" = '1'
