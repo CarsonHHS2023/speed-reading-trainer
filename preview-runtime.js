@@ -20,6 +20,7 @@
         });
         root.READER_API_BASE_URL = STAGING_API_BASE_URL;
         root.API_BASE_URL_OVERRIDE = STAGING_API_BASE_URL;
+        root.APP_ACCESS_AUTH_BASE_URL = STAGING_API_BASE_URL;
 
         function rewriteUrl(value) {
             const url = String(value || '');
@@ -32,7 +33,9 @@
         if (!nativeFetch) throw new Error('Staging runtime requires window.fetch');
 
         // AppAccess consumes this one-shot raw fetch for the shared login only.
-        // Normal application fetches remain behind the Staging URL rewrite below.
+        // Staging owns both the auth endpoint and the application endpoints; the
+        // raw fetch bypasses URL rewriting but APP_ACCESS_AUTH_BASE_URL keeps the
+        // login request on the Staging backend.
         root.__APP_ACCESS_AUTH_FETCH__ = nativeFetch;
 
         root.fetch = function stagingFetch(input, init) {
