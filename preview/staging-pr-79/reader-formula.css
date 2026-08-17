@@ -1,0 +1,58 @@
+.reader-v2-node-formula {
+    width: 100%;
+    overflow: visible;
+}
+
+.reader-v2-formula {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 1.5em;
+    padding: 0.08em 0.25em;
+    overflow-x: auto;
+    overflow-y: visible;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.reader-v2-formula .katex-display {
+    width: max-content;
+    min-width: 100%;
+    margin: 0;
+    text-align: center;
+}
+
+.reader-v2-formula .katex {
+    font-size: clamp(0.9rem, 1.8vw, 1.35rem);
+}
+
+.reader-v2-formula-fallback {
+    display: block;
+    max-width: 100%;
+    padding: 0.25em 0.45em;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    border-radius: 4px;
+    background: #f5f6f8;
+    color: inherit;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: clamp(0.75rem, 1.35vw, 1rem);
+    line-height: 1.35;
+}
+
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-formula,
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-formula
+> .reader-v2-formula {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+}
+
+body.dark-mode .reader-v2-formula-fallback {
+    background: #303030;
+}
