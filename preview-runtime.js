@@ -63,11 +63,13 @@
     }
 
     // This file is the first application script in index.html. Load the access
-    // bootstrap synchronously so it captures Staging's fetch rewrite first, then
-    // register the upload lifecycle before Bookshelf creates its DOM-ready instance.
+    // bootstrap synchronously so it captures Staging's fetch rewrite first. The
+    // resumable adapter then wraps the authenticated fetch only for large staging
+    // uploads, before the normal bookshelf upload lifecycle is registered.
     if (root.document && typeof root.document.write === 'function') {
         root.document.write(
             '<script src="app-access.js"><\/script>'
+            + '<script src="bookshelf-resumable-upload.js"><\/script>'
             + '<script src="bookshelf-upload-lifecycle.js"><\/script>',
         );
     }
