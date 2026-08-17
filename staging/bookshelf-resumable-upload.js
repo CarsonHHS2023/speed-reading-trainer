@@ -31,7 +31,7 @@
         return environment === 'staging' || environment === 'staging-preview';
     }
 
-    function requestUrl(input, rootObject = root) {
+    function requestUrl(input) {
         if (typeof input === 'string') return input;
         if (input && typeof input.url === 'string') return input.url;
         return String(input || '');
@@ -40,7 +40,7 @@
     function isLegacyUploadRequest(input, init, rootObject = root) {
         const method = String(init?.method || 'GET').toUpperCase();
         if (method !== 'POST') return false;
-        const raw = requestUrl(input, rootObject);
+        const raw = requestUrl(input);
         let parsed;
         try {
             parsed = new (rootObject?.URL || URL)(raw, rootObject?.location?.href || DEFAULT_API_BASE_URL);
@@ -65,14 +65,15 @@
             : 'application/pdf';
     }
 
-    function updateUploadProgress(rootObject, uploadedBytes, totalBytes) {
+    function updateUploadProgress(rootObject, uploadedBytes, totalBytes, detail = '') {
         const percent = totalBytes > 0
             ? Math.max(0, Math.min(100, Math.round((uploadedBytes / totalBytes) * 100)))
             : 0;
         const uploadZone = rootObject?.document?.getElementById?.('uploadZone');
         const prompt = uploadZone?.querySelector?.('.upload-prompt');
         if (prompt) {
-            prompt.innerHTML = `⏳ 正在上传文件...<br><span>${percent}%</span>`;
+            const detailLine = detail ? `<br><small>${detail}</small>` : '';
+            prompt.innerHTML = `⏳ 正在上传文件...<br><span>${percent}%</span>${detailLine}`;
         }
         return percent;
     }
@@ -82,13 +83,25 @@
         return new Promise((resolve) => timer(resolve, milliseconds));
     }
 
-    async function fetchWithTimeout(fetchImpl, rootObject, input, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    async function fetchWithTimeout(
+        fetchImpl,
+        rootObject,
+        input,
+        init = {},
+        timeoutMs = REQUEST_TIMEOUT_MS,
+        phase = 'Request',
+    ) {
         const AbortControllerCtor = rootObject?.AbortController || (typeof AbortController !== 'undefined' ? AbortController : null);
         if (!AbortControllerCtor || !timeoutMs) return fetchImpl(input, init);
         const controller = new AbortControllerCtor();
         const timer = (rootObject?.setTimeout || setTimeout)(() => controller.abort(), timeoutMs);
         try {
             return await fetchImpl(input, { ...init, signal: controller.signal });
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                throw new Error(`${phase} timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+            }
+            throw error;
         } finally {
             (rootObject?.clearTimeout || clearTimeout)(timer);
         }
@@ -113,6 +126,7 @@
         const apiBaseUrl = normalizeBaseUrl(options.apiBaseUrl || resolveApiBaseUrl(rootObject));
         if (!fetchImpl) throw new Error('Upload transport is unavailable');
 
+        updateUploadProgress(rootObject, 0, file.size, '初始化分块上传…');
         const createResponse = await fetchWithTimeout(
             fetchImpl,
             rootObject,
@@ -126,6 +140,8 @@
                     content_type: inferredContentType(file),
                 }),
             },
+            REQUEST_TIMEOUT_MS,
+            'Create upload session',
         );
         await requireOk(createResponse, 'Create upload session');
         const session = await createResponse.json();
@@ -136,6 +152,7 @@
             throw new Error('Upload session response is invalid');
         }
 
+        updateUploadProgress(rootObject, 0, file.size, `共 ${chunkCount} 块，每块约 ${(chunkSize / 1024 / 1024).toFixed(1)} MiB`);
         let uploadedBytes = 0;
         try {
             for (let index = 0; index < chunkCount; index += 1) {
@@ -143,39 +160,60 @@
                 const end = Math.min(file.size, start + chunkSize);
                 const chunk = file.slice(start, end);
                 let lastError = null;
+                updateUploadProgress(rootObject, uploadedBytes, file.size, `正在上传第 ${index + 1}/${chunkCount} 块…`);
                 for (let attempt = 1; attempt <= MAX_CHUNK_ATTEMPTS; attempt += 1) {
                     try {
+                        const phase = `Upload chunk ${index + 1}/${chunkCount}`;
                         const chunkResponse = await fetchWithTimeout(
                             fetchImpl,
                             rootObject,
                             `${apiBaseUrl}/api/v1/upload-sessions/${encodeURIComponent(uploadId)}/chunks/${index}`,
                             {
-                                method: 'PUT',
+                                method: 'POST',
                                 headers: { 'Content-Type': 'application/octet-stream' },
                                 body: chunk,
                             },
+                            REQUEST_TIMEOUT_MS,
+                            phase,
                         );
-                        await requireOk(chunkResponse, `Upload chunk ${index + 1}/${chunkCount}`);
+                        await requireOk(chunkResponse, phase);
                         lastError = null;
                         break;
                     } catch (error) {
                         lastError = error;
-                        if (attempt < MAX_CHUNK_ATTEMPTS) await delay(rootObject, 500 * attempt);
+                        if (attempt < MAX_CHUNK_ATTEMPTS) {
+                            updateUploadProgress(
+                                rootObject,
+                                uploadedBytes,
+                                file.size,
+                                `第 ${index + 1}/${chunkCount} 块失败，正在重试 ${attempt + 1}/${MAX_CHUNK_ATTEMPTS}…`,
+                            );
+                            await delay(rootObject, 500 * attempt);
+                        }
                     }
                 }
                 if (lastError) throw lastError;
                 uploadedBytes = end;
-                updateUploadProgress(rootObject, uploadedBytes, file.size);
+                updateUploadProgress(rootObject, uploadedBytes, file.size, `已完成 ${index + 1}/${chunkCount} 块`);
             }
 
+            updateUploadProgress(rootObject, file.size, file.size, '上传完成，正在确认文件…');
             const completeResponse = await fetchWithTimeout(
                 fetchImpl,
                 rootObject,
                 `${apiBaseUrl}/api/v1/upload-sessions/${encodeURIComponent(uploadId)}/complete`,
                 { method: 'POST' },
+                REQUEST_TIMEOUT_MS,
+                'Complete upload',
             );
             return completeResponse;
         } catch (error) {
+            rootObject?.console?.error?.('[resumable upload] failed', {
+                uploadId,
+                uploadedBytes,
+                totalBytes: file.size,
+                message: error?.message || String(error),
+            });
             try {
                 await fetchWithTimeout(
                     fetchImpl,
@@ -183,6 +221,7 @@
                     `${apiBaseUrl}/api/v1/upload-sessions/${encodeURIComponent(uploadId)}`,
                     { method: 'DELETE' },
                     15000,
+                    'Abort upload session',
                 );
             } catch (abortError) {
                 rootObject?.console?.warn?.('[resumable upload] cleanup failed', abortError);
