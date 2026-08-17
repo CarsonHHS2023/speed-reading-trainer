@@ -11,6 +11,21 @@ function response(status, payload = {}) {
     };
 }
 
+class FakeFormData {
+    constructor() {
+        this.entries = [];
+    }
+
+    append(name, value, filename) {
+        this.entries.push({ name, value, filename });
+    }
+
+    get(name) {
+        const match = this.entries.find((entry) => entry.name === name);
+        return match ? match.value : null;
+    }
+}
+
 function root(environment = 'staging', progressHistory = null) {
     const prompt = progressHistory
         ? {
@@ -30,6 +45,7 @@ function root(environment = 'staging', progressHistory = null) {
         READER_API_BASE_URL: 'https://staging.example.test',
         location: { href: 'https://reader.example.test/staging/' },
         URL,
+        FormData: FakeFormData,
         console: { info() {}, warn() {}, error() {} },
         setTimeout,
         clearTimeout,
@@ -64,7 +80,7 @@ function formWith(file) {
     };
 }
 
-test('large staging upload is transparently split into POST upload-session chunks', async () => {
+test('large staging upload is transparently split into multipart upload-session chunks', async () => {
     const calls = [];
     const progress = [];
     const complete = response(200, { status: 'processing', book_id: 'book-1' });
@@ -97,12 +113,14 @@ test('large staging upload is transparently split into POST upload-session chunk
     assert.equal(calls[0].url, 'https://staging.example.test/api/v1/upload-sessions');
     assert.equal(calls[0].init.method, 'POST');
     assert.deepEqual(calls.slice(1, 4).map((call) => call.init.method), ['POST', 'POST', 'POST']);
+    assert.ok(calls.slice(1, 4).every((call) => call.url.endsWith('/multipart')));
+    assert.ok(calls.slice(1, 4).every((call) => call.init.headers === undefined));
     assert.deepEqual(
-        calls.slice(1, 4).map((call) => call.init.body),
+        calls.slice(1, 4).map((call) => call.init.body.entries[0]),
         [
-            { start: 0, end: 4, size: 4 },
-            { start: 4, end: 8, size: 4 },
-            { start: 8, end: 10, size: 2 },
+            { name: 'chunk', value: { start: 0, end: 4, size: 4 }, filename: 'chunk-000000.bin' },
+            { name: 'chunk', value: { start: 4, end: 8, size: 4 }, filename: 'chunk-000001.bin' },
+            { name: 'chunk', value: { start: 8, end: 10, size: 2 }, filename: 'chunk-000002.bin' },
         ],
     );
     assert.equal(
@@ -155,7 +173,7 @@ test('production environment never enables the staging resumable protocol', asyn
     assert.equal(calls.length, 1);
 });
 
-test('failed chunk is retried with visible retry state and then aborts the upload session', async () => {
+test('failed multipart chunk is retried with visible retry state and then aborts the upload session', async () => {
     const urls = [];
     const progress = [];
     let chunkAttempts = 0;
@@ -169,7 +187,7 @@ test('failed chunk is retried with visible retry state and then aborts the uploa
                 byte_size: 10,
             });
         }
-        if (String(url).includes('/chunks/0')) {
+        if (String(url).includes('/chunks/0/multipart')) {
             chunkAttempts += 1;
             return response(503, { detail: 'temporary' });
         }
