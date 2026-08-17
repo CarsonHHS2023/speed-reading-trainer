@@ -57,6 +57,14 @@
         return file;
     }
 
+    function inferredContentType(file) {
+        const explicit = String(file?.type || '').trim();
+        if (explicit) return explicit;
+        return String(file?.name || '').toLowerCase().endsWith('.txt')
+            ? 'text/plain'
+            : 'application/pdf';
+    }
+
     function updateUploadProgress(rootObject, uploadedBytes, totalBytes) {
         const percent = totalBytes > 0
             ? Math.max(0, Math.min(100, Math.round((uploadedBytes / totalBytes) * 100)))
@@ -115,7 +123,7 @@
                 body: JSON.stringify({
                     filename: file.name || 'upload.pdf',
                     byte_size: file.size,
-                    content_type: file.type || 'application/octet-stream',
+                    content_type: inferredContentType(file),
                 }),
             },
         );
@@ -229,6 +237,7 @@
         REQUEST_TIMEOUT_MS,
         createResumableFetch,
         fetchWithTimeout,
+        inferredContentType,
         install,
         isLegacyUploadRequest,
         isStagingEnvironment,
