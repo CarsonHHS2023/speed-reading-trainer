@@ -11,7 +11,17 @@ function response(status, payload = {}) {
     };
 }
 
-function root(environment = 'staging') {
+function root(environment = 'staging', progressHistory = null) {
+    const prompt = progressHistory
+        ? {
+            _html: '',
+            set innerHTML(value) {
+                this._html = String(value);
+                progressHistory.push(this._html);
+            },
+            get innerHTML() { return this._html; },
+        }
+        : null;
     return {
         SPEED_READING_CONFIG: {
             environment,
@@ -20,12 +30,19 @@ function root(environment = 'staging') {
         READER_API_BASE_URL: 'https://staging.example.test',
         location: { href: 'https://reader.example.test/staging/' },
         URL,
-        console: { info() {}, warn() {} },
+        console: { info() {}, warn() {}, error() {} },
         setTimeout,
         clearTimeout,
         AbortController,
         document: {
-            getElementById() { return null; },
+            getElementById(id) {
+                if (id !== 'uploadZone' || !prompt) return null;
+                return {
+                    querySelector(selector) {
+                        return selector === '.upload-prompt' ? prompt : null;
+                    },
+                };
+            },
         },
     };
 }
@@ -47,8 +64,9 @@ function formWith(file) {
     };
 }
 
-test('large staging upload is transparently split into upload-session chunks', async () => {
+test('large staging upload is transparently split into POST upload-session chunks', async () => {
     const calls = [];
+    const progress = [];
     const complete = response(200, { status: 'processing', book_id: 'book-1' });
     const fetchImpl = async (url, init = {}) => {
         calls.push({ url: String(url), init });
@@ -63,7 +81,7 @@ test('large staging upload is transparently split into upload-session chunks', a
         if (String(url).endsWith('/complete')) return complete;
         return response(200, {});
     };
-    const rootObject = root();
+    const rootObject = root('staging', progress);
     const wrapped = Resumable.createResumableFetch(rootObject, {
         fetchImpl,
         thresholdBytes: 5,
@@ -78,6 +96,7 @@ test('large staging upload is transparently split into upload-session chunks', a
     assert.equal(calls.length, 5);
     assert.equal(calls[0].url, 'https://staging.example.test/api/v1/upload-sessions');
     assert.equal(calls[0].init.method, 'POST');
+    assert.deepEqual(calls.slice(1, 4).map((call) => call.init.method), ['POST', 'POST', 'POST']);
     assert.deepEqual(
         calls.slice(1, 4).map((call) => call.init.body),
         [
@@ -90,6 +109,11 @@ test('large staging upload is transparently split into upload-session chunks', a
         calls[4].url,
         'https://staging.example.test/api/v1/upload-sessions/0123456789abcdef0123456789abcdef/complete',
     );
+    assert.match(progress[0], /0%/);
+    assert.match(progress[0], /初始化分块上传/);
+    assert.ok(progress.some((entry) => /第 1\/3 块/.test(entry)));
+    assert.match(progress.at(-1), /100%/);
+    assert.match(progress.at(-1), /正在确认文件/);
 });
 
 test('small staging upload preserves the legacy multipart request', async () => {
@@ -131,8 +155,9 @@ test('production environment never enables the staging resumable protocol', asyn
     assert.equal(calls.length, 1);
 });
 
-test('failed chunk is retried and then aborts the upload session', async () => {
+test('failed chunk is retried with visible retry state and then aborts the upload session', async () => {
     const urls = [];
+    const progress = [];
     let chunkAttempts = 0;
     const fetchImpl = async (url) => {
         urls.push(String(url));
@@ -151,7 +176,7 @@ test('failed chunk is retried and then aborts the upload session', async () => {
         if (String(url).endsWith('fedcba9876543210fedcba9876543210')) return response(200, { aborted: true });
         throw new Error(`unexpected URL ${url}`);
     };
-    const rootObject = root();
+    const rootObject = root('staging', progress);
     rootObject.setTimeout = (fn) => { fn(); return 1; };
     rootObject.clearTimeout = () => {};
     const wrapped = Resumable.createResumableFetch(rootObject, {
@@ -167,5 +192,6 @@ test('failed chunk is retried and then aborts the upload session', async () => {
         /Upload chunk 1\/1 failed \(HTTP 503\)/,
     );
     assert.equal(chunkAttempts, Resumable.MAX_CHUNK_ATTEMPTS);
+    assert.ok(progress.some((entry) => /正在重试 2\/3/.test(entry)));
     assert.equal(urls.at(-1), 'https://staging.example.test/api/v1/upload-sessions/fedcba9876543210fedcba9876543210');
 });
