@@ -81,7 +81,11 @@ jobs:
           done
           test "${verified}" = '1'
 
+      # Publishing and public exact-head verification are the actual gates. A
+      # GitHub API permission/rate-limit problem must not turn an otherwise valid
+      # Preview into a failed build merely because this convenience comment failed.
       - name: Comment PR with staging Preview link
+        continue-on-error: true
         uses: actions/github-script@v6
         with:
           script: |

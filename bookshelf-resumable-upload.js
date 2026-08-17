@@ -65,6 +65,15 @@
             : 'application/pdf';
     }
 
+    function chunkMultipartBody(rootObject, chunk, index) {
+        const FormDataCtor = rootObject?.FormData || (typeof FormData !== 'undefined' ? FormData : null);
+        if (!FormDataCtor) throw new Error('Multipart upload transport is unavailable');
+        const body = new FormDataCtor();
+        const filename = `chunk-${String(index).padStart(6, '0')}.bin`;
+        body.append('chunk', chunk, filename);
+        return body;
+    }
+
     function updateUploadProgress(rootObject, uploadedBytes, totalBytes, detail = '') {
         const percent = totalBytes > 0
             ? Math.max(0, Math.min(100, Math.round((uploadedBytes / totalBytes) * 100)))
@@ -167,11 +176,10 @@
                         const chunkResponse = await fetchWithTimeout(
                             fetchImpl,
                             rootObject,
-                            `${apiBaseUrl}/api/v1/upload-sessions/${encodeURIComponent(uploadId)}/chunks/${index}`,
+                            `${apiBaseUrl}/api/v1/upload-sessions/${encodeURIComponent(uploadId)}/chunks/${index}/multipart`,
                             {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/octet-stream' },
-                                body: chunk,
+                                body: chunkMultipartBody(rootObject, chunk, index),
                             },
                             REQUEST_TIMEOUT_MS,
                             phase,
@@ -274,6 +282,7 @@
         LARGE_UPLOAD_THRESHOLD_BYTES,
         MAX_CHUNK_ATTEMPTS,
         REQUEST_TIMEOUT_MS,
+        chunkMultipartBody,
         createResumableFetch,
         fetchWithTimeout,
         inferredContentType,
