@@ -75,6 +75,83 @@
         return bounded;
     }
 
+    function monotonicNowMs(rootObject = root) {
+        const performanceObject = rootObject?.performance
+            || (typeof performance !== 'undefined' ? performance : null);
+        if (typeof performanceObject?.now === 'function') {
+            const value = Number(performanceObject.now());
+            if (Number.isFinite(value)) return value;
+        }
+        return Date.now();
+    }
+
+    function metricMs(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return null;
+        return Math.round(Math.max(0, numeric) * 10) / 10;
+    }
+
+    function metricRate(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return null;
+        return Math.round(Math.max(0, numeric) * 1000) / 1000;
+    }
+
+    function deltaMetric(end, start) {
+        const endValue = Number(end);
+        const startValue = Number(start);
+        if (!Number.isFinite(endValue) || !Number.isFinite(startValue) || endValue < startValue) return null;
+        return metricMs(endValue - startValue);
+    }
+
+    function readPutResourceTiming(rootObject, uploadUrl) {
+        const performanceObject = rootObject?.performance
+            || (typeof performance !== 'undefined' ? performance : null);
+        if (typeof performanceObject?.getEntriesByName !== 'function') {
+            return { available: false };
+        }
+        try {
+            const entries = performanceObject.getEntriesByName(uploadUrl, 'resource') || [];
+            const entry = entries[entries.length - 1];
+            if (!entry) return { available: false };
+            return {
+                available: true,
+                duration_ms: metricMs(entry.duration),
+                dns_ms: deltaMetric(entry.domainLookupEnd, entry.domainLookupStart),
+                connect_ms: deltaMetric(entry.connectEnd, entry.connectStart),
+                tls_ms: Number(entry.secureConnectionStart) > 0
+                    ? deltaMetric(entry.connectEnd, entry.secureConnectionStart)
+                    : null,
+                request_wait_ms: deltaMetric(entry.responseStart, entry.requestStart),
+                response_download_ms: deltaMetric(entry.responseEnd, entry.responseStart),
+                next_hop_protocol: String(entry.nextHopProtocol || '') || null,
+            };
+        } catch (error) {
+            return { available: false };
+        }
+    }
+
+    function effectiveMiBPerSecond(byteSize, putMs) {
+        const bytes = Number(byteSize);
+        const elapsed = Number(putMs);
+        if (!Number.isFinite(bytes) || bytes < 0 || !Number.isFinite(elapsed) || elapsed <= 0) return null;
+        return metricRate((bytes / (1024 * 1024)) / (elapsed / 1000));
+    }
+
+    function emitUploadTiming(rootObject, detail) {
+        const safeDetail = Object.freeze({ ...detail });
+        rootObject?.console?.info?.('[atlas upload timing]', safeDetail);
+        const CustomEventCtor = rootObject?.CustomEvent;
+        if (typeof rootObject?.dispatchEvent === 'function' && typeof CustomEventCtor === 'function') {
+            try {
+                rootObject.dispatchEvent(new CustomEventCtor('atlas-upload-timing', { detail: safeDetail }));
+            } catch (error) {
+                // Console timing remains available even if a host cannot dispatch CustomEvent.
+            }
+        }
+        return safeDetail;
+    }
+
     async function fetchWithTimeout(fetchImpl, rootObject, input, init, timeoutMs, phase) {
         const AbortControllerCtor = rootObject?.AbortController || (typeof AbortController !== 'undefined' ? AbortController : null);
         if (!AbortControllerCtor || !timeoutMs) return fetchImpl(input, init);
@@ -152,10 +229,15 @@
         if (!fetchImpl) throw new Error('Upload transport is unavailable');
         if (!isPdfFile(file)) throw new Error('Direct object upload currently supports PDF files only');
 
+        const totalStarted = monotonicNowMs(rootObject);
+
         updateUploadProgress(rootObject, 0, '正在计算 PDF 校验值…');
+        const shaStarted = monotonicNowMs(rootObject);
         const checksum = await sha256Hex(file, rootObject);
+        const sha256Ms = metricMs(monotonicNowMs(rootObject) - shaStarted);
 
         updateUploadProgress(rootObject, 0, '正在创建安全直传会话…');
+        const createStarted = monotonicNowMs(rootObject);
         const createResponse = await fetchWithTimeout(
             fetchImpl,
             rootObject,
@@ -176,8 +258,10 @@
         await requireOk(createResponse, 'Create direct upload session');
         const session = await createResponse.json();
         const validated = validateSession(session, file, checksum);
+        const createSessionMs = metricMs(monotonicNowMs(rootObject) - createStarted);
 
         updateUploadProgress(rootObject, 0, '正在直接上传到 HF Storage Bucket…');
+        const putStarted = monotonicNowMs(rootObject);
         const putResponse = await fetchWithTimeout(
             fetchImpl,
             rootObject,
@@ -191,8 +275,11 @@
             'Direct object upload',
         );
         await requireOk(putResponse, 'Direct object upload');
+        const putMs = metricMs(monotonicNowMs(rootObject) - putStarted);
+        const putResourceTiming = readPutResourceTiming(rootObject, validated.uploadUrl);
 
         updateUploadProgress(rootObject, 100, '文件已上传，正在提交处理任务…');
+        const completeStarted = monotonicNowMs(rootObject);
         const completeResponse = await fetchWithTimeout(
             fetchImpl,
             rootObject,
@@ -205,6 +292,23 @@
             CONTROL_REQUEST_TIMEOUT_MS,
             'Complete direct upload',
         );
+        const completeMs = metricMs(monotonicNowMs(rootObject) - completeStarted);
+        const totalUploadMs = metricMs(monotonicNowMs(rootObject) - totalStarted);
+
+        emitUploadTiming(rootObject, {
+            upload_route: 'direct_single_put',
+            file_size_bytes: Number(file.size),
+            sha256_ms: sha256Ms,
+            create_session_ms: createSessionMs,
+            preflight_ms: null,
+            preflight_observable: false,
+            put_ms: putMs,
+            complete_ms: completeMs,
+            total_upload_ms: totalUploadMs,
+            effective_MiB_per_second: effectiveMiBPerSecond(file.size, putMs),
+            throughput_basis: 'put_ms',
+            put_resource_timing: putResourceTiming,
+        });
         return completeResponse;
     }
 
@@ -264,12 +368,17 @@
         DIRECT_UPLOAD_THRESHOLD_BYTES,
         createDirectUploadFetch,
         directPutTimeoutMs,
+        effectiveMiBPerSecond,
+        emitUploadTiming,
         fetchWithTimeout,
         install,
         isLegacyUploadRequest,
         isPdfFile,
         isStagingEnvironment,
+        metricMs,
+        monotonicNowMs,
         normalizeBaseUrl,
+        readPutResourceTiming,
         requestUrl,
         requireOk,
         resolveApiBaseUrl,
