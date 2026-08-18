@@ -9,7 +9,7 @@
     'use strict';
 
     const DEFAULT_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
-    const DIRECT_UPLOAD_THRESHOLD_BYTES = 16 * 1024 * 1024;
+    const DIRECT_UPLOAD_THRESHOLD_BYTES = 8 * 1024 * 1024;
     const CONTROL_REQUEST_TIMEOUT_MS = 120000;
     const MIN_DIRECT_PUT_TIMEOUT_MS = 120000;
     const DIRECT_PUT_EXPIRY_SAFETY_SECONDS = 30;
