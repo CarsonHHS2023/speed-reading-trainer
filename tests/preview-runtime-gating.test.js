@@ -62,6 +62,15 @@ test('Staging runtime keeps authentication and data requests on the same backend
   assert.equal(window.APP_ACCESS_AUTH_BASE_URL, window.SPEED_READING_CONFIG.apiBaseUrl);
 });
 
+test('Staging runtime loads direct upload outside the resumable fallback and before lifecycle registration', () => {
+  const resumable = source.indexOf('<script src="bookshelf-resumable-upload.js">');
+  const direct = source.indexOf('<script src="bookshelf-direct-upload.js">');
+  const lifecycle = source.indexOf('<script src="bookshelf-upload-lifecycle.js">');
+  assert.ok(resumable >= 0);
+  assert.ok(direct > resumable);
+  assert.ok(lifecycle > direct);
+});
+
 test('Staging runtime no longer owns Reader windowing, navigation, or playback behavior', () => {
   for (const forbidden of [
     'installAsyncReaderNavigation',
