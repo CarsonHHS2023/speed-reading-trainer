@@ -134,6 +134,13 @@ test('large staging PDF uses browser to object-storage direct upload and returns
     assert.match(progress.at(-1), /提交处理任务/);
 });
 
+test('locked 100-page S0 benchmark is above the default direct-upload threshold', () => {
+    const benchmarkBytes = 12_486_675;
+    assert.equal(Direct.DIRECT_UPLOAD_THRESHOLD_BYTES, 8 * 1024 * 1024);
+    assert.ok(benchmarkBytes >= Direct.DIRECT_UPLOAD_THRESHOLD_BYTES);
+    assert.ok(benchmarkBytes < 16 * 1024 * 1024);
+});
+
 test('small staging PDF remains on the existing upload stack', async () => {
     const calls = [];
     const fetchImpl = async (url, init) => {
@@ -215,4 +222,87 @@ test('direct upload surfaces backend admission errors without falling back to HF
 test('direct PUT timeout uses most of the signed URL lifetime instead of the legacy 120 second limit', () => {
     assert.equal(Direct.directPutTimeoutMs({ expires_in_seconds: 900 }), 870000);
     assert.equal(Direct.directPutTimeoutMs({ expires_in_seconds: 60 }), 120000);
+});
+
+test('direct upload emits safe phase timings and browser-observable connection timing', async () => {
+    const checksum = 'ab'.repeat(32);
+    const file = fakeFile(10);
+    const signedUrl = 'https://s3.hf.co/carsonhhs/test-bucket/atlas/ingress/abc?X-Amz-Signature=secret-value';
+    const completionToken = 'completion-token-must-not-be-logged';
+    const calls = [];
+    const logs = [];
+    const clock = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+    let clockIndex = 0;
+    const rootObject = root();
+    rootObject.console.info = (...args) => logs.push(args);
+    rootObject.performance = {
+        now() { return clock[clockIndex++] ?? 90; },
+        getEntriesByName(name, type) {
+            assert.equal(name, signedUrl);
+            assert.equal(type, 'resource');
+            return [{
+                duration: 9,
+                domainLookupStart: 1,
+                domainLookupEnd: 2,
+                connectStart: 2,
+                secureConnectionStart: 3,
+                connectEnd: 4,
+                requestStart: 4,
+                responseStart: 7,
+                responseEnd: 9,
+                nextHopProtocol: 'h2',
+            }];
+        },
+    };
+    const fetchImpl = async (url, init = {}) => {
+        calls.push({ url: String(url), init });
+        if (calls.length === 1) {
+            return response(200, {
+                upload_id: '1994b55d1883451eae4da029400f4635',
+                upload_mode: 'single_put',
+                upload_url: signedUrl,
+                upload_method: 'PUT',
+                upload_headers: { 'Content-Type': 'application/pdf' },
+                expires_in_seconds: 900,
+                byte_size: 10,
+                checksum_sha256: checksum,
+                completion_token: completionToken,
+            });
+        }
+        if (String(url) === signedUrl) return response(200);
+        if (String(url).endsWith('/complete')) return response(200, { status: 'processing' });
+        throw new Error(`unexpected URL ${url}`);
+    };
+
+    await Direct.uploadDirectFile(file, { rootObject, fetchImpl });
+
+    const timingLog = logs.find(([label]) => label === '[atlas upload timing]');
+    assert.ok(timingLog, 'expected upload timing console record');
+    const timing = timingLog[1];
+    assert.deepEqual(timing, {
+        upload_route: 'direct_single_put',
+        file_size_bytes: 10,
+        sha256_ms: 10,
+        create_session_ms: 10,
+        preflight_ms: null,
+        preflight_observable: false,
+        put_ms: 10,
+        complete_ms: 10,
+        total_upload_ms: 90,
+        effective_MiB_per_second: 0.001,
+        throughput_basis: 'put_ms',
+        put_resource_timing: {
+            available: true,
+            duration_ms: 9,
+            dns_ms: 1,
+            connect_ms: 2,
+            tls_ms: 1,
+            request_wait_ms: 3,
+            response_download_ms: 2,
+            next_hop_protocol: 'h2',
+        },
+    });
+    const serialized = JSON.stringify(timing);
+    assert.doesNotMatch(serialized, /X-Amz-Signature|secret-value/);
+    assert.doesNotMatch(serialized, /completion-token/);
 });
