@@ -23,8 +23,13 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Verify staging routing tests
-        run: node --test tests/preview-runtime-gating.test.js
+      - name: Verify staging upload and routing contracts
+        run: |
+          npm run check
+          node --test \
+            tests/preview-runtime-gating.test.js \
+            tests/bookshelf-resumable-upload.test.js \
+            tests/bookshelf-direct-upload.test.js
 
       - name: Prepare exact-head staging Preview
         env:
@@ -69,9 +74,12 @@ jobs:
           for attempt in $(seq 1 40); do
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
             runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            direct="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-direct-upload.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-staging-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
-              && [[ "${runtime}" == *"environment = isStaging ? 'staging' : 'staging-preview'"* ]]; then
+              && [[ "${runtime}" == *"environment = isStaging ? 'staging' : 'staging-preview'"* ]] \
+              && [[ "${runtime}" == *"bookshelf-direct-upload.js"* ]] \
+              && [[ "${direct}" == *"/api/v1/direct-upload-sessions"* ]]; then
               echo "Staging PR Preview verified at exact head ${PREVIEW_HEAD_SHA}."
               verified=1
               break
