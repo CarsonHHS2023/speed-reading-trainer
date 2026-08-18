@@ -22,10 +22,13 @@ jobs:
         with:
           ref: staging
 
-      - name: Verify staging routing tests
+      - name: Verify staging upload and routing contracts
         run: |
-          node --test tests/preview-runtime-gating.test.js tests/bookshelf-resumable-upload.test.js
-          node --check bookshelf-resumable-upload.js
+          npm run check
+          node --test \
+            tests/preview-runtime-gating.test.js \
+            tests/bookshelf-resumable-upload.test.js \
+            tests/bookshelf-direct-upload.test.js
 
       - name: Prepare cache-busted staging entrypoint
         env:
@@ -70,12 +73,15 @@ jobs:
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${STAGING_HEAD_SHA}" || true)"
             runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${STAGING_HEAD_SHA}" || true)"
             resumable="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-resumable-upload.js?v=${STAGING_HEAD_SHA}" || true)"
+            direct="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-direct-upload.js?v=${STAGING_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-staging-head\" content=\"${STAGING_HEAD_SHA}"* ]] \
               && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
               && [[ "${runtime}" == *"frontendBranch: 'staging'"* ]] \
               && [[ "${runtime}" == *"backendBranch: 'staging'"* ]] \
               && [[ "${runtime}" == *"bookshelf-resumable-upload.js"* ]] \
-              && [[ "${resumable}" == *"/api/v1/upload-sessions"* ]]; then
+              && [[ "${runtime}" == *"bookshelf-direct-upload.js"* ]] \
+              && [[ "${resumable}" == *"/api/v1/upload-sessions"* ]] \
+              && [[ "${direct}" == *"/api/v1/direct-upload-sessions"* ]]; then
               echo "Public staging frontend verified at exact head ${STAGING_HEAD_SHA}."
               verified=1
               break
