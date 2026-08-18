@@ -134,6 +134,13 @@ test('large staging PDF uses browser to object-storage direct upload and returns
     assert.match(progress.at(-1), /提交处理任务/);
 });
 
+test('locked 100-page S0 benchmark is above the default direct-upload threshold', () => {
+    const benchmarkBytes = 12_486_675;
+    assert.equal(Direct.DIRECT_UPLOAD_THRESHOLD_BYTES, 8 * 1024 * 1024);
+    assert.ok(benchmarkBytes >= Direct.DIRECT_UPLOAD_THRESHOLD_BYTES);
+    assert.ok(benchmarkBytes < 16 * 1024 * 1024);
+});
+
 test('small staging PDF remains on the existing upload stack', async () => {
     const calls = [];
     const fetchImpl = async (url, init) => {
