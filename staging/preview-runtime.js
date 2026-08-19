@@ -64,15 +64,20 @@
 
     // This file is the first application script in index.html. Load the access
     // bootstrap synchronously so it captures Staging's fetch rewrite first. The
-    // legacy resumable adapter remains available as a fallback for non-PDF large
-    // uploads. The direct-upload adapter wraps it next and diverts large Staging
-    // PDFs straight to private object storage before the normal bookshelf upload
-    // lifecycle is registered.
+    // resumable and direct adapters then install their existing transport stack.
+    // On Staging/PR Preview only, the capability guard installs outside both
+    // transports so every book source is admitted against backend policy before
+    // direct SHA-256 or any resumable/legacy upload body starts. Production keeps
+    // its prior script set and upload behavior unchanged.
     if (root.document && typeof root.document.write === 'function') {
+        const capabilityScript = (isPreview || isStaging)
+            ? '<script src="bookshelf-upload-capabilities.js"><\/script>'
+            : '';
         root.document.write(
             '<script src="app-access.js"><\/script>'
             + '<script src="bookshelf-resumable-upload.js"><\/script>'
             + '<script src="bookshelf-direct-upload.js"><\/script>'
+            + capabilityScript
             + '<script src="bookshelf-upload-lifecycle.js"><\/script>',
         );
     }

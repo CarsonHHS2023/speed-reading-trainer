@@ -64,6 +64,22 @@
         return explicit === 'application/pdf' || filename.endsWith('.pdf');
     }
 
+    function capabilityAllowsDirectUpload(file, rootObject = root) {
+        const capabilities = rootObject?.BookshelfUploadCapabilities?.peekCapabilities?.();
+        if (!capabilities) return null;
+        const fileTypes = Array.isArray(capabilities.direct_upload_file_types)
+            ? capabilities.direct_upload_file_types
+            : [];
+        const maximum = Number(capabilities.direct_single_put_max_bytes || 0);
+        return Boolean(
+            capabilities.direct_upload_available
+            && fileTypes.includes('pdf')
+            && Number.isFinite(maximum)
+            && maximum > 0
+            && Number(file?.size) <= maximum
+        );
+    }
+
     function updateUploadProgress(rootObject, percent, detail = '') {
         const bounded = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
         const uploadZone = rootObject?.document?.getElementById?.('uploadZone');
@@ -327,6 +343,14 @@
             if (!file || file.size < thresholdBytes || !isPdfFile(file)) {
                 return fetchImpl(input, init);
             }
+            const capabilityDecision = capabilityAllowsDirectUpload(file, rootObject);
+            if (capabilityDecision === false) {
+                rootObject?.console?.info?.('[staging] direct object upload skipped by backend capabilities', {
+                    filename: file.name || '',
+                    byteSize: file.size,
+                });
+                return fetchImpl(input, init);
+            }
             rootObject?.console?.info?.('[staging] using direct object upload transport', {
                 filename: file.name || '',
                 byteSize: file.size,
@@ -366,6 +390,7 @@
         CONTROL_REQUEST_TIMEOUT_MS,
         DEFAULT_API_BASE_URL,
         DIRECT_UPLOAD_THRESHOLD_BYTES,
+        capabilityAllowsDirectUpload,
         createDirectUploadFetch,
         directPutTimeoutMs,
         effectiveMiBPerSecond,
