@@ -57,6 +57,34 @@
         return file;
     }
 
+    function inferredFileType(file) {
+        const filename = String(file?.name || '').trim().toLowerCase();
+        if (filename.endsWith('.pdf')) return 'pdf';
+        if (filename.endsWith('.txt')) return 'txt';
+        const explicit = String(file?.type || '').trim().toLowerCase();
+        if (explicit === 'application/pdf') return 'pdf';
+        if (explicit === 'text/plain') return 'txt';
+        return '';
+    }
+
+    function capabilityAllowsResumableUpload(file, rootObject = root) {
+        const capabilities = rootObject?.BookshelfUploadCapabilities?.peekCapabilities?.();
+        if (!capabilities) return null;
+        const fileType = inferredFileType(file);
+        const fileTypes = Array.isArray(capabilities.resumable_upload_file_types)
+            ? capabilities.resumable_upload_file_types
+            : [];
+        const maximum = Number(capabilities.resumable_transport_max_bytes || 0);
+        return Boolean(
+            capabilities.resumable_upload_available
+            && fileType
+            && fileTypes.includes(fileType)
+            && Number.isFinite(maximum)
+            && maximum > 0
+            && Number(file?.size) <= maximum
+        );
+    }
+
     function inferredContentType(file) {
         const explicit = String(file?.type || '').trim();
         if (explicit) return explicit;
@@ -251,6 +279,14 @@
             }
             const file = uploadFileFromBody(init?.body);
             if (!file || file.size < thresholdBytes) return fetchImpl(input, init);
+            const capabilityDecision = capabilityAllowsResumableUpload(file, rootObject);
+            if (capabilityDecision === false) {
+                rootObject?.console?.info?.('[staging] resumable upload skipped by backend capabilities', {
+                    filename: file.name || '',
+                    byteSize: file.size,
+                });
+                return fetchImpl(input, init);
+            }
             rootObject?.console?.info?.('[staging] using resumable upload transport', {
                 filename: file.name || '',
                 byteSize: file.size,
@@ -282,10 +318,12 @@
         LARGE_UPLOAD_THRESHOLD_BYTES,
         MAX_CHUNK_ATTEMPTS,
         REQUEST_TIMEOUT_MS,
+        capabilityAllowsResumableUpload,
         chunkMultipartBody,
         createResumableFetch,
         fetchWithTimeout,
         inferredContentType,
+        inferredFileType,
         install,
         isLegacyUploadRequest,
         isStagingEnvironment,
