@@ -65,16 +65,19 @@
     // This file is the first application script in index.html. Load the access
     // bootstrap synchronously so it captures Staging's fetch rewrite first. The
     // resumable and direct adapters then install their existing transport stack.
-    // The capability guard installs last, outside both transports, so every book
-    // source is admitted against backend policy before direct SHA-256 or any
-    // resumable/legacy upload body starts. The normal bookshelf lifecycle is
-    // registered only after that guarded stack is complete.
+    // On Staging/PR Preview only, the capability guard installs outside both
+    // transports so every book source is admitted against backend policy before
+    // direct SHA-256 or any resumable/legacy upload body starts. Production keeps
+    // its prior script set and upload behavior unchanged.
     if (root.document && typeof root.document.write === 'function') {
+        const capabilityScript = (isPreview || isStaging)
+            ? '<script src="bookshelf-upload-capabilities.js"><\/script>'
+            : '';
         root.document.write(
             '<script src="app-access.js"><\/script>'
             + '<script src="bookshelf-resumable-upload.js"><\/script>'
             + '<script src="bookshelf-direct-upload.js"><\/script>'
-            + '<script src="bookshelf-upload-capabilities.js"><\/script>'
+            + capabilityScript
             + '<script src="bookshelf-upload-lifecycle.js"><\/script>',
         );
     }
