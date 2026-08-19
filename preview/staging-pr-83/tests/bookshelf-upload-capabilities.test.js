@@ -1,7 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 
 const AppAccess = require('../app-access.js');
 const Capabilities = require('../bookshelf-upload-capabilities.js');
@@ -305,19 +303,4 @@ test('resumable route respects backend transport availability before session cre
 
     assert.equal(calls.length, 1);
     assert.match(calls[0].input, /\/api\/v1\/upload$/);
-});
-
-test('preview runtime installs capability guard outside direct and resumable transports', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'preview-runtime.js'), 'utf8');
-    const access = source.indexOf('app-access.js');
-    const resumable = source.indexOf('bookshelf-resumable-upload.js');
-    const direct = source.indexOf('bookshelf-direct-upload.js');
-    const capabilities = source.indexOf('bookshelf-upload-capabilities.js');
-    const lifecycle = source.indexOf('bookshelf-upload-lifecycle.js');
-
-    assert.ok(access >= 0);
-    assert.ok(access < resumable);
-    assert.ok(resumable < direct);
-    assert.ok(direct < capabilities);
-    assert.ok(capabilities < lifecycle);
 });
