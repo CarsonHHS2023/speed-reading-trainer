@@ -29,7 +29,10 @@ jobs:
           node --test \
             tests/preview-runtime-gating.test.js \
             tests/bookshelf-resumable-upload.test.js \
-            tests/bookshelf-direct-upload.test.js
+            tests/bookshelf-direct-upload.test.js \
+            tests/bookshelf-upload-capabilities.test.js \
+            tests/bookshelf-upload-capabilities-edge.test.js \
+            tests/bookshelf-upload-capabilities-boundaries.test.js
 
       - name: Prepare exact-head staging Preview
         env:
@@ -75,11 +78,15 @@ jobs:
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
             runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${PREVIEW_HEAD_SHA}" || true)"
             direct="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-direct-upload.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            capabilities="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-upload-capabilities.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-staging-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
               && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
               && [[ "${runtime}" == *"environment = isStaging ? 'staging' : 'staging-preview'"* ]] \
               && [[ "${runtime}" == *"bookshelf-direct-upload.js"* ]] \
-              && [[ "${direct}" == *"/api/v1/direct-upload-sessions"* ]]; then
+              && [[ "${runtime}" == *"bookshelf-upload-capabilities.js"* ]] \
+              && [[ "${direct}" == *"/api/v1/direct-upload-sessions"* ]] \
+              && [[ "${capabilities}" == *"/api/v1/upload-capabilities"* ]] \
+              && [[ "${capabilities}" == *"CAPABILITY_SCHEMA_VERSION = 1"* ]]; then
               echo "Staging PR Preview verified at exact head ${PREVIEW_HEAD_SHA}."
               verified=1
               break
