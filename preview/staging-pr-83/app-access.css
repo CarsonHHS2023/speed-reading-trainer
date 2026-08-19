@@ -1,0 +1,119 @@
+.app-access-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(8px);
+}
+
+.app-access-overlay[hidden] {
+    display: none;
+}
+
+.app-access-card {
+    width: min(420px, 100%);
+    padding: 34px;
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+    color: #172033;
+}
+
+.app-access-brand {
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #52627a;
+}
+
+.app-access-card h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+}
+
+.app-access-card p {
+    margin: 0 0 24px;
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.app-access-form {
+    display: grid;
+    gap: 10px;
+}
+
+.app-access-form label {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.app-access-form input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    font: inherit;
+    outline: none;
+}
+
+.app-access-form input:focus {
+    border-color: #475569;
+    box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.14);
+}
+
+.app-access-form button {
+    margin-top: 6px;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 10px;
+    background: #172033;
+    color: #ffffff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.app-access-form button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.app-access-error {
+    min-height: 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #b42318;
+}
+
+.app-access-logout-btn {
+    margin-left: auto;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.app-access-logout-btn:hover {
+    background: rgba(127, 127, 127, 0.12);
+}
+
+@media (max-width: 600px) {
+    .app-access-overlay {
+        padding: 16px;
+    }
+
+    .app-access-card {
+        padding: 26px 22px;
+    }
+}
