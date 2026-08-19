@@ -143,6 +143,7 @@
         let cachedCapabilities = null;
         let cachedAtMs = 0;
         let inFlight = null;
+        let lastRequestStatus = null;
 
         function nowMs() {
             const value = Number(rootObject?.Date?.now?.() ?? Date.now());
@@ -160,6 +161,7 @@
             const existing = peekCapabilities();
             if (existing) return existing;
             if (inFlight) return inFlight;
+            lastRequestStatus = null;
             inFlight = (async () => {
                 try {
                     const response = await fetchWithTimeout(
@@ -170,12 +172,14 @@
                         timeoutMs,
                     );
                     if (!response?.ok) {
-                        throw new Error(`HTTP ${Number(response?.status || 0)}`);
+                        lastRequestStatus = Number(response?.status || 0);
+                        throw new Error(`HTTP ${lastRequestStatus}`);
                     }
                     const capabilities = validateCapabilities(await response.json());
                     if (!capabilities) throw new Error('invalid capability schema');
                     cachedCapabilities = capabilities;
                     cachedAtMs = nowMs();
+                    lastRequestStatus = null;
                     return capabilities;
                 } catch (error) {
                     rootObject?.console?.warn?.('[upload capabilities] unavailable; preserving existing upload routing', {
@@ -214,6 +218,15 @@
         async function preflightFile(file) {
             const capabilities = await requestCapabilities();
             if (!capabilities) {
+                if (lastRequestStatus === 401) {
+                    return {
+                        allowed: false,
+                        status: 401,
+                        capabilities: null,
+                        reason: 'Authentication required',
+                        fileType: inferredFileType(file),
+                    };
+                }
                 return {
                     allowed: true,
                     capabilities: null,
