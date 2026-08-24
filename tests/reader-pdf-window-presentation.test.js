@@ -92,3 +92,61 @@ test('cross-page loaded fragment expands the bounded range through every referen
   assert.deepEqual(pages.map((page) => page.source_unit_id), ['p17', 'p18']);
   assert.deepEqual(pages.map((page) => page.elements[0].display_text), ['end of page 17', 'start of page 18']);
 });
+
+test('fragment source-anchor reference keeps a physical page shell even without fragment-level source_unit_id', () => {
+  const units = physicalUnits(100);
+  const carrier = {
+    node_id: 'title-page-carrier',
+    order: 0,
+    node_type: 'figure',
+    text: '',
+    source_unit_ids: [],
+    location: { node_id: 'title-page-carrier' },
+    metadata: {
+      page_fragments: [
+        {
+          text: '',
+          source_anchor: {
+            kind: 'spatial',
+            source_unit_id: 'p42',
+            normalized_bbox: [0, 0, 1, 1],
+          },
+        },
+      ],
+    },
+  };
+
+  const pages = Presentation.deriveSemanticFullPages(units, [carrier]);
+
+  assert.equal(pages.some((page) => page.source_unit_id === 'p42'), true);
+  assert.equal(pages.some((page) => page.source_unit_id === 'p41'), false);
+  assert.equal(pages.some((page) => page.source_unit_id === 'p43'), false);
+});
+
+test('PDF window bounds honor every canonical source-unit reference carried by a loaded node', () => {
+  const units = physicalUnits(100);
+  const carrier = {
+    node_id: 'multi-reference-carrier',
+    order: 0,
+    node_type: 'figure',
+    text: '',
+    source_unit_ids: ['p20'],
+    location: {
+      node_id: 'multi-reference-carrier',
+      source_unit_id: 'p21',
+      source_anchor: { kind: 'spatial', source_unit_id: 'p22', normalized_bbox: [0, 0, 1, 1] },
+    },
+    source_anchors: [
+      { kind: 'spatial', source_unit_id: 'p23', normalized_bbox: [0, 0, 1, 1] },
+    ],
+    metadata: {
+      page_fragments: [
+        { source_unit_id: 'p24', source_anchor: { kind: 'spatial', source_unit_id: 'p25', normalized_bbox: [0, 0, 1, 1] } },
+      ],
+    },
+  };
+
+  const bounded = Presentation.physicalPagesForLoadedNodes(units, [carrier]);
+
+  assert.deepEqual(bounded.map((page) => page.source_unit_id), ['p20', 'p21', 'p22', 'p23', 'p24', 'p25']);
+});
