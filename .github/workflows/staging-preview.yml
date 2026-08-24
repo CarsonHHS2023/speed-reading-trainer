@@ -48,7 +48,7 @@ jobs:
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
           text = re.sub(
-              r'preview-runtime\.js(?:\?v[^\"\']+)?',
+              r'preview-runtime\.js(?:\?v=[^\"\']+)?',
               f'preview-runtime.js?v={sha}',
               text,
           )
