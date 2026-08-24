@@ -67,6 +67,29 @@
         }).filter(Boolean);
     }
 
+    function physicalPagesForLoadedNodes(physicalPages, nodes) {
+        const pages = Array.isArray(physicalPages) ? physicalPages : [];
+        if (!pages.length) return [];
+        const indexById = new Map(pages.map((unit, index) => [unit.source_unit_id, index]));
+        let firstIndex = null;
+        let lastIndex = null;
+
+        for (const node of nodes || []) {
+            const unitIds = new Set(pageFragmentsForNode(node).map((fragment) => fragment.source_unit_id));
+            const primary = primarySourceUnitId(node);
+            if (primary) unitIds.add(primary);
+            for (const unitId of unitIds) {
+                const index = indexById.get(unitId);
+                if (!Number.isInteger(index)) continue;
+                firstIndex = firstIndex === null ? index : Math.min(firstIndex, index);
+                lastIndex = lastIndex === null ? index : Math.max(lastIndex, index);
+            }
+        }
+
+        if (firstIndex === null || lastIndex === null) return [];
+        return pages.slice(firstIndex, lastIndex + 1);
+    }
+
     function semanticElementForNode(node, sourceUnitId = primarySourceUnitId(node), fragment = null) {
         const fragmentSuffix = fragment ? `:fragment:${fragment.fragment_index}` : '';
         return {
@@ -83,7 +106,8 @@
 
     function deriveSemanticFullPages(sourceUnits, nodes) {
         const model = requireModel();
-        const pages = model.physicalPageSourceUnits(sourceUnits);
+        const physicalPages = model.physicalPageSourceUnits(sourceUnits);
+        const pages = physicalPagesForLoadedNodes(physicalPages, nodes);
         const pageById = new Map(pages.map((unit) => [unit.source_unit_id, {
             presentation_id: `semantic-page:${unit.source_unit_id}`,
             kind: 'semantic_full_page',
@@ -224,6 +248,7 @@
         findPresentationPageForNode,
         normalizedBBoxForNode,
         pageFragmentsForNode,
+        physicalPagesForLoadedNodes,
         presentationForDocument,
         primarySourceUnitId,
         semanticElementForNode,
