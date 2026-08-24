@@ -33,7 +33,10 @@ jobs:
             tests/bookshelf-upload-capabilities.test.js \
             tests/bookshelf-upload-capabilities-edge.test.js \
             tests/bookshelf-upload-capabilities-boundaries.test.js \
-            tests/reader-window-continuation.test.js
+            tests/reader-window-continuation.test.js \
+            tests/reader-boundary-navigation.test.js \
+            tests/reader-windowing.test.js \
+            tests/reader-speed-current-batch.test.js
 
       - name: Prepare exact-head staging Preview
         env:
