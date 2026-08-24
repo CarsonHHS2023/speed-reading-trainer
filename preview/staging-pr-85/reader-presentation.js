@@ -67,6 +67,23 @@
         }).filter(Boolean);
     }
 
+    function canonicalSourceUnitIdsForNode(node) {
+        const ids = new Set();
+        const add = (value) => {
+            const normalized = typeof value === 'string' ? value.trim() : '';
+            if (normalized) ids.add(normalized);
+        };
+        add(node?.location?.source_unit_id);
+        for (const value of node?.source_unit_ids || []) add(value);
+        add(node?.location?.source_anchor?.source_unit_id);
+        for (const anchor of node?.source_anchors || []) add(anchor?.source_unit_id);
+        for (const fragment of node?.metadata?.page_fragments || []) {
+            add(fragment?.source_unit_id);
+            add(fragment?.source_anchor?.source_unit_id);
+        }
+        return ids;
+    }
+
     function physicalPagesForLoadedNodes(physicalPages, nodes) {
         const pages = Array.isArray(physicalPages) ? physicalPages : [];
         if (!pages.length) return [];
@@ -75,10 +92,7 @@
         let lastIndex = null;
 
         for (const node of nodes || []) {
-            const unitIds = new Set(pageFragmentsForNode(node).map((fragment) => fragment.source_unit_id));
-            const primary = primarySourceUnitId(node);
-            if (primary) unitIds.add(primary);
-            for (const unitId of unitIds) {
+            for (const unitId of canonicalSourceUnitIdsForNode(node)) {
                 const index = indexById.get(unitId);
                 if (!Number.isInteger(index)) continue;
                 firstIndex = firstIndex === null ? index : Math.min(firstIndex, index);
@@ -240,6 +254,7 @@
         DEFAULT_REFLOW_MAX_LINES,
         PRESENTATION_MODE_REFLOW,
         PRESENTATION_MODE_SEMANTIC_FULL_PAGE,
+        canonicalSourceUnitIdsForNode,
         derivePhysicalPages,
         deriveReflowPages,
         deriveSemanticFullPages,
