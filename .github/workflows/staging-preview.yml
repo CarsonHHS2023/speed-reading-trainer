@@ -33,6 +33,8 @@ jobs:
             tests/bookshelf-upload-capabilities.test.js \
             tests/bookshelf-upload-capabilities-edge.test.js \
             tests/bookshelf-upload-capabilities-boundaries.test.js \
+            tests/reader-pdf-window-presentation.test.js \
+            tests/reader-presentation.test.js \
             tests/reader-window-continuation.test.js \
             tests/reader-boundary-navigation.test.js \
             tests/reader-windowing.test.js \
