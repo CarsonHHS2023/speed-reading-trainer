@@ -6,6 +6,7 @@
     'use strict';
 
     const NODE_WINDOW_SIZE = 150;
+    const AUTO_WINDOW_ROOT_MARGIN_PX = 600;
     const CONTROL_IDS = Object.freeze([
         'speedReadingFirst',
         'speedReadingPrev',
@@ -62,11 +63,83 @@
         return playback?.element?.('speedReadingState') || null;
     }
 
+    function shouldContinueReaderWindow(reader, main) {
+        if (!reader || !main || !reader.hasMore) return false;
+        if (reader.navigationPending || reader.opening || reader.autoLoadPromise || reader.__windowContinuationPromise) return false;
+        const scrollHeight = Number(main.scrollHeight || 0);
+        const scrollTop = Number(main.scrollTop || 0);
+        const clientHeight = Number(main.clientHeight || 0);
+        if (!Number.isFinite(scrollHeight) || !Number.isFinite(scrollTop) || !Number.isFinite(clientHeight)) return false;
+        const remaining = scrollHeight - scrollTop - clientHeight;
+        const threshold = Math.max(AUTO_WINDOW_ROOT_MARGIN_PX, clientHeight * 0.75);
+        return remaining <= threshold;
+    }
+
+    function installReaderWindowContinuation(reader, rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
+        if (!reader || reader.__windowContinuationInstalled) return Boolean(reader);
+        const documentObject = reader.document || rootObject?.document || null;
+        const main = documentObject?.querySelector?.('.reader-v2-main');
+        const loadMoreButton = reader.element?.('readerV2LoadMore') || documentObject?.getElementById?.('readerV2LoadMore');
+        if (!main || !loadMoreButton || typeof reader.loadMore !== 'function') return false;
+
+        const continueWindow = () => {
+            if (!shouldContinueReaderWindow(reader, main)) return false;
+            const anchor = reader.currentPageFirstNode?.()?.node_id || null;
+            const pending = Promise.resolve(reader.loadMore({
+                silent: true,
+                anchorNodeId: anchor,
+                anchorBlock: 'start',
+            })).catch((error) => reader.renderError?.(error)).finally(() => {
+                if (reader.__windowContinuationPromise === pending) reader.__windowContinuationPromise = null;
+                reader.emitPageChange?.();
+            });
+            reader.__windowContinuationPromise = pending;
+            return true;
+        };
+
+        const scheduleContinuation = () => {
+            const raf = rootObject?.requestAnimationFrame || documentObject?.defaultView?.requestAnimationFrame;
+            if (typeof raf === 'function') raf(() => continueWindow());
+            else continueWindow();
+        };
+
+        main.addEventListener?.('scroll', scheduleContinuation, { passive: true });
+        main.addEventListener?.('wheel', scheduleContinuation, { passive: true });
+        main.addEventListener?.('touchend', scheduleContinuation, { passive: true });
+
+        documentObject?.addEventListener?.('reader-v2-page-change', (event) => {
+            const detail = event?.detail || {};
+            const index = Number(detail.index);
+            const pageCount = Number(detail.pageCount);
+            if (!detail.readable || detail.pending || detail.atDocumentEnd) return;
+            if (!Number.isInteger(index) || !Number.isInteger(pageCount) || pageCount <= 0) return;
+            if (index >= Math.max(0, pageCount - 2)) scheduleContinuation();
+        });
+
+        const Observer = rootObject?.IntersectionObserver || documentObject?.defaultView?.IntersectionObserver;
+        if (typeof Observer === 'function') {
+            const observer = new Observer((entries) => {
+                if (entries?.some?.((entry) => entry?.isIntersecting)) scheduleContinuation();
+            }, {
+                root: main,
+                rootMargin: `0px 0px ${AUTO_WINDOW_ROOT_MARGIN_PX}px 0px`,
+                threshold: 0,
+            });
+            observer.observe(loadMoreButton);
+            reader.__windowContinuationObserver = observer;
+        }
+
+        reader.__windowContinuationInstalled = true;
+        return true;
+    }
+
     function install(rootObject = typeof globalThis !== 'undefined' ? globalThis : null) {
         const reader = rootObject?.ReaderUIV2?.getDefaultController?.();
         const playback = rootObject?.ReaderSpeedPlaybackUI?.getDefaultController?.();
         if (!reader || !playback || playback.__boundaryNavigationInstalled) return Boolean(reader && playback);
         if (!playback.__playbackPolishInstalled && !rootObject?.ReaderPlaybackPolish) return false;
+
+        installReaderWindowContinuation(reader, rootObject);
 
         const coordinator = createTaskCoordinator((message) => {
             playback.__boundaryNavigationStatus = message;
@@ -281,11 +354,14 @@
     }
 
     return {
+        AUTO_WINDOW_ROOT_MARGIN_PX,
         CONTROL_IDS,
         NODE_WINDOW_SIZE,
         createTaskCoordinator,
         install,
+        installReaderWindowContinuation,
         installWithRetry,
         normalizedWindowStart,
+        shouldContinueReaderWindow,
     };
 });
