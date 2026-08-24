@@ -91,14 +91,20 @@ test('continuation refuses terminal, opening, and already-pending states', () =>
   assert.equal(shouldContinueReaderWindow({ hasMore: true, __windowContinuationPromise: Promise.resolve() }, main), false);
 });
 
-test('near-end scroll continues with exactly one bounded load while a request is in flight', async () => {
+test('wheel-first near-end continuation shares the core in-flight guard and cannot double-load', async () => {
   const harness = makeHarness();
   assert.equal(installReaderWindowContinuation(harness.reader, harness.rootObject), true);
   harness.main.scrollTop = 2000;
-  harness.main.dispatch('scroll');
-  harness.main.dispatch('wheel');
-  harness.triggerIntersection(true);
 
+  // Browser wheel normally precedes the resulting scroll event. The fallback
+  // must publish the same autoLoadPromise that the core scroll handler checks.
+  harness.main.dispatch('wheel');
+  assert.equal(harness.calls.length, 1);
+  assert.ok(harness.reader.autoLoadPromise);
+  assert.equal(harness.reader.autoLoadPromise, harness.reader.__windowContinuationPromise);
+
+  harness.main.dispatch('scroll');
+  harness.triggerIntersection(true);
   assert.equal(harness.calls.length, 1);
   assert.deepEqual(harness.calls[0], {
     silent: true,
@@ -110,6 +116,7 @@ test('near-end scroll continues with exactly one bounded load while a request is
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(harness.reader.__windowContinuationPromise, null);
+  assert.equal(harness.reader.autoLoadPromise, null);
 });
 
 test('page-change fallback continues when the current visible window reaches its last two pages', () => {
