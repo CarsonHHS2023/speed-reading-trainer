@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Verify staging upload and routing contracts
+      - name: Verify staging upload, routing, and PDF Reader window contracts
         run: |
           npm run check
           node --test \
@@ -32,7 +32,12 @@ jobs:
             tests/bookshelf-direct-upload.test.js \
             tests/bookshelf-upload-capabilities.test.js \
             tests/bookshelf-upload-capabilities-edge.test.js \
-            tests/bookshelf-upload-capabilities-boundaries.test.js
+            tests/bookshelf-upload-capabilities-boundaries.test.js \
+            tests/reader-pdf-window-presentation.test.js \
+            tests/reader-presentation.test.js \
+            tests/reader-boundary-navigation.test.js \
+            tests/reader-windowing.test.js \
+            tests/reader-speed-current-batch.test.js
 
       - name: Prepare exact-head staging Preview
         env:
@@ -49,6 +54,11 @@ jobs:
           text = re.sub(
               r'preview-runtime\.js(?:\?v=[^\"\']+)?',
               f'preview-runtime.js?v={sha}',
+              text,
+          )
+          text = re.sub(
+              r'reader-presentation\.js(?:\?v=[^\"\']+)?',
+              f'reader-presentation.js?v={sha}',
               text,
           )
           marker = f'<meta name="reader-staging-preview-head" content="{sha}">'
@@ -77,9 +87,12 @@ jobs:
           for attempt in $(seq 1 40); do
             html="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/?v=${PREVIEW_HEAD_SHA}" || true)"
             runtime="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/preview-runtime.js?v=${PREVIEW_HEAD_SHA}" || true)"
+            presentation="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/reader-presentation.js?v=${PREVIEW_HEAD_SHA}" || true)"
             direct="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-direct-upload.js?v=${PREVIEW_HEAD_SHA}" || true)"
             capabilities="$(curl -fsSL --retry 2 --retry-delay 1 "${base_url}/bookshelf-upload-capabilities.js?v=${PREVIEW_HEAD_SHA}" || true)"
             if [[ "${html}" == *"reader-staging-preview-head\" content=\"${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${html}" == *"reader-presentation.js?v=${PREVIEW_HEAD_SHA}"* ]] \
+              && [[ "${presentation}" == *"physicalPagesForLoadedNodes"* ]] \
               && [[ "${runtime}" == *"https://carsonhhs-pdf-ocr-service-staging.hf.space"* ]] \
               && [[ "${runtime}" == *"environment = isStaging ? 'staging' : 'staging-preview'"* ]] \
               && [[ "${runtime}" == *"bookshelf-direct-upload.js"* ]] \

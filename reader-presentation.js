@@ -67,6 +67,43 @@
         }).filter(Boolean);
     }
 
+    function canonicalSourceUnitIdsForNode(node) {
+        const ids = new Set();
+        const add = (value) => {
+            const normalized = typeof value === 'string' ? value.trim() : '';
+            if (normalized) ids.add(normalized);
+        };
+        add(node?.location?.source_unit_id);
+        for (const value of node?.source_unit_ids || []) add(value);
+        add(node?.location?.source_anchor?.source_unit_id);
+        for (const anchor of node?.source_anchors || []) add(anchor?.source_unit_id);
+        for (const fragment of node?.metadata?.page_fragments || []) {
+            add(fragment?.source_unit_id);
+            add(fragment?.source_anchor?.source_unit_id);
+        }
+        return ids;
+    }
+
+    function physicalPagesForLoadedNodes(physicalPages, nodes) {
+        const pages = Array.isArray(physicalPages) ? physicalPages : [];
+        if (!pages.length) return [];
+        const indexById = new Map(pages.map((unit, index) => [unit.source_unit_id, index]));
+        let firstIndex = null;
+        let lastIndex = null;
+
+        for (const node of nodes || []) {
+            for (const unitId of canonicalSourceUnitIdsForNode(node)) {
+                const index = indexById.get(unitId);
+                if (!Number.isInteger(index)) continue;
+                firstIndex = firstIndex === null ? index : Math.min(firstIndex, index);
+                lastIndex = lastIndex === null ? index : Math.max(lastIndex, index);
+            }
+        }
+
+        if (firstIndex === null || lastIndex === null) return [];
+        return pages.slice(firstIndex, lastIndex + 1);
+    }
+
     function semanticElementForNode(node, sourceUnitId = primarySourceUnitId(node), fragment = null) {
         const fragmentSuffix = fragment ? `:fragment:${fragment.fragment_index}` : '';
         return {
@@ -83,7 +120,8 @@
 
     function deriveSemanticFullPages(sourceUnits, nodes) {
         const model = requireModel();
-        const pages = model.physicalPageSourceUnits(sourceUnits);
+        const physicalPages = model.physicalPageSourceUnits(sourceUnits);
+        const pages = physicalPagesForLoadedNodes(physicalPages, nodes);
         const pageById = new Map(pages.map((unit) => [unit.source_unit_id, {
             presentation_id: `semantic-page:${unit.source_unit_id}`,
             kind: 'semantic_full_page',
@@ -216,6 +254,7 @@
         DEFAULT_REFLOW_MAX_LINES,
         PRESENTATION_MODE_REFLOW,
         PRESENTATION_MODE_SEMANTIC_FULL_PAGE,
+        canonicalSourceUnitIdsForNode,
         derivePhysicalPages,
         deriveReflowPages,
         deriveSemanticFullPages,
@@ -224,6 +263,7 @@
         findPresentationPageForNode,
         normalizedBBoxForNode,
         pageFragmentsForNode,
+        physicalPagesForLoadedNodes,
         presentationForDocument,
         primarySourceUnitId,
         semanticElementForNode,
