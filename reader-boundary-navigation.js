@@ -91,9 +91,13 @@
                 anchorBlock: 'start',
             })).catch((error) => reader.renderError?.(error)).finally(() => {
                 if (reader.__windowContinuationPromise === pending) reader.__windowContinuationPromise = null;
+                if (reader.autoLoadPromise === pending) reader.autoLoadPromise = null;
                 reader.emitPageChange?.();
             });
             reader.__windowContinuationPromise = pending;
+            // Share the core Reader guard so a wheel/observer fallback followed by
+            // the native scroll handler cannot start a second window request.
+            reader.autoLoadPromise = pending;
             return true;
         };
 
