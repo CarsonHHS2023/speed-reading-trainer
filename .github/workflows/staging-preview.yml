@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Verify staging upload and routing contracts
+      - name: Verify staging upload, routing, and Reader continuation contracts
         run: |
           npm run check
           node --test \
@@ -32,7 +32,8 @@ jobs:
             tests/bookshelf-direct-upload.test.js \
             tests/bookshelf-upload-capabilities.test.js \
             tests/bookshelf-upload-capabilities-edge.test.js \
-            tests/bookshelf-upload-capabilities-boundaries.test.js
+            tests/bookshelf-upload-capabilities-boundaries.test.js \
+            tests/reader-window-continuation.test.js
 
       - name: Prepare exact-head staging Preview
         env:
@@ -47,7 +48,7 @@ jobs:
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
           text = re.sub(
-              r'preview-runtime\.js(?:\?v=[^\"\']+)?',
+              r'preview-runtime\.js(?:\?v[^\"\']+)?',
               f'preview-runtime.js?v={sha}',
               text,
           )
