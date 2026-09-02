@@ -9,7 +9,12 @@
     const s0Preview = isPreview && root.document?.querySelector('meta[name="atlas-s0-reader-preview"]')?.content === '1';
     const TEST_API_BASE_URL = s0Preview ? 'https://carsonhhs-pdf-ocr-service-staging.hf.space'
         : 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
-    if (s0Preview) root.ATLAS_S0_READER_PREVIEW = true;
+    if (s0Preview) {
+        root.ATLAS_S0_READER_PREVIEW = true;
+        // Staging signs and verifies its own tokens; do not reuse Production sessions.
+        root.APP_ACCESS_AUTH_BASE_URL = TEST_API_BASE_URL;
+        root.APP_ACCESS_SESSION_TOKEN_KEY = 'smart-reading-access-token:s0-staging';
+    }
 
     if (isPreview) {
         root.SPEED_READING_CONFIG = Object.freeze({
@@ -31,7 +36,7 @@
         const nativeFetch = root.fetch && root.fetch.bind(root);
         if (!nativeFetch) throw new Error('Preview runtime requires window.fetch');
 
-        // AppAccess consumes this one-shot raw fetch for the shared login only.
+        // AppAccess consumes this one-shot raw fetch for its selected auth origin.
         // Normal application fetches remain behind the Preview URL rewrite below.
         root.__APP_ACCESS_AUTH_FETCH__ = nativeFetch;
 
@@ -63,8 +68,11 @@
     // bootstrap synchronously so it captures Preview's fetch rewrite first, then
     // register the upload lifecycle before Bookshelf creates its DOM-ready instance.
     if (root.document && typeof root.document.write === 'function') {
+        const previewHead = s0Preview
+            ? root.document.querySelector('meta[name="reader-preview-head"]')?.content : null;
+        const authVersion = /^[0-9a-f]{40}$/.test(previewHead || '') ? `?v=${previewHead}` : '';
         root.document.write(
-            '<script src="app-access.js"><\/script>'
+            `<script src="app-access.js${authVersion}"><\/script>`
             + '<script src="bookshelf-upload-lifecycle.js"><\/script>',
         );
     }
