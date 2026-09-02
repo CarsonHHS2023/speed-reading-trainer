@@ -70,13 +70,21 @@
             this.baseUrl = normalizeBaseUrl(options.baseUrl || resolveBaseUrl(typeof window !== 'undefined' ? window : null));
             this.fetchImpl = options.fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
             if (!this.fetchImpl) throw new Error('fetch implementation is required');
+            const s0 = typeof window !== 'undefined' ? window.AtlasS0ReaderOpen
+                : (typeof require === 'function' ? require('./s0-reader-open.js') : null);
+            this.s0Open = s0 ? new s0.ReaderOpenTelemetry({ baseUrl: this.baseUrl, fetchImpl: this.fetchImpl,
+                rootObject: options.rootObject || (typeof window !== 'undefined' ? window : globalThis) }) : null;
         }
+
+        beginOpenObservation(documentRef, readResume) { return this.s0Open?.begin(documentRef, readResume); }
+        finishOpenObservation(op, outcome) { this.s0Open?.finish(op, outcome); }
 
         async requestJson(path) {
             let response;
+            const observation = this.s0Open?.request(path);
             try {
                 response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-                    headers: { Accept: 'application/json' },
+                    headers: { Accept: 'application/json', ...observation?.headers },
                 });
             } catch (error) {
                 throw new ReaderApiError('Unable to reach Reader service.', {
@@ -99,6 +107,7 @@
                 }
             }
 
+            this.s0Open?.response(observation, response, body);
             if (!response.ok) {
                 const detail = safeDetail(body, `Reader request failed (${response.status}).`);
                 throw new ReaderApiError(detail.message, {

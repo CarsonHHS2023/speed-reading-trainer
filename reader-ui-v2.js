@@ -237,6 +237,9 @@
         async openBook(book) {
             this.reset();
             this.documentRef = String(book && book.id !== undefined ? book.id : book);
+            const s0Observation = this.api.beginOpenObservation?.(this.documentRef, () => this.resumeStore.read(this.documentRef));
+            let s0Succeeded = false;
+            let s0Mode = 'first_open';
             this.opening = true;
             this.activateReaderSurface();
             this.setStatus('正在打开 Reader v2…');
@@ -264,6 +267,8 @@
                     this.setVisibleWindows(first?.nodes?.length ? [0] : []);
                     this.setStatus('');
                 }
+                s0Mode = restored ? 'reopen' : 'first_open';
+                s0Succeeded = this.nodes.length > 0 && Boolean(this.element('readerV2Pages'));
                 return opened;
             } catch (error) {
                 this.renderError(error);
@@ -272,6 +277,8 @@
                 this.opening = false;
                 this.setNavigationDisabled(false);
                 this.emitPageChange();
+                this.api.finishOpenObservation?.(s0Observation, { succeeded: s0Succeeded, mode: s0Mode,
+                    candidateId: this.candidateId, documentRef: this.documentRef });
             }
         }
 
