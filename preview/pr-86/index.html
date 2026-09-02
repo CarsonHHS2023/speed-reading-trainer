@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>快速阅读训练程序</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="reader-v2.css">
+    <link rel="stylesheet" href="reader-page-zoom-pan.css?v=f64897cb04342b6b7f2b892cca4c4939083a7c70">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css" integrity="sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5Tu2PRVfQ/7KLZC+Pi1p1" crossorigin="anonymous">
+    <link rel="stylesheet" href="reader-formula.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.js" integrity="sha384-ycJ6GAwiS15LoUPipwJOrWTvkUHl/YqELValBwI5I4awP1EeEQJYarj+w85ntcz7" crossorigin="anonymous"></script>
+<meta name="atlas-s0-reader-preview" content="1">
+    <meta name="reader-preview-head" content="f64897cb04342b6b7f2b892cca4c4939083a7c70">
+</head>
+<body>
+    <div class="app-wrapper">
+        <div class="app-body">
+            <div class="left-column">
+                <div class="app-title">
+                    <span>⚡ 快速阅读训练程序</span>
+                    <button id="themeToggleBtn" class="theme-toggle-btn" title="切换主题">🌙</button>
+                </div>
+
+                <div class="shelf-panel">
+                    <div class="shelf-header">
+                        <h2>📚 书架</h2>
+                        <button id="addCategoryBtn" class="icon-btn" title="添加分类">➕</button>
+                    </div>
+
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-prompt">📁 拖拽或<br><span>点击上传</span></div>
+                        <input type="file" id="fileInput" accept=".txt,.pdf" multiple hidden>
+                    </div>
+
+                    <div id="batchPanel" class="batch-panel" style="display:none;">
+                        <div class="batch-summary" id="batchSummary"></div>
+                        <div class="batch-list" id="batchList"></div>
+                    </div>
+
+                    <div id="processingPanel" class="processing-panel" style="display:none;">
+                        <div class="processing-title">
+                            <span id="processingBookName" class="processing-book-name"></span>
+                            <div class="processing-title-right">
+                                <span id="processingStatus" class="processing-status-text"></span>
+                                <span id="processingPercent" class="processing-percent"></span>
+                                <button id="closeProcessingBtn" class="processing-close-btn" title="关闭">✕</button>
+                            </div>
+                        </div>
+                        <div class="processing-bar-track"><div id="processingBarFill" class="processing-bar-fill"></div></div>
+                        <div class="processing-info"><span id="processingPageInfo"></span></div>
+                    </div>
+
+                    <div class="categories-panel">
+                        <div class="categories-header"><h2>🗂️ 目录</h2></div>
+                        <div class="categories"></div>
+                    </div>
+                </div>
+
+                <div class="settings-panel">
+                    <div class="settings-header"><h2>🎮 设置</h2></div>
+                    <div class="settings-content">
+                        <div class="setting-row speed-setting-row">
+                            <label for="speedSlider">阅读速度：</label>
+                            <div class="speed-control">
+                                <input type="range" id="speedSlider" min="100" max="10000" value="5000" />
+                                <input type="number" id="speedInput" min="100" max="10000" value="5000" size="5" />
+                                <span id="speedUnit">字/分钟</span>
+                            </div>
+                        </div>
+
+                        <div class="setting-grid-row" id="focusSettings">
+                            <div class="setting-grid-cell">
+                                <label for="widthSlider">显示宽度：</label>
+                                <input type="range" id="widthSlider" min="20" max="100" value="100" />
+                                <input type="number" id="widthInput" min="20" max="100" value="100" />
+                                <span>%</span>
+                            </div>
+                            <div class="setting-grid-cell">
+                                <label for="linesSlider">行数：</label>
+                                <input type="range" id="linesSlider" min="1" max="10" value="3" />
+                                <input type="number" id="linesInput" min="1" max="10" value="3" />
+                            </div>
+                        </div>
+
+                        <div class="setting-row" id="pageSettings" style="display: none;">
+                            <label for="maxLinesSlider">最大行数：</label>
+                            <div class="slider-control">
+                                <input type="range" id="maxLinesSlider" min="10" max="30" value="20" />
+                                <input type="number" id="maxLinesInput" min="10" max="30" value="20" />
+                            </div>
+                        </div>
+
+                        <div class="setting-grid-row">
+                            <div class="setting-grid-cell">
+                                <label for="fontSlider">字体大小：</label>
+                                <input type="range" id="fontSlider" min="16" max="48" value="28" />
+                                <input type="number" id="fontInput" min="16" max="48" value="28" />
+                            </div>
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="fontWeight">粗细：</label>
+                                <select id="fontWeight"><option value="normal">Normal</option><option value="bold">Bold</option></select>
+                            </div>
+                        </div>
+
+                        <div class="setting-grid-row">
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="displayMode">显示模式：</label>
+                                <select id="displayMode"><option value="focus">焦点式</option><option value="page">整页式</option></select>
+                            </div>
+                            <div class="setting-grid-cell setting-grid-cell-select">
+                                <label for="trainingMode">视点模式：</label>
+                                <select id="trainingMode"><option value="fixed">固定式</option><option value="scroll">移动式</option></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress-section">
+                        <input type="range" id="progressSlider" class="progress-slider" min="0" max="1000" value="0" />
+                        <div class="progress-info">
+                            <span id="currentPos">0</span> / <span id="totalWords">0</span>
+                            <span class="time-display">⏱️ <span id="readingTime">00:00</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="booklist-column">
+                <div class="booklist-header">
+                    <h2>📋 书单</h2>
+                    <button id="readingToggleBtn" class="reading-toggle-btn" title="开始/停止阅读" disabled>▶</button>
+                </div>
+                <div class="books-list" id="booksList"></div>
+            </div>
+
+            <div class="reading-panel">
+                <div id="readerV2Display" class="display-mode reader-v2-display">
+                    <div class="reader-v2-shell">
+                        <aside class="reader-v2-sidebar" aria-label="文档导航">
+                            <div id="readerV2Title" class="reader-v2-title">结构化阅读</div>
+                            <div id="readerV2Meta" class="reader-v2-meta"></div>
+                            <div class="reader-v2-find" role="search" aria-label="文档内查找">
+                                <div class="reader-v2-find-row">
+                                    <input id="readerV2FindInput" class="reader-v2-find-input" type="search" placeholder="查找…" autocomplete="off" />
+                                    <button id="readerV2FindButton" class="reader-v2-find-button" type="button">查找</button>
+                                </div>
+                                <div class="reader-v2-find-nav">
+                                    <button id="readerV2FindPrev" type="button" title="上一个匹配" disabled>↑</button>
+                                    <span id="readerV2FindCount" aria-live="polite">0 / 0</span>
+                                    <button id="readerV2FindNext" type="button" title="下一个匹配" disabled>↓</button>
+                                </div>
+                            </div>
+                            <section class="reader-v2-annotations" aria-label="书签和笔记">
+                                <div class="reader-v2-annotations-header">
+                                    <strong>书签与笔记</strong>
+                                    <button id="readerV2BookmarkButton" type="button" disabled>☆ 添加书签</button>
+                                </div>
+                                <textarea id="readerV2NoteInput" class="reader-v2-note-input" rows="3" placeholder="在当前位置写笔记…"></textarea>
+                                <div class="reader-v2-note-actions">
+                                    <button id="readerV2NoteSave" type="button">保存笔记</button>
+                                    <button id="readerV2NoteCancel" type="button" hidden>取消</button>
+                                </div>
+                                <div id="readerV2AnnotationsList" class="reader-v2-annotations-list"></div>
+                            </section>
+                            <section class="reader-v2-highlights" aria-label="文本高亮">
+                                <div class="reader-v2-highlights-header"><strong>文本高亮</strong></div>
+                                <div class="reader-v2-highlight-controls">
+                                    <select id="readerV2HighlightStyle" aria-label="高亮颜色">
+                                        <option value="yellow">黄色</option>
+                                        <option value="green">绿色</option>
+                                        <option value="blue">蓝色</option>
+                                    </select>
+                                    <button id="readerV2HighlightCreate" type="button" disabled>高亮选中文字</button>
+                                </div>
+                                <div id="readerV2HighlightsList" class="reader-v2-highlights-list"></div>
+                            </section>
+                            <section class="reader-v2-study-context" aria-label="学习上下文">
+                                <div class="reader-v2-study-header">
+                                    <strong>学习上下文</strong>
+                                    <button id="readerV2StudyContextBuild" type="button">生成预览</button>
+                                </div>
+                                <div id="readerV2StudyContextStats" class="reader-v2-study-stats">尚未生成</div>
+                                <div id="readerV2StudyContextPreview" class="reader-v2-study-preview"></div>
+                            </section>
+                            <nav id="readerV2Navigation" class="reader-v2-navigation"></nav>
+                        </aside>
+                        <main class="reader-v2-main">
+                            <div id="readerV2Status" class="reader-v2-status" role="status" aria-live="polite"></div>
+                            <div id="readerV2Pages" class="reader-v2-pages"></div>
+                            <button id="readerV2LoadMore" class="reader-v2-load-more" type="button" hidden>加载更多</button>
+                        </main>
+                    </div>
+                </div>
+
+                <div id="focusModeDisplay" class="display-mode active"><div id="focusText" class="focus-text">选择书籍开始阅读</div></div>
+                <div id="pageModeDisplay" class="display-mode"><div id="pageContent" class="page-content"><div id="pageText" class="page-text">选择书籍开始阅读</div></div></div>
+                <div id="chartDisplay" class="chart-display">
+                    <div class="chart-container">
+                        <img id="chartImage" src="" alt="图表" class="chart-image" />
+                        <div class="chart-controls">
+                            <button id="rotateLeftBtn" class="chart-btn" title="左转90度">⤵️ 左转</button>
+                            <button id="rotateRightBtn" class="chart-btn" title="右转90度">⤴️ 右转</button>
+                            <button id="flipVerticalBtn" class="chart-btn" title="上下翻转">↕️ 上下翻转</button>
+                            <button id="flipHorizontalBtn" class="chart-btn" title="左右翻转">↔️ 左右翻转</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="categoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3 id="categoryModalTitle">添加分类</h3><button id="closeCategoryModalBtn" class="close-btn">&times;</button></div>
+            <input type="text" id="categoryInput" placeholder="输入分类名称" />
+            <div class="modal-footer"><button id="categoryCancelBtn" class="btn btn-secondary">取消</button><button id="categoryConfirmBtn" class="btn btn-primary">确定</button></div>
+        </div>
+    </div>
+
+    <div id="categoryContextMenu" class="context-menu"></div>
+
+    <div id="bookInfoOverlay" class="modal">
+        <div class="modal-content info-modal-content">
+            <div class="modal-header"><h3>书籍信息</h3><button id="closeBookInfoBtn" class="close-btn">&times;</button></div>
+            <div class="book-info-grid">
+                <div class="book-info-row"><span>书名</span><strong id="infoBookName">—</strong></div>
+                <div class="book-info-row"><span>文件类型</span><strong id="infoFileType">—</strong></div>
+                <div class="book-info-row"><span>上传日期</span><strong id="infoUploadDate">—</strong></div>
+                <div class="book-info-row"><span>页数</span><strong id="infoPageCount">—</strong></div>
+                <div class="book-info-row"><span>作者</span><strong id="infoAuthor">—</strong></div>
+                <div class="book-info-row"><span>出版日期</span><strong id="infoPublishDate">—</strong></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="preview-runtime.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <!-- S0 module is inert unless this exact PR Preview is built for Staging. -->
+    <script src="s0-reader-open.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-api.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-model.js"></script>
+    <script src="reader-presentation.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-semantic-layout-refinement.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-assets.js"></script>
+    <script src="reader-find.js"></script>
+    <script src="reader-resume.js"></script>
+    <script src="reader-annotations.js"></script>
+    <script src="reader-highlights.js"></script>
+    <script src="reader-study-context.js"></script>
+    <script src="reader-ui-v2.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-formula.js"></script>
+    <script src="speed-reading-adapter.js"></script>
+    <script src="playback-controller.js"></script>
+    <script src="training-session-clock.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-speed-playback-ui.js"></script>
+    <script src="reader-debug-toolbar.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-chapter-divider-source-rendering.js"></script>
+    <script src="reader-page-zoom-pan.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="reader-annotations-ui.js"></script>
+    <script src="reader-highlights-ui.js"></script>
+    <script src="reader-study-context-ui.js"></script>
+    <script src="bookshelf.js"></script>
+    <script src="reader-resume-lifecycle.js?v=f64897cb04342b6b7f2b892cca4c4939083a7c70"></script>
+    <script src="app.js"></script>
+</body>
+</html>
