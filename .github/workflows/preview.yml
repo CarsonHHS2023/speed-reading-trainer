@@ -85,7 +85,7 @@ jobs:
           from pathlib import Path
           sha = os.environ['EXPECTED_SHA']
           base = f"https://carsonhhs2023.github.io/speed-reading-trainer/preview/pr-{os.environ['PREVIEW_PR_NUMBER']}"
-          files = ('s0-reader-open.js', 'reader-api.js', 'reader-ui-v2.js', 'preview-runtime.js')
+          files = ('s0-reader-open.js', 'reader-api.js', 'reader-ui-v2.js', 'preview-runtime.js', 'app-access.js')
           expected = {name: hashlib.sha256(Path(name).read_bytes()).digest() for name in files}
           for attempt in range(40):
               try:
@@ -93,7 +93,8 @@ jobs:
                   assert f'name="reader-preview-head" content="{sha}"' in html
                   assert 'name="atlas-s0-reader-preview" content="1"' in html
                   for name, digest in expected.items():
-                      assert f'{name}?v={sha}' in html
+                      if name != 'app-access.js':  # Loaded with the same SHA by preview-runtime.js.
+                          assert f'{name}?v={sha}' in html
                       data = urllib.request.urlopen(f'{base}/{name}?v={sha}', timeout=15).read()
                       assert hashlib.sha256(data).digest() == digest
                   print(f'S0 Reader Preview exact assets verified: {sha}')
