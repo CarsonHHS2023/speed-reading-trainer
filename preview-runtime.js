@@ -6,13 +6,16 @@
     const isPreview = PREVIEW_PATH_PATTERN.test(pathname);
 
     const PRODUCTION_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service.hf.space';
-    const TEST_API_BASE_URL = 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
+    const s0Preview = isPreview && root.document?.querySelector('meta[name="atlas-s0-reader-preview"]')?.content === '1';
+    const TEST_API_BASE_URL = s0Preview ? 'https://carsonhhs-pdf-ocr-service-staging.hf.space'
+        : 'https://carsonhhs-pdf-ocr-service-ocrmypdf-test.hf.space';
+    if (s0Preview) root.ATLAS_S0_READER_PREVIEW = true;
 
     if (isPreview) {
         root.SPEED_READING_CONFIG = Object.freeze({
             environment: 'preview',
             frontendBranch: 'preview-txt-hf-test',
-            backendBranch: 'deploy/ocrmypdf-test',
+            backendBranch: s0Preview ? 'staging' : 'deploy/ocrmypdf-test',
             apiBaseUrl: TEST_API_BASE_URL,
         });
         root.READER_API_BASE_URL = TEST_API_BASE_URL;
