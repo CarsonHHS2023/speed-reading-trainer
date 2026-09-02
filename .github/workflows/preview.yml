@@ -63,7 +63,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          test "$(git ls-remote origin refs/heads/s0-reader-open-observability | cut -f1)" = "$EXPECTED_SHA"
+          test "$(git ls-remote https://github.com/CarsonHHS2023/speed-reading-trainer.git refs/heads/s0-reader-open-observability | cut -f1)" = "$EXPECTED_SHA"
 
       - name: Deploy to GitHub Pages (PR Preview)
         uses: peaceiris/actions-gh-pages@v3
@@ -103,7 +103,7 @@ jobs:
                       raise RuntimeError('S0 Reader Preview exact assets were not published')
                   time.sleep(5)
           PY
-          test "$(git ls-remote origin refs/heads/s0-reader-open-observability | cut -f1)" = "$EXPECTED_SHA"
+          test "$(git ls-remote https://github.com/CarsonHHS2023/speed-reading-trainer.git refs/heads/s0-reader-open-observability | cut -f1)" = "$EXPECTED_SHA"
 
       - name: Verify public Preview matches exact head
         env:
