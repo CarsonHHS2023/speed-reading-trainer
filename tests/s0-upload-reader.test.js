@@ -115,6 +115,60 @@ test('terminal publication is detached even when its request never settles', asy
     h.root.fetch = () => { count++; return new Promise(() => {}); };
     await core(h, op); h.observer.end(op);
     assert.equal(count, 1); assert.equal(h.observer.active, null);
+    assert.equal(h.observer.diagnostics().steps.at(-1).step, 'terminal_dispatch_attempted');
+});
+
+test('diagnostics distinguish missing acknowledgement from page loss without retaining private values', async () => {
+    for (const reason of ['acceptance_header_missing', 'page_hidden']) {
+        const h = harness(), op = h.observer.prepare(STAGING, true);
+        h.observer.start(op);
+        if (reason === 'acceptance_header_missing') {
+            h.observer.acknowledge(op, { ok: true, headers: new Headers() }, 'private-document');
+        } else {
+            h.observer.acknowledge(op, h.ack(op), 'doc');
+            h.root.document.visibilityState = 'hidden'; h.listeners.visibilitychange();
+            h.root.document.visibilityState = 'visible';
+        }
+        await core(h, op); h.observer.end(op);
+        assert.equal(h.calls.filter(c => c.url.endsWith('s0-upload-ready')).length, 0);
+        const diagnostic = h.observer.diagnostics();
+        assert.equal(diagnostic.steps.at(-1).step, reason);
+        assert.doesNotMatch(JSON.stringify(diagnostic), /private-document|upr_[0-9a-f]{32}|reader_[0-9a-f]{32}|candidate|https:|token|filename/);
+        diagnostic.steps.length = 0;
+        assert.ok(h.observer.diagnostics().steps.length > 0);
+    }
+});
+
+test('diagnostics report HTTP status and fetch rejection without reading bodies or errors', async () => {
+    for (const status of [204, 409, 503, null]) {
+        const h = harness(), op = h.observer.prepare(STAGING, true);
+        h.observer.start(op); h.observer.acknowledge(op, h.ack(op), 'doc');
+        h.root.fetch = async () => {
+            if (status === null) throw Error('private-url-and-token');
+            return { status, get body() { throw Error('must not read'); } };
+        };
+        await core(h, op); h.observer.end(op);
+        const diagnostic = h.observer.diagnostics();
+        assert.deepEqual(diagnostic.steps.at(-1), {
+            step: status === null ? 'terminal_fetch_rejected' : 'terminal_http_response', http_status: status,
+        });
+        assert.doesNotMatch(JSON.stringify(diagnostic), /private-url|token|must not read/);
+    }
+});
+
+test('late terminal response cannot overwrite the next upload diagnostic', async () => {
+    const h = harness(), first = h.observer.prepare(STAGING, true);
+    h.observer.start(first); h.observer.acknowledge(first, h.ack(first), 'doc');
+    let resolve;
+    h.root.fetch = () => new Promise(done => { resolve = done; });
+    await core(h, first); h.observer.end(first);
+    const next = h.observer.prepare(STAGING, true);
+    const before = h.observer.diagnostics();
+    resolve({ status: 503 }); await Promise.resolve();
+    assert.deepEqual(h.observer.diagnostics(), before);
+    assert.equal(before.steps.at(-1).step, 'prepared');
+    h.observer.end(next);
+    assert.ok(h.observer.diagnostics().steps.length <= 16);
 });
 
 test('real core settlement excludes pending enhancement but rejects a throwing final notification', async () => {
