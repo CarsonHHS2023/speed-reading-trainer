@@ -31,3 +31,24 @@ and Preview publication do not constitute that acceptance.
 
 S0 remains In Progress. This candidate does not close the deployed required
 metric, alter Production Pages, request a new fixture or authorize a merge.
+
+## Diagnosing a missing upload terminal
+
+The first deployed upload/Reader attempt retained upload acceptance and a complete
+Reader first-open scope, but no upload terminal. The cause is unresolved; a missing
+browser resource entry does not prove that a request was never sent. Do not infer
+that the page went into the background without evidence.
+
+On this Preview, `AtlasS0UploadReader.observer.diagnostics()` returns a copy of the
+latest eligible upload's in-memory diagnostic, capped at 16 steps. It records
+acknowledgement validation, lifecycle/association rejection, Reader binding,
+terminal dispatch attempts, and response status or fetch rejection. It contains
+only the frontend revision, fixed step codes and an optional numeric HTTP status;
+no document/root IDs, filenames, URLs, content, headers, tokens or exception text.
+It is not written to browser storage or sent to another endpoint. Refresh clears
+it. Late responses from a preceding upload cannot replace the current diagnostic.
+
+`terminal_dispatch_attempted` alone does not prove server receipt. An HTTP 204 is
+an endpoint response, not collector acceptance: the exact durable evidence still
+must be checked. These diagnostics cannot restore a prior upload clock and do not
+relax eligibility, retry terminal writes or change the measurement boundary.
