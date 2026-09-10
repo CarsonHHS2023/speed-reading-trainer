@@ -66,11 +66,11 @@ test('Reader v2 UI exposes bounded selection errors', () => {
 
 test('BookShelf selected-book path is natively Reader v2 and has no legacy content fallback', () => {
   const source = fs.readFileSync('bookshelf.js', 'utf8');
-  const start = source.indexOf('    async selectBook(bookId)');
+  const start = source.indexOf('    async selectBook(bookId, s0Operation = null)');
   const end = source.indexOf('    moveBookToCategory(', start);
   assert.ok(start >= 0 && end > start);
   const selectedBookPath = source.slice(start, end);
-  assert.match(selectedBookPath, /ReaderUIV2\.openBook\(this\.currentBook\)/);
+  assert.match(selectedBookPath, /ReaderUIV2\.openBook\(this\.currentBook, s0Operation\)/);
   assert.match(selectedBookPath, /resetReaderV2Session/);
   for (const forbidden of ['/api/v1/books/${encodeURIComponent(bookId)}/content', 'cachedContentBlob', 'state.content', 'imageMarkerMap', '/api/reader/v1', 'BookShelf.prototype.selectBook']) {
     assert.equal(selectedBookPath.includes(forbidden), false, forbidden);

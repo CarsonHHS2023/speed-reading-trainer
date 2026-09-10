@@ -73,6 +73,7 @@
 
     function createController(rootObject = root, options = {}) {
         if (!rootObject) throw new Error('App access requires a global object');
+        const sessionTokenKey = rootObject.APP_ACCESS_SESSION_TOKEN_KEY || SESSION_TOKEN_KEY;
         const nativeFetch = options.fetchImpl || rootObject.fetch?.bind(rootObject);
         if (!nativeFetch) throw new Error('App access requires fetch');
         const authFetch = options.authFetchImpl || rootObject.__APP_ACCESS_AUTH_FETCH__ || nativeFetch;
@@ -95,7 +96,7 @@
 
         function getToken() {
             try {
-                return storageFor(rootObject)?.getItem(SESSION_TOKEN_KEY) || '';
+                return storageFor(rootObject)?.getItem(sessionTokenKey) || '';
             } catch (error) {
                 return '';
             }
@@ -106,13 +107,13 @@
             if (!value) throw new Error('Access token is missing');
             const storage = storageFor(rootObject);
             if (!storage) throw new Error('Session storage is unavailable');
-            storage.setItem(SESSION_TOKEN_KEY, value);
+            storage.setItem(sessionTokenKey, value);
             authExpiredNotified = false;
         }
 
         function clearToken() {
             try {
-                storageFor(rootObject)?.removeItem(SESSION_TOKEN_KEY);
+                storageFor(rootObject)?.removeItem(sessionTokenKey);
             } catch (error) {
                 // Storage cleanup is best effort; the UI still returns to the login gate.
             }

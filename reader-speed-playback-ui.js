@@ -721,14 +721,14 @@
             const original = ReaderUI.openBook;
             if (typeof original !== 'function') return;
             const self = this;
-            ReaderUI.openBook = async function openBookWithPlayback(book) {
+            ReaderUI.openBook = async function openBookWithPlayback(book, s0Upload = null) {
                 self.persistResume();
                 self.trainingClock?.stop?.();
                 self.stopTrainingTicker();
                 self.activeBatchStart = null;
                 self.playback.stop();
                 self.playback.setFrames?.([], { preserveIdentity: false });
-                const result = await original(book);
+                const result = await original(book, s0Upload);
                 self.reader = ReaderUI.getDefaultController();
                 self.showReaderSurface();
                 self.updateControls();

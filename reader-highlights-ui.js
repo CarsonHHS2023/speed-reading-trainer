@@ -308,8 +308,8 @@
             const original = ReaderUI.openBook;
             if (typeof original !== 'function') return;
             const self = this;
-            ReaderUI.openBook = async function openBookWithHighlights(book) {
-                const result = await original(book);
+            ReaderUI.openBook = async function openBookWithHighlights(book, s0Upload = null) {
+                const result = await original(book, s0Upload);
                 self.reader = ReaderUI.getDefaultController();
                 self.pendingSelection = null;
                 self.renderAll();
