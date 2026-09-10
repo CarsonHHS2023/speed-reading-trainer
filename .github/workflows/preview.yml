@@ -21,7 +21,7 @@ jobs:
       - name: Prepare cache-busted Preview entrypoint
         env:
           PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          S0_READER_PREVIEW: ${{ github.head_ref == 's0-reader-open-observability' }}
+          S0_READER_PREVIEW: ${{ github.head_ref == 's0-reader-open-observability' || github.head_ref == 's0-upload-reader-preview-20260910' }}
         run: |
           python - <<'PY'
           import os
@@ -35,6 +35,7 @@ jobs:
               text = text.replace("</head>", '<meta name="atlas-s0-reader-preview" content="1">\n</head>')
           for asset in (
               "s0-reader-open.js",
+              "s0-upload-reader.js",
               "reader-api.js",
               "reader-ui-v2.js",
               "preview-runtime.js",
@@ -85,7 +86,7 @@ jobs:
           from pathlib import Path
           sha = os.environ['EXPECTED_SHA']
           base = f"https://carsonhhs2023.github.io/speed-reading-trainer/preview/pr-{os.environ['PREVIEW_PR_NUMBER']}"
-          files = ('s0-reader-open.js', 'reader-api.js', 'reader-ui-v2.js', 'preview-runtime.js', 'app-access.js')
+          files = ('s0-reader-open.js', 's0-upload-reader.js', 'reader-api.js', 'reader-ui-v2.js', 'preview-runtime.js', 'app-access.js')
           expected = {name: hashlib.sha256(Path(name).read_bytes()).digest() for name in files}
           for attempt in range(40):
               try:

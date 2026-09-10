@@ -379,21 +379,28 @@ class BookShelf {
 
     async handleFileUpload(file) {
         this.setLoading(true, '⏳ 正在上传文件...');
+        const s0Upload = globalThis.AtlasS0UploadReader?.observer;
+        let s0Operation = null;
 
         try {
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch(`${API_BASE_URL}/api/v1/upload`, {
+            s0Operation = s0Upload?.prepare(globalThis.API_BASE_URL_OVERRIDE || API_BASE_URL, /\.pdf$/i.test(file.name));
+            const uploadOptions = {
                 method: 'POST',
-                body: formData
-            });
+                body: formData,
+                headers: s0Upload?.headers(s0Operation)
+            };
+            s0Upload?.start(s0Operation);
+            const response = await fetch(`${API_BASE_URL}/api/v1/upload`, uploadOptions);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const result = await response.json();
+            s0Upload?.acknowledge(s0Operation, response, result.book_id);
 
             if (result.status === 'processing') {
                 this.setLoading(false);
@@ -408,7 +415,7 @@ class BookShelf {
                     this.ensureCategoryIntegrity();
                     this.renderCategories();
                     this.renderBooks();
-                    await this.selectBook(book.id);
+                    await this.selectBook(book.id, s0Operation);
                 }
             } else if (result.status === 'completed') {
                 const book = this.normalizeBook(result);
@@ -416,7 +423,7 @@ class BookShelf {
                 this.ensureCategoryIntegrity();
                 this.renderCategories();
                 this.renderBooks();
-                await this.selectBook(book.id);
+                await this.selectBook(book.id, s0Operation);
                 this.setLoading(false);
             } else {
                 this.setLoading(false);
@@ -425,6 +432,8 @@ class BookShelf {
             console.error('上传失败:', error);
             alert('上传失败，请检查网络或文件格式');
             this.setLoading(false);
+        } finally {
+            s0Upload?.end(s0Operation);
         }
     }
 
@@ -435,6 +444,8 @@ class BookShelf {
         if (files.length === 1) {
             return this.handleFileUpload(files[0]);
         }
+        const s0Upload = globalThis.AtlasS0UploadReader?.observer;
+        const s0Batch = s0Upload?.prepare(globalThis.API_BASE_URL_OVERRIDE || API_BASE_URL, false);
 
         const CONCURRENCY = 3;
         const items = files.map((file) => ({
@@ -473,6 +484,7 @@ class BookShelf {
                     item.status = 'success';
                     item.book = this.normalizeBook(result);
                     this.renderBatchPanel(items);
+                    const s0Poll = s0Upload?.prepare(globalThis.API_BASE_URL_OVERRIDE || API_BASE_URL, false);
                     this._pollBookStatus(
                         result.book_id,
                         result.book_title || item.name,
@@ -487,7 +499,7 @@ class BookShelf {
                             this.renderBooks();
                             this.renderBatchPanel(items);
                         }
-                    });
+                    }).finally(() => s0Upload?.end(s0Poll));
                 } else {
                     item.book = this.normalizeBook(result);
                     item.status = 'success';
@@ -506,7 +518,8 @@ class BookShelf {
             await runNext();
         };
 
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, runNext));
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, runNext))
+            .finally(() => s0Upload?.end(s0Batch));
     }
 
     renderBatchPanel(items) {
@@ -579,7 +592,8 @@ class BookShelf {
         playback?.refreshFrames?.({ preserveIdentity: false });
     }
 
-    async selectBook(bookId) {
+    async selectBook(bookId, s0Operation = null) {
+        globalThis.AtlasS0UploadReader?.observer?.selection(s0Operation, bookId);
         this.currentBook = this.books.find((book) => String(book.id) === String(bookId)) || null;
         this.renderBooks();
 
@@ -596,7 +610,7 @@ class BookShelf {
             if (!globalThis.ReaderUIV2 || typeof globalThis.ReaderUIV2.openBook !== 'function') {
                 throw new Error('Reader v2 UI is unavailable');
             }
-            await globalThis.ReaderUIV2.openBook(this.currentBook);
+            await globalThis.ReaderUIV2.openBook(this.currentBook, s0Operation);
         } catch (error) {
             console.error('打开 Reader v2 失败:', error);
             globalThis.ReaderUIV2?.getDefaultController?.().renderError?.(error);

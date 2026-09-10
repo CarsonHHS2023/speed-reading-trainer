@@ -234,10 +234,10 @@
             return starts;
         }
 
-        async openBook(book) {
+        async openBook(book, s0Upload = null) {
             this.reset();
             this.documentRef = String(book && book.id !== undefined ? book.id : book);
-            const s0Observation = this.api.beginOpenObservation?.(this.documentRef, () => this.resumeStore.read(this.documentRef));
+            const s0Observation = this.api.beginOpenObservation?.(this.documentRef, () => this.resumeStore.read(this.documentRef), s0Upload);
             let s0Succeeded = false;
             let s0Mode = 'first_open';
             this.opening = true;
@@ -982,8 +982,8 @@
         return defaultController;
     }
 
-    async function openBook(book) {
-        return getDefaultController().openBook(book);
+    async function openBook(book, s0Upload = null) {
+        return getDefaultController().openBook(book, s0Upload);
     }
 
     return {

@@ -76,7 +76,11 @@
                 rootObject: options.rootObject || (typeof window !== 'undefined' ? window : globalThis) }) : null;
         }
 
-        beginOpenObservation(documentRef, readResume) { return this.s0Open?.begin(documentRef, readResume); }
+        beginOpenObservation(documentRef, readResume, upload = null) {
+            const op = this.s0Open?.begin(documentRef, readResume);
+            try { this.s0Open?.root.AtlasS0UploadReader?.observer?.bind(upload, op, documentRef); } catch (_) { /* Observational only. */ }
+            return op;
+        }
         finishOpenObservation(op, outcome) { this.s0Open?.finish(op, outcome); }
 
         async requestJson(path) {

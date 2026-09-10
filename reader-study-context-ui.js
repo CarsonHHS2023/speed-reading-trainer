@@ -121,9 +121,9 @@
             const original = ReaderUI.openBook;
             if (typeof original !== 'function') return;
             const self = this;
-            ReaderUI.openBook = async function openBookWithStudyContextReset(book) {
+            ReaderUI.openBook = async function openBookWithStudyContextReset(book, s0Upload = null) {
                 self.reset();
-                const result = await original(book);
+                const result = await original(book, s0Upload);
                 self.reader = ReaderUI.getDefaultController();
                 return result;
             };

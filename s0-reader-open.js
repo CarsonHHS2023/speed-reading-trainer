@@ -31,7 +31,7 @@
                 if (resume && (!Number.isInteger(resume.node_order) || resume.node_order < 0)) return null;
                 const bytes = root.crypto.getRandomValues(new Uint8Array(16));
                 const id = `reader_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
-                this.active = { id, documentRef, frontendRevision: sha, started: root.performance.now(),
+                this.active = { id, documentRef, frontendRevision: sha, clock: root.performance, started: root.performance.now(),
                     count: 0, pending: 0, valid: true, candidate: null, backendRevision: null };
                 return this.active;
             } catch (_) { return null; }
@@ -81,11 +81,13 @@
                 if (!op.valid || !succeeded || op.pending !== 0 || op.candidate !== candidateId
                     || op.documentRef !== documentRef || !['first_open', 'reopen'].includes(mode)
                     || op.count < 3 || op.count > 4 || (mode === 'first_open' && op.count !== 3)) return;
-                const seconds = (this.root.performance.now() - op.started) / 1000;
+                const stopped = this.root.performance.now();
+                const seconds = (stopped - op.started) / 1000;
                 if (!Number.isFinite(seconds) || seconds < 0 || seconds > 3600) return;
                 const body = { open_scope_id: op.id, candidate_id: candidateId,
                     frontend_revision: op.frontendRevision, backend_revision: op.backendRevision,
                     mode, request_count: op.count, duration_seconds: Math.round(seconds * 1e6) / 1e6 };
+                try { this.root.AtlasS0UploadReader?.observer?.finish(op.upload, op, body, stopped); } catch (_) { /* Separate observer failure. */ }
                 // Detached, no retries. Persistence failure never delays or fails Reader open.
                 Promise.resolve(this.fetchImpl(`${STAGING}/api/reader/v2/documents/${encodeURIComponent(documentRef)}/s0-open`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
