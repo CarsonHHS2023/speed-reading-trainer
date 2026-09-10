@@ -1,0 +1,275 @@
+.reader-v2-page-semantic_full_page {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+}
+
+.reader-v2-semantic-page-shell {
+    position: relative;
+    width: 100%;
+    aspect-ratio: var(--reader-page-aspect, 0.7071);
+    min-height: 560px;
+    background: #fff;
+}
+
+.reader-v2-semantic-page-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+.reader-v2-semantic-page-element {
+    position: absolute;
+    box-sizing: border-box;
+}
+
+.reader-v2-semantic-page-element--text {
+    overflow: hidden;
+    z-index: 2;
+}
+
+.reader-v2-semantic-page-element--text.reader-v2-semantic-page-element--width-expanded {
+    overflow: hidden;
+}
+
+.reader-v2-semantic-page-element--text.reader-v2-semantic-page-element--height-expanded {
+    height: auto !important;
+    overflow: visible;
+}
+
+.reader-v2-semantic-page-element--visual {
+    overflow: hidden;
+    z-index: 1;
+}
+
+.reader-v2-semantic-page-element > .reader-v2-node {
+    width: 100%;
+    margin: 0;
+    line-height: 1.45;
+}
+
+.reader-v2-semantic-page-element--text > .reader-v2-node,
+.reader-v2-semantic-page-element--text .reader-v2-node-text {
+    min-height: 0;
+    margin: 0;
+}
+
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-paragraph:not([data-reader-fragment-index])
+> .reader-v2-node-text,
+.reader-v2-page-semantic_full_page
+.reader-v2-semantic-page-element--text
+> .reader-v2-node-paragraph[data-reader-fragment-index="0"]
+> .reader-v2-node-text {
+    text-indent: 2em;
+}
+
+.reader-v2-semantic-page-element--height-expanded > .reader-v2-node,
+.reader-v2-semantic-page-element--height-expanded .reader-v2-node-text {
+    height: auto;
+    overflow: visible;
+}
+
+.reader-v2-semantic-page-element--visual > .reader-v2-node {
+    height: 100%;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-header,
+.reader-v2-semantic-page-element .reader-v2-node-footer,
+.reader-v2-semantic-page-element .reader-v2-node-footnote {
+    color: color-mix(in srgb, currentColor 72%, transparent);
+    font-size: clamp(0.62rem, 1.15vw, 0.82rem);
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-header .reader-v2-node-text,
+.reader-v2-semantic-page-element .reader-v2-node-footer .reader-v2-node-text,
+.reader-v2-semantic-page-element .reader-v2-node-footnote .reader-v2-node-text {
+    margin: 0;
+    font: inherit;
+    text-align: inherit;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-header {
+    text-align: center;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-footer {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    text-align: center;
+}
+
+.reader-v2-semantic-page-element .reader-v2-node-footnote {
+    font-size: clamp(0.58rem, 1vw, 0.76rem);
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset-slot,
+.reader-v2-semantic-page-element .reader-v2-asset,
+.reader-v2-semantic-page-element .reader-v2-asset-image {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset {
+    display: flex;
+    flex-direction: column;
+}
+
+.reader-v2-semantic-page-element .reader-v2-asset-image {
+    min-height: 0;
+    object-fit: contain;
+}
+
+.reader-v2-page--cover-source-rendering .reader-v2-semantic-page-shell,
+.reader-v2-semantic-page-shell--cover {
+    min-height: 0;
+}
+
+.reader-v2-semantic-page-element--cover-source-rendering,
+.reader-v2-semantic-page-element--cover-source-rendering > .reader-v2-node,
+.reader-v2-semantic-page-element--cover-source-rendering .reader-v2-asset-slot,
+.reader-v2-semantic-page-element--cover-source-rendering .reader-v2-asset {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.reader-v2-semantic-page-element--cover-source-rendering .reader-v2-asset {
+    display: block;
+}
+
+.reader-v2-semantic-page-element--cover-source-rendering .reader-v2-asset-image {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0;
+    object-fit: contain;
+}
+
+.reader-v2-semantic-page-element--cover-source-rendering .reader-v2-asset-caption {
+    display: none;
+}
+
+.reader-v2-semantic-page-shell--toc {
+    min-height: 0;
+}
+
+.reader-v2-semantic-page-toc {
+    position: absolute;
+    right: 8.5%;
+    left: 8.5%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.reader-v2-semantic-page-toc-heading {
+    flex: 0 0 auto;
+    margin: 0 0 clamp(10px, 1.6vw, 20px) !important;
+    text-align: center;
+}
+
+.reader-v2-semantic-page-toc-heading .reader-v2-node-text,
+.reader-v2-semantic-page-toc-heading h1,
+.reader-v2-semantic-page-toc-heading h2,
+.reader-v2-semantic-page-toc-heading h3 {
+    margin: 0;
+    font-size: clamp(1.3rem, 2.5vw, 2rem);
+    line-height: 1.2;
+}
+
+.reader-v2-semantic-page-toc-item {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    max-width: 100%;
+    margin-top: 0 !important;
+    margin-right: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 0;
+    font-size: clamp(0.82rem, 1.42vw, 1.04rem);
+    line-height: 1.35;
+}
+
+.reader-v2-semantic-page-toc-item .reader-v2-node-text {
+    display: block;
+    margin: 0;
+    padding-inline-start: 0;
+    list-style: none;
+    white-space: pre-wrap;
+}
+
+.reader-v2-semantic-page-toc-item .reader-v2-node-text::marker {
+    content: '';
+}
+
+.reader-v2-semantic-page-toc-extra {
+    margin: clamp(8px, 1vw, 14px) 0 0 !important;
+    font-size: clamp(0.72rem, 1.15vw, 0.9rem);
+    line-height: 1.4;
+}
+
+.reader-v2-toc-structure-debug {
+    display: none;
+}
+
+:root[data-reader-toc-debug="true"] .reader-v2-toc-structure-debug,
+body[data-reader-toc-debug="true"] .reader-v2-toc-structure-debug {
+    display: block;
+}
+
+.reader-v2-semantic-page-fallback {
+    position: relative;
+    z-index: 2;
+    margin: 0 clamp(28px, 7vw, 76px) clamp(36px, 8vw, 92px);
+    padding-top: clamp(36px, 8vw, 92px);
+}
+
+.reader-v2-semantic-page-fallback[hidden] {
+    display: none;
+}
+
+.reader-v2-page-semantic_full_page .reader-v2-page-label {
+    position: absolute;
+    z-index: 5;
+    top: 10px;
+    right: 12px;
+    margin: 0;
+}
+
+body.dark-mode .reader-v2-semantic-page-shell {
+    background: #242424;
+}
+
+@media (max-width: 700px) {
+    .reader-v2-semantic-page-shell {
+        min-height: 420px;
+    }
+
+    .reader-v2-page--cover-source-rendering .reader-v2-semantic-page-shell,
+    .reader-v2-semantic-page-shell--cover,
+    .reader-v2-semantic-page-shell--toc {
+        min-height: 0;
+    }
+
+    .reader-v2-semantic-page-toc {
+        right: 7%;
+        left: 7%;
+    }
+
+    .reader-v2-semantic-page-fallback {
+        margin-inline: 22px;
+    }
+}
